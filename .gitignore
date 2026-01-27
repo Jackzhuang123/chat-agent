@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# 虚拟环境
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# 模型文件 (太大,不上传到 GitHub)
+model/
+*.bin
+*.safetensors
+*.gguf
+*.pth
+*.pt
+
+# Gradio 缓存
+gradio_cached_examples/
+flagged/
+
+# 日志文件
+*.log
+
