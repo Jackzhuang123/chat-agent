@@ -1,7 +1,9 @@
 torch>=2.0.0
 transformers>=4.35.0
-gradio>=4.0.0
+gradio==4.44.1
+gradio-client>=0.17.0
 accelerate>=0.20.0
+PyPDF2>=3.0.0
 
 # Agent 框架依赖 (可选,仅在使用工具功能时需要)
 # 目前所有依赖已包含在上面

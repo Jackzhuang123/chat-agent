@@ -1,45 +1,41 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Qwen2.5-0.5B Agent Web UI - 终极版 (含 Skills)
-基于 Gradio 构建的 AI 助手界面,支持工具调用、技能系统和参数自定义
-
-新增特性:
-  - 🎓 Skills 系统 (知识外置化)
-  - 📚 技能库管理
-  - 🔍 智能技能匹配
-  - 💉 上下文注入 (保留缓存)
+Qwen2.5-0.5B Agent Web UI - 豆包风格完美版（恢复原始气泡样式，优化按钮布局）
 """
 
-import json
 import sys
 from pathlib import Path
 from threading import Thread
-from typing import List
 
 import gradio as gr
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
-# 导入核心模块
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from core import QwenAgentFramework, create_qwen_model_forward, SkillManager, SkillInjector, create_example_skills, ToolExecutor
+from core import QwenAgentFramework, create_qwen_model_forward, SkillManager, SkillInjector, create_example_skills, \
+    ToolExecutor
+from session_logger import get_logger
 
+try:
+    import PyPDF2
+    HAS_PYPDF = True
+except ImportError:
+    HAS_PYPDF = False
 
-# ============================================================================
-# 核心类: QwenAgent - 负责模型加载和响应生成
-# ============================================================================
 
 class QwenAgent:
-    """
-    Qwen 模型代理类
-    负责模型加载、初始化和流式生成响应
-    """
-
-    def __init__(self, model_path="./model/qwen2.5-0.5b"):
-        """初始化模型"""
+    def __init__(self, model_path="./model/qwen2.5-0.5b", logger=None):
         print("正在初始化模型 (CPU模式)...")
-        self.model_path = model_path
+        # 确保模型路径相对于项目根目录
+        if model_path.startswith("./"):
+            # 获取项目根目录（ui/web_agent_with_skills.py 的父目录的父目录）
+            project_root = Path(__file__).parent.parent
+            self.model_path = str((project_root / model_path[2:]).resolve())
+        else:
+            self.model_path = model_path
+
+        print(f"使用模型路径: {self.model_path}")
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_path,
@@ -47,10 +43,12 @@ class QwenAgent:
             device_map="cpu"
         )
         self.default_system_prompt = "你是一个智能个人助手,名字叫小Q。请用简洁、幽默的风格回答。"
+        self.logger = logger
         print("✅ 模型加载完毕!")
 
     def generate_stream(self, message, history, system_prompt=None, temperature=0.7, top_p=0.9, max_tokens=512):
-        """流式生成响应"""
+        """标准的流式生成方法 - 接收 history (二维列表)，并记录模型调用"""
+        import time
         sys_prompt = system_prompt if system_prompt and system_prompt.strip() else self.default_system_prompt
         messages = [{"role": "system", "content": sys_prompt}]
 
@@ -62,29 +60,18 @@ class QwenAgent:
 
         messages.append({"role": "user", "content": message})
 
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True
-        )
-
+        # 构建完整的提示词用于日志记录
+        text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         model_inputs = self.tokenizer([text], return_tensors="pt").to("cpu")
-        streamer = TextIteratorStreamer(
-            self.tokenizer,
-            skip_prompt=True,
-            skip_special_tokens=True
-        )
+        streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
 
         generation_kwargs = dict(
-            model_inputs,
-            streamer=streamer,
-            max_new_tokens=int(max_tokens),
-            temperature=float(temperature),
-            top_p=float(top_p),
-            do_sample=True,
+            model_inputs, streamer=streamer, max_new_tokens=int(max_tokens),
+            temperature=float(temperature), top_p=float(top_p), do_sample=True
         )
 
         thread = Thread(target=self.model.generate, kwargs=generation_kwargs)
+        start_time = time.time()
         thread.start()
 
         partial_message = ""
@@ -92,31 +79,41 @@ class QwenAgent:
             partial_message += new_token
             yield partial_message
 
-    def generate_stream_text(self, messages: List[dict], temperature=0.7, top_p=0.9, max_tokens=512):
-        """直接从消息列表生成流式文本"""
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True
-        )
+        # 流式生成完成后，记录完整调用
+        execution_time = time.time() - start_time
+        if self.logger:
+            try:
+                # 计算tokens
+                input_tokens = len(model_inputs['input_ids'][0])
+                output_tokens = len(self.tokenizer.encode(partial_message))
 
+                self.logger.log_model_call(
+                    prompt=text[:500] + "..." if len(text) > 500 else text,  # 限制长度
+                    response=partial_message,
+                    execution_time=execution_time,
+                    tokens_input=input_tokens,
+                    tokens_output=output_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    model_name="Qwen2.5-0.5B"
+                )
+            except Exception as e:
+                print(f"日志记录错误: {e}")
+
+    def generate_stream_with_messages(self, messages, temperature=0.7, top_p=0.9, max_tokens=512):
+        """新方法 - 直接接收 messages (字典列表)，用于 Skills 系统，并记录模型调用"""
+        import time
+        text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         model_inputs = self.tokenizer([text], return_tensors="pt").to("cpu")
-        streamer = TextIteratorStreamer(
-            self.tokenizer,
-            skip_prompt=True,
-            skip_special_tokens=True
-        )
+        streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
 
         generation_kwargs = dict(
-            model_inputs,
-            streamer=streamer,
-            max_new_tokens=int(max_tokens),
-            temperature=float(temperature),
-            top_p=float(top_p),
-            do_sample=True,
+            model_inputs, streamer=streamer, max_new_tokens=int(max_tokens),
+            temperature=float(temperature), top_p=float(top_p), do_sample=True
         )
 
         thread = Thread(target=self.model.generate, kwargs=generation_kwargs)
+        start_time = time.time()
         thread.start()
 
         partial_message = ""
@@ -124,342 +121,915 @@ class QwenAgent:
             partial_message += new_token
             yield partial_message
 
+        # 流式生成完成后，记录完整调用
+        execution_time = time.time() - start_time
+        if self.logger:
+            try:
+                # 计算tokens
+                input_tokens = len(model_inputs['input_ids'][0])
+                output_tokens = len(self.tokenizer.encode(partial_message))
 
-# ============================================================================
-# UI 创建函数 - 使用 Gradio Blocks 构建自定义界面
-# ============================================================================
+                self.logger.log_model_call(
+                    prompt=text[:500] + "..." if len(text) > 500 else text,  # 限制长度
+                    response=partial_message,
+                    execution_time=execution_time,
+                    tokens_input=input_tokens,
+                    tokens_output=output_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    model_name="Qwen2.5-0.5B"
+                )
+            except Exception as e:
+                print(f"日志记录错误: {e}")
+
 
 def create_ui_with_skills():
-    """创建支持 Skills 的 Web UI"""
-
-    # 初始化组件
-    qwen_agent = QwenAgent()
+    logger = get_logger()
+    qwen_agent = QwenAgent(logger=logger)
     tool_executor = ToolExecutor(enable_bash=False)
 
-    # 初始化 Skills 系统
     print("🧪 初始化 Skills 系统...")
-    create_example_skills()  # 创建示例技能
+    create_example_skills()
     skill_manager = SkillManager()
     skill_injector = SkillInjector(skill_manager)
-
     print(f"✅ 发现 {len(skill_manager.skills_metadata)} 个技能")
 
-    # 初始化 Agent 框架
     agent_framework = QwenAgentFramework(
         model_forward_fn=create_qwen_model_forward(qwen_agent),
-        enable_bash=False,
-        max_iterations=5,
-        tools_in_system_prompt=True
+        enable_bash=False, max_iterations=5, tools_in_system_prompt=True
     )
 
-    # 自定义 CSS
-    custom_css = """
+    # 修复后的 CSS + JavaScript - 恢复原始气泡样式
+    custom_head = """
+    <style>
+    /* ========== 全局样式 ========== */
+    * {
+        box-sizing: border-box;
+    }
+
+    body, html {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+    }
+
     .gradio-container {
-        font-family: 'Arial', sans-serif;
+        padding: 0 !important;
+        max-width: 100% !important;
+        width: 100% !important;
+        height: 100vh !important;
     }
-    .skill-badge {
-        display: inline-block;
-        background-color: #e3f2fd;
-        color: #1976d2;
-        padding: 4px 8px;
+
+    /* ========== 主容器 ========== */
+    #main-container {
+        display: flex;
+        width: 100%;
+        height: 100vh;
+        overflow: hidden;
+    }
+
+    /* ========== 侧边栏 ========== */
+    #app-sidebar {
+        width: 300px;
+        background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%);
+        border-right: 1px solid #e5e7eb;
+        overflow-y: auto;
+        overflow-x: hidden;
+        transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
+                    margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        flex-shrink: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #app-sidebar.collapsed {
+        width: 0;
+        margin-left: -300px;
+        overflow: hidden;
+    }
+
+    #app-sidebar::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    #app-sidebar::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    #app-sidebar::-webkit-scrollbar-thumb {
+        background: #d1d5db;
         border-radius: 4px;
-        margin: 2px;
+    }
+
+    #app-sidebar::-webkit-scrollbar-thumb:hover {
+        background: #9ca3af;
+    }
+
+    /* ========== 主内容区 ========== */
+    #main-content-area {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        background: #f5f7fa;
+        height: 100vh;
+        overflow: hidden;
+    }
+
+    /* ========== 顶部栏 ========== */
+    #top-bar-area {
+        background: #fff;
+        border-bottom: 1px solid #e5e7eb;
+        padding: 14px 24px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-shrink: 0;
+        height: 60px;
+    }
+
+    /* 切换按钮 */
+    #toggle-btn {
+        padding: 8px 16px;
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        box-shadow: 0 2px 6px rgba(99, 102, 241, 0.2);
+    }
+
+    #toggle-btn:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    }
+
+    /* ========== 对话区域 ========== */
+    #chat-wrapper {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 0;
+        overflow: hidden;
+        min-height: 0;
+        background: #f5f7fa;
+    }
+
+    /* Chatbot 容器 - 保持原始框架样式 */
+    .chatbot-box {
+        flex: 1 1 auto !important;
+        background: #fff !important;
+        border-radius: 16px !important;
+        border: 1px solid #e5e7eb !important;
+        margin: 20px 24px 16px 24px !important;
+        overflow: hidden !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+        display: flex !important;
+        flex-direction: column !important;
+        padding: 0 !important;
+    }
+
+    /* Gradio Chatbot 内部结构 */
+    .chatbot-box > * {
+        flex: 1 !important;
+        min-height: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+
+    .chatbot-box .wrap {
+        flex: 1 !important;
+        min-height: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+
+    .chatbot-box .wrap > div {
+        flex: 1 !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        padding: 20px !important;
+    }
+
+    /* ========== 执行日志 ========== */
+    #chat-wrapper .accordion {
+        margin: 0 24px 12px 24px !important;
+        background: #fff;
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+        flex-shrink: 0;
+        max-height: 100px;
+        overflow: hidden;
+    }
+
+    .log-box {
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 12px;
+        font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
         font-size: 12px;
+        line-height: 1.6;
+        max-height: 80px;
+        overflow-y: auto;
+        color: #374151;
+        white-space: pre-wrap;
+        word-break: break-word;
     }
-    .skill-info {
-        background-color: #f5f5f5;
-        padding: 10px;
-        border-radius: 5px;
-        margin: 5px 0;
+
+    /* ========== 输入区域 - 横向布局 ========== */
+    #input-area-fixed {
+        flex-shrink: 0;
+        background: #f5f7fa;
+        padding: 0 24px 24px 24px;
     }
+
+    /* 输入框和按钮在同一行 */
+    .input-row-container {
+        background: #fff;
+        border-radius: 24px;
+        border: 1.5px solid #e5e7eb;
+        padding: 16px 20px;
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .input-row-container:focus-within {
+        border-color: #6366f1;
+        box-shadow: 0 6px 20px rgba(99, 102, 241, 0.15);
+    }
+
+    .input-text-area {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .input-text-area textarea {
+        border: none !important;
+        background: transparent !important;
+        min-height: 28px !important;
+        max-height: 120px !important;
+        font-size: 15px !important;
+        line-height: 1.6 !important;
+        padding: 4px 0 !important;
+        resize: none !important;
+        color: #1f2937;
+        width: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+    }
+
+    .input-text-area textarea:focus {
+        outline: none !important;
+        box-shadow: none !important;
+    }
+
+    .input-text-area textarea::placeholder {
+        color: #b4b8c1;
+        font-size: 15px;
+    }
+
+    /* ========== 按钮组 - 横向排列 ========== */
+    .button-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-shrink: 0;
+    }
+
+    .upload-btn-inline {
+        background: transparent !important;
+        color: #6b7280 !important;
+        border: none !important;
+        border-radius: 6px !important;
+        padding: 6px 8px !important;
+        font-size: 18px !important;
+        cursor: pointer;
+        transition: all 0.2s;
+        height: 32px;
+        min-width: 32px;
+        width: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        white-space: nowrap;
+        opacity: 0.6;
+    }
+
+    .upload-btn-inline:hover {
+        background: #f3f4f6 !important;
+        color: #4b5563 !important;
+        opacity: 1;
+    }
+
+    .send-btn-inline {
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 10px !important;
+        padding: 8px 16px !important;
+        font-size: 0 !important;
+        font-weight: 600 !important;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        height: 32px;
+        min-width: 32px;
+        width: 32px;
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .send-btn-inline::before {
+        content: "➤";
+        font-size: 16px;
+    }
+
+    .send-btn-inline:hover {
+        opacity: 0.95;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35);
+    }
+
+    .send-btn-inline:active {
+        transform: translateY(0);
+    }
+
+    /* ========== 隐藏元素 ========== */
     footer {
-        visibility: hidden;
+        display: none !important;
     }
+
+    /* ========== 滚动条美化 ========== */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: #d1d5db;
+        border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: #9ca3af;
+    }
+
+    /* ========== Gradio 组件覆盖 ========== */
+    .gradio-container .prose {
+        max-width: none !important;
+    }
+
+    .contain {
+        max-width: 100% !important;
+    }
+
+    /* ========== 标题样式 ========== */
+    #top-bar-area h2 {
+        font-size: 18px;
+        font-weight: 600;
+        color: #1f2937;
+        margin: 0;
+        flex: 1;
+    }
+
+    /* ========== 侧边栏内边距优化 ========== */
+    #app-sidebar > div:first-child {
+        padding: 24px 18px !important;
+        display: flex;
+        flex-direction: column;
+        overflow: visible !important;
+    }
+
+    /* ========== 侧边栏滚动容器 ========== */
+    #sidebar-scroll-container {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        overflow: visible !important;
+    }
+
+    /* 禁用Gradio内部的所有滚动容器 */
+    #sidebar-scroll-container * {
+        overflow: visible !important;
+    }
+
+    #sidebar-scroll-container .wrap {
+        overflow: visible !important;
+        min-height: unset !important;
+    }
+
+    #sidebar-scroll-container .gradio-column {
+        overflow: visible !important;
+        min-height: unset !important;
+    }
+
+    /* 确保所有div都不创建自己的滚动上下文 */
+    #sidebar-scroll-container div {
+        overflow: visible !important;
+    }
+
+    /* ========== 侧边栏分组样式 - 无框设计 ========== */
+    #sidebar-scroll-container > h2 {
+        margin: 0 0 20px 0 !important;
+        padding: 0 !important;
+        font-size: 18px !important;
+        font-weight: 700 !important;
+        color: #111827 !important;
+        letter-spacing: -0.3px !important;
+    }
+
+    /* Markdown 标题样式 */
+    #sidebar-scroll-container > div:has(> h4) {
+        margin-top: 20px !important;
+        margin-bottom: 0 !important;
+        padding: 0 !important;
+        background: transparent !important;
+        border: none !important;
+    }
+
+    #sidebar-scroll-container h4 {
+        margin: 0 0 14px 0 !important;
+        padding: 0 !important;
+        font-size: 12px !important;
+        font-weight: 700 !important;
+        color: #6b7280 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1px !important;
+    }
+
+    /* Checkbox 和其他输入组件样式 */
+    #sidebar-scroll-container .gradio-checkbox {
+        margin-bottom: 10px !important;
+        padding: 8px 0 !important;
+    }
+
+    #sidebar-scroll-container .gradio-checkbox label {
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        color: #374151 !important;
+    }
+
+    #sidebar-scroll-container .gradio-slider {
+        margin-bottom: 16px !important;
+    }
+
+    #sidebar-scroll-container .gradio-slider label {
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        color: #4f46e5 !important;
+    }
+
+    #sidebar-scroll-container .gradio-textbox,
+    #sidebar-scroll-container .gradio-dropdown {
+        margin-bottom: 14px !important;
+    }
+
+    #sidebar-scroll-container .gradio-textbox label,
+    #sidebar-scroll-container .gradio-dropdown label {
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        color: #4f46e5 !important;
+    }
+
+    /* 隐藏所有的Group边框 */
+    #app-sidebar .gradio-group {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin-bottom: 0 !important;
+        overflow: visible !important;
+    }
+
+    /* 侧边栏Markdown段落样式 */
+    #sidebar-scroll-container p {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    /* 侧边栏输入框美化 */
+    #sidebar-scroll-container input,
+    #sidebar-scroll-container textarea {
+        border-color: #e5e7eb !important;
+        border-radius: 6px !important;
+        font-size: 13px !important;
+    }
+
+    #sidebar-scroll-container input:focus,
+    #sidebar-scroll-container textarea:focus {
+        border-color: #6366f1 !important;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1) !important;
+    }
+
+    /* 侧边栏下拉菜单美化 */
+    #sidebar-scroll-container select {
+        border-color: #e5e7eb !important;
+        border-radius: 6px !important;
+        background-color: #fff !important;
+        color: #374151 !important;
+        padding: 8px 12px !important;
+    }
+
+    #sidebar-scroll-container select:focus {
+        border-color: #6366f1 !important;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1) !important;
+    }
+
+    /* 侧边栏Slider样式 */
+    #sidebar-scroll-container input[type="range"] {
+        accent-color: #6366f1 !important;
+    }
+
+    /* ========== 文件上传按钮美化 ========== */
+    .upload-btn-inline input[type="file"] {
+        display: none !important;
+    }
+
+    .upload-btn-inline button {
+        width: 32px !important;
+        height: 32px !important;
+        padding: 0 !important;
+        background: transparent !important;
+        border: none !important;
+    }
+
+    .upload-btn-inline button:hover {
+        background: #f3f4f6 !important;
+    }
+
+    .upload-btn-inline label {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        margin: 0 !important;
+        font-size: 18px;
+    }
+
+    /* ========== 发送按钮优化 ========== */
+    .send-btn-inline {
+        letter-spacing: 0 !important;
+    }
+    </style>
+
+    <script>
+    // 侧边栏切换脚本
+    (function() {
+        let isCollapsed = false;
+
+        function setupToggle() {
+            const sidebar = document.getElementById('app-sidebar');
+            const toggleBtn = document.getElementById('toggle-btn');
+
+            if (!sidebar || !toggleBtn) {
+                setTimeout(setupToggle, 100);
+                return;
+            }
+
+            toggleBtn.onclick = function() {
+                isCollapsed = !isCollapsed;
+
+                if (isCollapsed) {
+                    sidebar.classList.add('collapsed');
+                    toggleBtn.innerHTML = '▶ 展开侧边栏';
+                } else {
+                    sidebar.classList.remove('collapsed');
+                    toggleBtn.innerHTML = '◀ 收起侧边栏';
+                }
+            };
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupToggle);
+        } else {
+            setupToggle();
+        }
+
+        setTimeout(setupToggle, 300);
+        setTimeout(setupToggle, 600);
+        setTimeout(setupToggle, 1000);
+        setTimeout(setupToggle, 2000);
+    })();
+    </script>
     """
 
-    with gr.Blocks(css=custom_css, theme=gr.themes.Soft(), title="Qwen2.5 Agent (终极版)") as demo:
+    with gr.Blocks(theme=gr.themes.Soft(), title="Qwen2.5 Assistant", head=custom_head) as demo:
 
-        # 标题
-        gr.Markdown("""
-            # 🤖 Qwen2.5-0.5B Agent 终极版 (含 Skills)
+        with gr.Row(elem_id="main-container"):
+            # 侧边栏
+            with gr.Column(elem_id="app-sidebar", scale=0, min_width=300):
+                with gr.Column(elem_id="sidebar-scroll-container"):
+                    gr.Markdown("### 🤖 Qwen2.5 Assistant")
 
-            这是一个功能最完整的 AI 助手:
-            - 🔧 **工具调用**: 文件操作、目录探索
-            - 🎓 **Skills 系统**: 按需加载领域知识
-            - 💬 **多轮对话**: 完整的对话历史
-            - 📚 **技能库**: 自动技能匹配和注入
-        """)
+                    # 数据分析链接 - 高级分析
+                    gr.Markdown("#### 📊 数据分析")
+                    gr.HTML("""
+                    <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; margin-top: 8px;">
+                        <a href="http://127.0.0.1:7862" target="_blank" style="
+                            display: block;
+                            padding: 14px 16px;
+                            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+                            color: white;
+                            border-radius: 10px;
+                            text-align: center;
+                            text-decoration: none;
+                            font-weight: 600;
+                            font-size: 15px;
+                            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+                            letter-spacing: 0.3px;
+                        " onmouseover="this.style.opacity='0.95'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 16px rgba(99, 102, 241, 0.35)'" onmouseout="this.style.opacity='1'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(99, 102, 241, 0.25)'">
+                            🔬 高级分析 →
+                        </a>
+                    </div>
+                    """)
 
-        # 主布局
-        with gr.Row():
-            # 左侧: 对话区
-            with gr.Column(scale=3):
-                chatbot = gr.Chatbot(
-                    label="对话窗口",
-                    height=500,
-                    show_copy_button=True
-                )
+                    gr.Markdown("#### 模式设置")
+                    use_tools = gr.Checkbox(label="🔧 工具模式", value=False)
+                    use_skills = gr.Checkbox(label="🎓 Skills 系统", value=True)
 
-                with gr.Row():
-                    msg = gr.Textbox(
-                        label="输入消息",
-                        placeholder="在这里输入你的问题...",
-                        scale=4,
-                        lines=2
-                    )
-                    send_btn = gr.Button("发送 📤", variant="primary", scale=1)
+                    gr.Markdown("#### 模型参数")
+                    temperature = gr.Slider(0.1, 2.0, value=0.7, step=0.1, label="Temperature")
+                    top_p = gr.Slider(0.1, 1.0, value=0.9, step=0.05, label="Top P")
+                    max_tokens = gr.Slider(64, 2048, value=512, step=64, label="Max Tokens")
 
-                with gr.Row():
-                    retry_btn = gr.Button("🔄 重试")
-                    undo_btn = gr.Button("↩️ 撤销")
-                    clear_btn = gr.Button("🗑️ 清空")
-
-                with gr.Row():
-                    use_tools = gr.Checkbox(label="启用工具模式", value=False)
-                    use_skills = gr.Checkbox(label="启用 Skills", value=True)
-                    show_execution_log = gr.Checkbox(label="显示执行日志", value=False)
-
-                # 技能建议
-                with gr.Accordion("📚 可用技能", open=False):
-                    skills_display = gr.Textbox(
-                        label="技能列表",
-                        value=_get_skills_info(skill_manager),
-                        lines=10,
-                        interactive=False
+                    gr.Markdown("#### 系统提示")
+                    system_prompt = gr.Textbox(
+                        value="你是一个智能助手。",
+                        lines=3,
+                        placeholder="自定义系统提示...",
+                        show_label=False
                     )
 
-                # 执行日志
-                with gr.Accordion("📋 执行日志", open=False):
-                    execution_log = gr.Textbox(
-                        label="执行记录",
-                        lines=10,
-                        max_lines=20,
-                        interactive=False
+                    gr.Markdown("#### 技能配置")
+                    skills_selector = gr.Dropdown(
+                        choices=[s["id"] for s in skill_manager.get_skills_list()],
+                        multiselect=True,
+                        label="选择技能"
+                    )
+                    auto_match_skills = gr.Checkbox(label="自动匹配", value=True)
+
+            # 主内容区
+            with gr.Column(elem_id="main-content-area", scale=1):
+                # 顶部栏
+                with gr.Row(elem_id="top-bar-area"):
+                    gr.HTML("<button id='toggle-btn'>◀ 收起侧边栏</button>")
+                    gr.Markdown("## 💬 Chatbot")
+
+                # 对话区域
+                with gr.Column(elem_id="chat-wrapper"):
+                    # 1. Chatbot - 恢复原始框架样式
+                    chatbot = gr.Chatbot(
+                        label=None,
+                        show_copy_button=True,
+                        show_label=False,
+                        container=False,
+                        elem_classes="chatbot-box"
                     )
 
-            # 右侧: 设置区
-            with gr.Column(scale=1):
-                gr.Markdown("### ⚙️ 高级设置")
+                    # 2. 输入区域 - 横向布局（输入框 + 上传 + 发送）
+                    with gr.Column(elem_id="input-area-fixed"):
+                        with gr.Row(elem_classes="input-row-container"):
+                            # 输入框
+                            msg = gr.Textbox(
+                                label=None,
+                                placeholder="请输入问题或需求",
+                                lines=1,
+                                max_lines=6,
+                                show_label=False,
+                                container=False,
+                                elem_classes="input-text-area"
+                            )
 
-                system_prompt = gr.Textbox(
-                    label="系统提示词",
-                    value="你是一个智能个人助手,名字叫小Q。请用简洁、幽默的风格回答。",
-                    lines=4,
-                    placeholder="自定义助手的行为和性格..."
-                )
+                            # 按钮组（横向）
+                            with gr.Row(elem_classes="button-row"):
+                                pdf_file = gr.File(
+                                    label="📎",
+                                    file_count="multiple",
+                                    file_types=[".pdf"],
+                                    elem_classes="upload-btn-inline",
+                                    container=False,
+                                    visible=True,
+                                    scale=0
+                                )
+                                send_btn = gr.Button("", elem_classes="send-btn-inline", scale=0)
 
-                temperature = gr.Slider(
-                    minimum=0.1,
-                    maximum=2.0,
-                    value=0.7,
-                    step=0.1,
-                    label="Temperature",
-                    info="越高越随机"
-                )
+        # ========== 事件处理（保持不变）==========
 
-                top_p = gr.Slider(
-                    minimum=0.1,
-                    maximum=1.0,
-                    value=0.9,
-                    step=0.05,
-                    label="Top P",
-                    info="控制多样性"
-                )
-
-                max_tokens = gr.Slider(
-                    minimum=64,
-                    maximum=2048,
-                    value=512,
-                    step=64,
-                    label="最大 Token 数",
-                    info="控制长度"
-                )
-
-                # Skills 设置
-                gr.Markdown("### 🎓 Skills 设置")
-
-                skills_selector = gr.Dropdown(
-                    choices=[s["id"] for s in skill_manager.get_skills_list()],
-                    multiselect=True,
-                    label="选择要使用的技能",
-                    info="留空则自动匹配"
-                )
-
-                auto_match_skills = gr.Checkbox(
-                    label="自动匹配技能",
-                    value=True,
-                    info="根据任务自动选择相关技能"
-                )
-
-        # 事件处理
         def user_input(user_message, history):
             return "", history + [[user_message, None]]
 
+        def extract_pdf_text(pdf_files):
+            if not pdf_files or not HAS_PYPDF:
+                return ""
+            pdf_content = ""
+            files_to_process = pdf_files if isinstance(pdf_files, list) else [pdf_files]
+
+            for pdf_item in files_to_process:
+                try:
+                    pdf_path = pdf_item.get('name') if isinstance(pdf_item, dict) else pdf_item
+                    with open(pdf_path, 'rb') as f:
+                        reader = PyPDF2.PdfReader(f)
+                        filename = Path(pdf_path).name if pdf_path else "unknown.pdf"
+                        pdf_content += f"\n【文件: {filename}】\n"
+                        for page_num, page in enumerate(reader.pages, 1):
+                            text = page.extract_text()
+                            if text.strip():
+                                pdf_content += f"【第 {page_num} 页】\n{text}\n"
+                except Exception as e:
+                    pdf_content += f"\n❌ 提取失败: {str(e)}\n"
+            return pdf_content.strip()
+
         def bot_response(history, sys_prompt, temp, top_p_val, max_tok, use_tools_mode, use_skills_mode,
-                        show_log, selected_skills, auto_match):
-            """生成响应,并可选使用工具和 Skills"""
+                         selected_skills, auto_match, pdf_files):
             if not history or history[-1][1] is not None:
-                return history, ""
+                return history
 
             user_message = history[-1][0]
             history_without_last = history[:-1]
-            execution_info = ""
+            logger = get_logger()
 
-            # Skills 处理
-            messages_with_skills = [[u, a] for u, a in history_without_last if u and a]
+            # 创建新会话
+            logger.create_session()
+
+            pdf_info = ""
+            if pdf_files and HAS_PYPDF:
+                pdf_text = extract_pdf_text(pdf_files)
+                if pdf_text:
+                    pdf_info = f"\n\n【PDF内容】:\n{pdf_text[:1000]}..."
+
+            chat_history = [[u, a] for u, a in history_without_last if u and a]
+
+            use_custom_messages = False
+            enhanced_messages = None
+            skills_to_inject = []
 
             if use_skills_mode:
-                # 确定要使用的技能
                 if auto_match and not selected_skills:
-                    # 自动匹配
-                    matched_skills = skill_manager.find_skills_for_task(user_message)
-                    skills_to_inject = [s["id"] for s in matched_skills[:3]]  # 最多 3 个
+                    matched_skills = skill_manager.find_skills_for_task(user_message + pdf_info)
+                    skills_to_inject = [s["id"] for s in matched_skills[:3]]
                 else:
-                    # 使用手选的技能
                     skills_to_inject = selected_skills if selected_skills else []
 
-                if skills_to_inject and show_log:
-                    execution_info = f"✅ 已注入技能: {', '.join(skills_to_inject)}\n\n"
-
-                # 构建消息列表
-                messages = [{"role": "system", "content": sys_prompt}]
-                for u, a in messages_with_skills:
-                    messages.append({"role": "user", "content": u})
-                    messages.append({"role": "assistant", "content": a})
-                messages.append({"role": "user", "content": user_message})
-
-                # 注入 Skills (关键: 保留缓存!)
                 if skills_to_inject:
-                    messages = skill_injector.inject_skills_to_context(
-                        messages,
-                        skills_to_inject,
-                        include_full_content=False
-                    )
-            else:
-                messages = None
+                    enhanced_messages = [{"role": "system", "content": sys_prompt}]
+                    for u, a in chat_history:
+                        enhanced_messages.append({"role": "user", "content": u})
+                        enhanced_messages.append({"role": "assistant", "content": a})
+                    enhanced_messages.append({"role": "user", "content": user_message + pdf_info})
 
-            # 处理响应
+                    enhanced_messages = skill_injector.inject_skills_to_context(
+                        enhanced_messages, skills_to_inject, include_full_content=False
+                    )
+                    use_custom_messages = True
+
+            response_started = False
+            import time
+            start_time = time.time()
+
             if use_tools_mode:
                 try:
                     response, exec_log = agent_framework.process_message(
-                        user_message,
-                        messages_with_skills,
-                        system_prompt_override=sys_prompt,
-                        temperature=temp,
-                        top_p=top_p_val,
-                        max_tokens=max_tok
+                        user_message + pdf_info, chat_history,
+                        system_prompt_override=sys_prompt, temperature=temp, top_p=top_p_val, max_tokens=max_tok
                     )
-
-                    if show_log:
-                        execution_info += json.dumps(exec_log, ensure_ascii=False, indent=2)
-
                     history[-1][1] = response
-                    yield history, execution_info
+                    response_started = True
+                    yield history
                 except Exception as e:
-                    error_msg = f"[工具模式错误] {str(e)}\n\n使用普通模式回答..."
-                    for text_chunk in qwen_agent.generate_stream(
-                        user_message,
-                        messages_with_skills,
-                        system_prompt=sys_prompt,
-                        temperature=temp,
-                        top_p=top_p_val,
-                        max_tokens=max_tok
-                    ):
-                        history[-1][1] = error_msg + "\n" + text_chunk
-                        yield history, execution_info
+                    error_msg = f"[⚠️ 工具模式错误] {str(e)}"
+
+                    if use_custom_messages:
+                        for text_chunk in qwen_agent.generate_stream_with_messages(
+                                enhanced_messages, temperature=temp, top_p=top_p_val, max_tokens=max_tok
+                        ):
+                            history[-1][1] = error_msg + "\n\n" + text_chunk
+                            response_started = True
+                            yield history
+                    else:
+                        for text_chunk in qwen_agent.generate_stream(
+                                user_message + pdf_info, chat_history,
+                                system_prompt=sys_prompt, temperature=temp, top_p=top_p_val, max_tokens=max_tok
+                        ):
+                            history[-1][1] = error_msg + "\n\n" + text_chunk
+                            response_started = True
+                            yield history
             else:
-                # 普通模式
-                for response in qwen_agent.generate_stream(
-                    user_message,
-                    messages_with_skills,
-                    system_prompt=sys_prompt,
-                    temperature=temp,
-                    top_p=top_p_val,
-                    max_tokens=max_tok
-                ):
-                    history[-1][1] = response
-                    yield history, execution_info
+                if use_custom_messages:
+                    for response in qwen_agent.generate_stream_with_messages(
+                            enhanced_messages, temperature=temp, top_p=top_p_val, max_tokens=max_tok
+                    ):
+                        history[-1][1] = response
+                        response_started = True
+                        yield history
+                else:
+                    for response in qwen_agent.generate_stream(
+                            user_message + pdf_info, chat_history,
+                            system_prompt=sys_prompt, temperature=temp, top_p=top_p_val, max_tokens=max_tok
+                    ):
+                        history[-1][1] = response
+                        response_started = True
+                        yield history
 
-        def retry_last(history, sys_prompt, temp, top_p_val, max_tok, use_tools_mode, use_skills_mode,
-                      show_log, selected_skills, auto_match):
-            if not history:
-                return history, ""
-            if history[-1][1] is not None:
-                history[-1][1] = None
-            yield from bot_response(history, sys_prompt, temp, top_p_val, max_tok, use_tools_mode,
-                                   use_skills_mode, show_log, selected_skills, auto_match)
-
-        def undo_last(history):
-            if history:
-                return history[:-1], ""
-            return history, ""
+            # 记录对话到日志
+            if response_started and history[-1][1]:
+                execution_time = time.time() - start_time
+                logger.log_message(
+                    user_message=user_message,
+                    bot_response=history[-1][1],
+                    execution_time=execution_time,
+                    tokens_used=0
+                )
 
         # 绑定事件
-        msg.submit(
-            user_input,
-            [msg, chatbot],
-            [msg, chatbot]
-        ).then(
+        msg.submit(user_input, [msg, chatbot], [msg, chatbot]).then(
             bot_response,
             [chatbot, system_prompt, temperature, top_p, max_tokens, use_tools, use_skills,
-             show_execution_log, skills_selector, auto_match_skills],
-            [chatbot, execution_log]
+             skills_selector, auto_match_skills, pdf_file],
+            [chatbot]
         )
 
-        send_btn.click(
-            user_input,
-            [msg, chatbot],
-            [msg, chatbot]
-        ).then(
+        send_btn.click(user_input, [msg, chatbot], [msg, chatbot]).then(
             bot_response,
             [chatbot, system_prompt, temperature, top_p, max_tokens, use_tools, use_skills,
-             show_execution_log, skills_selector, auto_match_skills],
-            [chatbot, execution_log]
+             skills_selector, auto_match_skills, pdf_file],
+            [chatbot]
         )
-
-        retry_btn.click(
-            retry_last,
-            [chatbot, system_prompt, temperature, top_p, max_tokens, use_tools, use_skills,
-             show_execution_log, skills_selector, auto_match_skills],
-            [chatbot, execution_log]
-        )
-
-        undo_btn.click(undo_last, chatbot, [chatbot, execution_log])
-        clear_btn.click(lambda: ([], ""), None, [chatbot, execution_log])
 
     return demo
 
 
-def _get_skills_info(skill_manager: SkillManager) -> str:
-    """获取技能信息用于显示"""
-    skills = skill_manager.get_skills_list()
-    if not skills:
-        return "暂无可用技能"
-
-    lines = []
-    for skill in skills:
-        lines.append(f"**{skill['name']}**")
-        lines.append(f"{skill['description']}")
-        if skill.get("tags"):
-            lines.append(f"标签: {', '.join(skill['tags'])}")
-        lines.append("")
-
-    return "\n".join(lines)
-
-
-# ============================================================================
-# 主程序入口
-# ============================================================================
-
 if __name__ == "__main__":
-    print("🚀 正在启动 Qwen2.5 Agent 终极版...")
+    print("🚀 正在启动 Qwen2.5 Agent...")
+
+    try:
+        import gradio_client.utils as gcu
+        original_internal = gcu._json_schema_to_python_type
+
+        def safe_json_schema_to_python_type(schema, defs=None):
+            try:
+                if isinstance(schema, bool):
+                    return "bool"
+                if not isinstance(schema, dict):
+                    return "unknown"
+                return original_internal(schema, defs)
+            except TypeError as e:
+                if "argument of type 'bool' is not iterable" in str(e):
+                    return "any"
+                raise
+
+        gcu._json_schema_to_python_type = safe_json_schema_to_python_type
+        print("✅ 已应用 Gradio JSON Schema 安全修补")
+    except Exception as e:
+        print(f"⚠️  JSON Schema 修补过程中出错: {e}")
 
     demo = create_ui_with_skills()
 
-    demo.launch(
-        server_name="127.0.0.1",
-        server_port=7860,
-        inbrowser=True,
-        share=False
-    )
+    import socket
 
+    def find_free_port(start=7860, attempts=10):
+        for port in range(start, start + attempts):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                result = sock.connect_ex(('127.0.0.1', port))
+                sock.close()
+                if result != 0:
+                    return port
+            except:
+                pass
+        return 7860
+
+    port = find_free_port()
+    print(f"✅ 使用端口: {port}")
+
+    import os
+    os.environ['GRADIO_DISABLE_API'] = '1'
+
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=port,
+        inbrowser=True,
+        share=False,
+        show_error=True,
+        show_api=False
+    )

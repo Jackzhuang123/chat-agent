@@ -156,13 +156,13 @@ python3 ui/web_agent_with_skills.py
 ## 📞 获取帮助
 
 - **快速问题** → 查看 GUIDE.md
-- **API 问题** → 查看 API_REFERENCE.md
+- **API 问题** → 查看 API_REFERENCE.md   
 - **代码示例** → 查看 API_REFERENCE.md
 
 ## 🚀 现在开始
-
+d fd
 ```bash
-python3 ui/web_agent_with_skills.py
+python3 ui/web_agent_with_skills.pys das ds
 ```
 
 访问：`http://127.0.0.1:7860`

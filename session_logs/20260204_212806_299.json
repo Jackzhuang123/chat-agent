@@ -1,0 +1,47 @@
+{
+  "session_id": "20260204_212806_299",
+  "created_at": "2026-02-04T21:28:06.299731",
+  "messages": [
+    {
+      "timestamp": "2026-02-04T21:28:07.754527",
+      "user_message": "[未设置]",
+      "bot_response": "[在进行中...]",
+      "execution_time": 0,
+      "tokens_used": 0,
+      "model": "Qwen2.5-0.5B",
+      "model_calls": [
+        {
+          "call_index": 1,
+          "timestamp": "2026-02-04T21:28:07.754532",
+          "prompt": "<|im_start|>system\n你是一个智能助手。<|im_end|>\n<|im_start|>user\n你好<|im_end|>\n<|im_start|>assistant\n",
+          "response": "你好！有什么可以帮到你的？",
+          "execution_time": 1.438446283340454,
+          "tokens_input": 19,
+          "tokens_output": 8,
+          "tokens_total": 27,
+          "parameters": {
+            "temperature": 0.7,
+            "top_p": 0.9
+          },
+          "model": "Qwen2.5-0.5B"
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-02-04T21:28:07.754757",
+      "user_message": "你好",
+      "bot_response": "你好！有什么可以帮到你的？",
+      "execution_time": 1.4546229839324951,
+      "tokens_used": 0,
+      "model": "Qwen2.5-0.5B",
+      "model_calls": []
+    }
+  ],
+  "calls": [],
+  "statistics": {
+    "total_messages": 1,
+    "total_tokens_used": 0,
+    "total_duration": 1.4546229839324951,
+    "total_calls": 0
+  }
+}
