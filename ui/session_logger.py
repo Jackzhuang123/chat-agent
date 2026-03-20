@@ -65,7 +65,9 @@ class SessionLogger:
                    execution_time: float = 0,
                    tokens_used: int = 0,
                    model: str = "Qwen2.5-0.5B",
-                   model_calls: List[Dict[str, Any]] = None) -> None:
+                   model_calls: List[Dict[str, Any]] = None,
+                   runtime_context: Optional[Dict[str, Any]] = None,
+                   execution_log: Optional[List[Dict[str, Any]]] = None) -> None:
         """
         记录一条对话消息
 
@@ -76,6 +78,8 @@ class SessionLogger:
             tokens_used: 使用的token数
             model: 使用的模型
             model_calls: 模型调用的详细记录列表，包含每次调用的输入和输出
+            runtime_context: 运行时上下文（模式、技能、上传文件等）
+            execution_log: Agent 执行日志（模型轮次、工具调用等）
         """
         if not self.current_session_file or not self.current_session_file.exists():
             self.create_session()
@@ -87,7 +91,9 @@ class SessionLogger:
             "execution_time": execution_time,
             "tokens_used": tokens_used,
             "model": model,
-            "model_calls": model_calls or []
+            "model_calls": model_calls or [],
+            "runtime_context": runtime_context or {},
+            "execution_log": execution_log or []
         }
 
         with open(self.current_session_file, 'r', encoding='utf-8') as f:

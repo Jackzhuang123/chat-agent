@@ -6,6 +6,7 @@ Agent 工具系统 - 为 Qwen 模型提供工具支持
 """
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -310,6 +311,34 @@ class ToolParser:
     """工具调用解析器 - 从模型输出中解析工具调用"""
 
     @staticmethod
+    def _parse_input_payload(input_str: str) -> Optional[Dict[str, Any]]:
+        """解析工具输入，容忍轻微 JSON 缺失（如少量右括号）。"""
+        if not input_str:
+            return None
+
+        payload = input_str.strip()
+        if not payload:
+            return None
+
+        try:
+            data = json.loads(payload)
+            return data if isinstance(data, dict) else None
+        except json.JSONDecodeError:
+            pass
+
+        if payload.startswith("{"):
+            missing_right_brace = payload.count("{") - payload.count("}")
+            if missing_right_brace > 0:
+                repaired = payload + ("}" * missing_right_brace)
+                try:
+                    data = json.loads(repaired)
+                    return data if isinstance(data, dict) else None
+                except json.JSONDecodeError:
+                    return None
+
+        return None
+
+    @staticmethod
     def parse_tool_calls(text: str) -> List[Tuple[str, Dict[str, Any]]]:
         """
         从模型输出中解析工具调用
@@ -322,22 +351,26 @@ class ToolParser:
         Returns:
             List[(tool_name, tool_input), ...]
         """
-        calls = []
+        calls: List[Tuple[str, Dict[str, Any]]] = []
+        stripped = text.strip()
 
-        # 尝试 JSON 格式
+        # 尝试 JSON 格式（数组或单对象）
         try:
-            if text.strip().startswith("["):
-                data = json.loads(text)
+            if stripped.startswith("["):
+                data = json.loads(stripped)
                 for item in data:
-                    if isinstance(item, dict) and "tool" in item and "input" in item:
+                    if isinstance(item, dict) and "tool" in item and "input" in item and isinstance(item["input"], dict):
                         calls.append((item["tool"], item["input"]))
                 if calls:
                     return calls
-        except (json.JSONDecodeError, KeyError):
+            elif stripped.startswith("{"):
+                item = json.loads(stripped)
+                if isinstance(item, dict) and "tool" in item and "input" in item and isinstance(item["input"], dict):
+                    return [(item["tool"], item["input"])]
+        except (json.JSONDecodeError, KeyError, TypeError):
             pass
 
-        # 尝试标记格式
-        import re
+        # 尝试严格标记格式
         tool_pattern = r"<tool>(\w+)</tool>"
         input_pattern = r"<input>(.*?)</input>"
 
@@ -346,14 +379,39 @@ class ToolParser:
 
         if tools and inputs and len(tools) == len(inputs):
             for tool, input_str in zip(tools, inputs):
-                try:
-                    input_data = json.loads(input_str)
+                input_data = ToolParser._parse_input_payload(input_str)
+                if input_data is not None:
                     calls.append((tool, input_data))
-                except json.JSONDecodeError:
-                    pass
 
             if calls:
                 return calls
+
+        # 容错: 缺失 </input> 时，读取到下一工具标签或文本末尾
+        tool_matches = list(re.finditer(tool_pattern, text))
+        if not tool_matches:
+            return calls
+
+        tolerant_calls: List[Tuple[str, Dict[str, Any]]] = []
+        for idx, tool_match in enumerate(tool_matches):
+            tool_name = tool_match.group(1)
+            segment_start = tool_match.end()
+            segment_end = tool_matches[idx + 1].start() if idx + 1 < len(tool_matches) else len(text)
+            segment = text[segment_start:segment_end]
+
+            input_start_match = re.search(r"<input>", segment)
+            if not input_start_match:
+                continue
+
+            payload_start = input_start_match.end()
+            payload_segment = segment[payload_start:]
+            payload_segment = re.sub(r"</input>\s*$", "", payload_segment, flags=re.DOTALL).strip()
+
+            input_data = ToolParser._parse_input_payload(payload_segment)
+            if input_data is not None:
+                tolerant_calls.append((tool_name, input_data))
+
+        if tolerant_calls:
+            return tolerant_calls
 
         return calls
 

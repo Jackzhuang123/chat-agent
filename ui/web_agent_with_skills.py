@@ -5,6 +5,7 @@ Qwen2.5-0.5B Agent Web UI - 豆包风格完美版（恢复原始气泡样式，�
 """
 
 import sys
+from datetime import datetime
 from pathlib import Path
 from threading import Thread
 
@@ -13,8 +14,18 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from core import QwenAgentFramework, create_qwen_model_forward, SkillManager, SkillInjector, create_example_skills, \
-    ToolExecutor
+from core import (
+    PlanModeMiddleware,
+    QwenAgentFramework,
+    RuntimeModeMiddleware,
+    SkillInjector,
+    SkillManager,
+    SkillsContextMiddleware,
+    ToolResultGuardMiddleware,
+    UploadedFilesMiddleware,
+    create_example_skills,
+    create_qwen_model_forward,
+)
 from session_logger import get_logger
 
 try:
@@ -146,7 +157,6 @@ class QwenAgent:
 def create_ui_with_skills():
     logger = get_logger()
     qwen_agent = QwenAgent(logger=logger)
-    tool_executor = ToolExecutor(enable_bash=False)
 
     print("🧪 初始化 Skills 系统...")
     create_example_skills()
@@ -154,9 +164,22 @@ def create_ui_with_skills():
     skill_injector = SkillInjector(skill_manager)
     print(f"✅ 发现 {len(skill_manager.skills_metadata)} 个技能")
 
+    middlewares = [
+        RuntimeModeMiddleware(),
+        PlanModeMiddleware(),
+        SkillsContextMiddleware(),
+        UploadedFilesMiddleware(),
+        ToolResultGuardMiddleware(),
+    ]
+
     agent_framework = QwenAgentFramework(
         model_forward_fn=create_qwen_model_forward(qwen_agent),
-        enable_bash=False, max_iterations=5, tools_in_system_prompt=True
+        work_dir=str(Path(__file__).parent.parent),
+        enable_bash=False,
+        max_iterations=5,
+        tools_in_system_prompt=True,
+        middlewares=middlewares,
+        default_runtime_context={"run_mode": "chat", "plan_mode": False},
     )
 
     # 修复后的 CSS + JavaScript - 恢复原始气泡样式
@@ -767,6 +790,7 @@ def create_ui_with_skills():
                     gr.Markdown("#### 模式设置")
                     use_tools = gr.Checkbox(label="🔧 工具模式", value=False)
                     use_skills = gr.Checkbox(label="🎓 Skills 系统", value=True)
+                    plan_mode = gr.Checkbox(label="🗂️ 计划模式", value=False)
 
                     gr.Markdown("#### 模型参数")
                     temperature = gr.Slider(0.1, 2.0, value=0.7, step=0.1, label="Temperature")
@@ -860,8 +884,75 @@ def create_ui_with_skills():
                     pdf_content += f"\n❌ 提取失败: {str(e)}\n"
             return pdf_content.strip()
 
+        def infer_run_mode(use_tools_mode, use_skills_mode):
+            if use_tools_mode and use_skills_mode:
+                return "hybrid"
+            if use_tools_mode:
+                return "tools"
+            if use_skills_mode:
+                return "skills"
+            return "chat"
+
+        def extract_uploaded_file_meta(pdf_files):
+            if not pdf_files:
+                return []
+
+            files_to_process = pdf_files if isinstance(pdf_files, list) else [pdf_files]
+            uploaded_files = []
+            for pdf_item in files_to_process:
+                pdf_path = pdf_item.get('name') if isinstance(pdf_item, dict) else pdf_item
+                if not pdf_path:
+                    continue
+
+                path_obj = Path(pdf_path)
+                try:
+                    file_size = path_obj.stat().st_size if path_obj.exists() else 0
+                except Exception:
+                    file_size = 0
+
+                uploaded_files.append({
+                    "filename": path_obj.name,
+                    "path": str(path_obj),
+                    "size": file_size,
+                })
+            return uploaded_files
+
+        def build_runtime_context_prompt(runtime_context):
+            run_mode = runtime_context.get("run_mode", "chat")
+            plan_mode_enabled = bool(runtime_context.get("plan_mode", False))
+            selected = runtime_context.get("selected_skills") or []
+            uploaded = runtime_context.get("uploaded_files") or []
+
+            lines = [f"运行模式: {run_mode}"]
+            if plan_mode_enabled:
+                lines.append("已开启计划模式: 请先给出分步骤计划，再执行。")
+            if selected:
+                lines.append(f"关联技能: {', '.join(selected)}")
+            if uploaded:
+                names = ", ".join(item.get("filename", "unknown") for item in uploaded)
+                lines.append(f"已上传文件: {names}")
+
+            if run_mode == "chat" and not plan_mode_enabled and not selected and not uploaded:
+                return ""
+
+            return "<runtime_context>\n" + "\n".join(lines) + "\n请严格按上述上下文完成任务。\n</runtime_context>"
+
+        def inject_context_message(messages, context_text):
+            if not context_text:
+                return messages
+
+            cloned = [dict(msg) for msg in messages]
+            context_message = {"role": "user", "content": context_text}
+            for idx in range(len(cloned) - 1, -1, -1):
+                if cloned[idx].get("role") == "user":
+                    cloned.insert(idx, context_message)
+                    return cloned
+
+            cloned.append(context_message)
+            return cloned
+
         def bot_response(history, sys_prompt, temp, top_p_val, max_tok, use_tools_mode, use_skills_mode,
-                         selected_skills, auto_match, pdf_files):
+                         plan_mode_enabled, selected_skills, auto_match, pdf_files):
             if not history or history[-1][1] is not None:
                 return history
 
@@ -873,7 +964,8 @@ def create_ui_with_skills():
             logger.create_session()
 
             pdf_info = ""
-            if pdf_files and HAS_PYPDF:
+            uploaded_files_meta = extract_uploaded_file_meta(pdf_files)
+            if uploaded_files_meta and HAS_PYPDF:
                 pdf_text = extract_pdf_text(pdf_files)
                 if pdf_text:
                     pdf_info = f"\n\n【PDF内容】:\n{pdf_text[:1000]}..."
@@ -884,14 +976,43 @@ def create_ui_with_skills():
             enhanced_messages = None
             skills_to_inject = []
 
+            runtime_context = {
+                "run_mode": infer_run_mode(use_tools_mode, use_skills_mode),
+                "plan_mode": bool(plan_mode_enabled),
+                "uploaded_files": uploaded_files_meta,
+                "selected_skills": [],
+            }
+            execution_log = []
+
             if use_skills_mode:
+                matched_skill_infos = []
                 if auto_match and not selected_skills:
                     matched_skills = skill_manager.find_skills_for_task(user_message + pdf_info)
                     skills_to_inject = [s["id"] for s in matched_skills[:3]]
+                    matched_skill_infos = [
+                        {
+                            "id": s["id"],
+                            "name": s.get("name", s["id"]),
+                            "description": s.get("description", ""),
+                            "tags": skill_manager.skills_metadata.get(s["id"], {}).get("tags", []),
+                        }
+                        for s in matched_skills[:3]
+                    ]
                 else:
                     skills_to_inject = selected_skills if selected_skills else []
+                    matched_skill_infos = [
+                        {
+                            "id": skill_id,
+                            "name": skill_manager.skills_metadata.get(skill_id, {}).get("name", skill_id),
+                            "description": skill_manager.skills_metadata.get(skill_id, {}).get("description", ""),
+                            "tags": skill_manager.skills_metadata.get(skill_id, {}).get("tags", []),
+                        }
+                        for skill_id in skills_to_inject
+                    ]
 
                 if skills_to_inject:
+                    runtime_context["selected_skills"] = skills_to_inject
+                    runtime_context["skill_contexts"] = matched_skill_infos
                     enhanced_messages = [{"role": "system", "content": sys_prompt}]
                     for u, a in chat_history:
                         enhanced_messages.append({"role": "user", "content": u})
@@ -907,28 +1028,46 @@ def create_ui_with_skills():
             import time
             start_time = time.time()
 
+            runtime_context_prompt = build_runtime_context_prompt(runtime_context)
+
             if use_tools_mode:
                 try:
-                    response, exec_log = agent_framework.process_message(
-                        user_message + pdf_info, chat_history,
-                        system_prompt_override=sys_prompt, temperature=temp, top_p=top_p_val, max_tokens=max_tok
+                    response, execution_log, runtime_context = agent_framework.process_message(
+                        user_message + pdf_info,
+                        chat_history,
+                        system_prompt_override=sys_prompt,
+                        runtime_context=runtime_context,
+                        return_runtime_context=True,
+                        temperature=temp,
+                        top_p=top_p_val,
+                        max_tokens=max_tok,
                     )
                     history[-1][1] = response
                     response_started = True
                     yield history
                 except Exception as e:
                     error_msg = f"[⚠️ 工具模式错误] {str(e)}"
+                    execution_log.append({
+                        "iteration": 0,
+                        "type": "runtime_error",
+                        "content": error_msg,
+                        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                    })
 
                     if use_custom_messages:
+                        fallback_messages = inject_context_message(enhanced_messages, runtime_context_prompt)
                         for text_chunk in qwen_agent.generate_stream_with_messages(
-                                enhanced_messages, temperature=temp, top_p=top_p_val, max_tokens=max_tok
+                                fallback_messages, temperature=temp, top_p=top_p_val, max_tokens=max_tok
                         ):
                             history[-1][1] = error_msg + "\n\n" + text_chunk
                             response_started = True
                             yield history
                     else:
+                        fallback_user_message = user_message + pdf_info
+                        if runtime_context_prompt:
+                            fallback_user_message = f"{runtime_context_prompt}\n\n{fallback_user_message}"
                         for text_chunk in qwen_agent.generate_stream(
-                                user_message + pdf_info, chat_history,
+                                fallback_user_message, chat_history,
                                 system_prompt=sys_prompt, temperature=temp, top_p=top_p_val, max_tokens=max_tok
                         ):
                             history[-1][1] = error_msg + "\n\n" + text_chunk
@@ -936,20 +1075,33 @@ def create_ui_with_skills():
                             yield history
             else:
                 if use_custom_messages:
+                    mode_messages = inject_context_message(enhanced_messages, runtime_context_prompt)
                     for response in qwen_agent.generate_stream_with_messages(
-                            enhanced_messages, temperature=temp, top_p=top_p_val, max_tokens=max_tok
+                            mode_messages, temperature=temp, top_p=top_p_val, max_tokens=max_tok
                     ):
                         history[-1][1] = response
                         response_started = True
                         yield history
                 else:
+                    direct_user_message = user_message + pdf_info
+                    if runtime_context_prompt:
+                        direct_user_message = f"{runtime_context_prompt}\n\n{direct_user_message}"
                     for response in qwen_agent.generate_stream(
-                            user_message + pdf_info, chat_history,
+                            direct_user_message, chat_history,
                             system_prompt=sys_prompt, temperature=temp, top_p=top_p_val, max_tokens=max_tok
                     ):
                         history[-1][1] = response
                         response_started = True
                         yield history
+
+                execution_log.append({
+                    "iteration": 0,
+                    "type": "model_response",
+                    "content": history[-1][1] if history[-1][1] else "",
+                    "run_mode": runtime_context.get("run_mode", "chat"),
+                    "plan_mode": runtime_context.get("plan_mode", False),
+                    "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                })
 
             # 记录对话到日志
             if response_started and history[-1][1]:
@@ -958,21 +1110,23 @@ def create_ui_with_skills():
                     user_message=user_message,
                     bot_response=history[-1][1],
                     execution_time=execution_time,
-                    tokens_used=0
+                    tokens_used=0,
+                    runtime_context=runtime_context,
+                    execution_log=execution_log,
                 )
 
         # 绑定事件
         msg.submit(user_input, [msg, chatbot], [msg, chatbot]).then(
             bot_response,
             [chatbot, system_prompt, temperature, top_p, max_tokens, use_tools, use_skills,
-             skills_selector, auto_match_skills, pdf_file],
+             plan_mode, skills_selector, auto_match_skills, pdf_file],
             [chatbot]
         )
 
         send_btn.click(user_input, [msg, chatbot], [msg, chatbot]).then(
             bot_response,
             [chatbot, system_prompt, temperature, top_p, max_tokens, use_tools, use_skills,
-             skills_selector, auto_match_skills, pdf_file],
+             plan_mode, skills_selector, auto_match_skills, pdf_file],
             [chatbot]
         )
 

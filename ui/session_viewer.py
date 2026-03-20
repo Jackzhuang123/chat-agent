@@ -218,6 +218,8 @@ def create_session_viewer():
                         exec_time = msg["execution_time"]
                         tokens = msg["tokens_used"]
                         model_calls = msg.get("model_calls", [])
+                        runtime_context = msg.get("runtime_context", {})
+                        execution_log = msg.get("execution_log", [])
 
                         messages_html_str += f"""
                         <div class="message-item">
@@ -232,6 +234,55 @@ def create_session_viewer():
                                 ⏱️ {exec_time:.2f}s | 🔤 {tokens} tokens
                             </div>
                         """
+
+                        # 显示运行上下文和执行日志
+                        if runtime_context:
+                            run_mode = runtime_context.get("run_mode", "chat")
+                            plan_mode = runtime_context.get("plan_mode", False)
+                            selected_skills = runtime_context.get("selected_skills", [])
+                            uploaded_files = runtime_context.get("uploaded_files", [])
+
+                            messages_html_str += f"""
+                            <div style="margin-top: 12px; border-top: 1px solid #e5e7eb; padding-top: 8px;">
+                                <strong style="color: #7c3aed;">🧭 运行上下文</strong>
+                                <div style="font-size: 12px; margin-top: 6px; color: #4b5563;">
+                                    模式: {run_mode} | 计划模式: {'开启' if plan_mode else '关闭'}
+                                </div>
+                            """
+                            if selected_skills:
+                                messages_html_str += f"""
+                                <div style="font-size: 12px; margin-top: 4px; color: #4b5563;">
+                                    技能: {', '.join(selected_skills)}
+                                </div>
+                                """
+                            if uploaded_files:
+                                file_names = ", ".join(item.get("filename", "unknown") for item in uploaded_files)
+                                messages_html_str += f"""
+                                <div style="font-size: 12px; margin-top: 4px; color: #4b5563;">
+                                    文件: {file_names}
+                                </div>
+                                """
+                            messages_html_str += "</div>"
+
+                        if execution_log:
+                            messages_html_str += f"""
+                            <div style="margin-top: 12px; border-top: 1px solid #e5e7eb; padding-top: 8px;">
+                                <strong style="color: #0f766e;">📈 Agent 执行日志 ({len(execution_log)} 条)</strong>
+                            """
+                            for log_idx, step in enumerate(execution_log, 1):
+                                step_type = step.get("type", "unknown")
+                                step_iter = step.get("iteration", 0)
+                                step_time = step.get("timestamp", "")
+                                step_summary = step.get("tool") or step.get("content", "")
+                                if isinstance(step_summary, str) and len(step_summary) > 120:
+                                    step_summary = step_summary[:120] + "..."
+                                messages_html_str += f"""
+                                <div style="margin-top: 6px; padding: 6px 8px; background: #ecfeff; border-radius: 4px; font-size: 11px; color: #155e75;">
+                                    #{log_idx} | iter={step_iter} | {step_type} | {step_time}<br>
+                                    {step_summary}
+                                </div>
+                                """
+                            messages_html_str += "</div>"
 
                         # 显示模型调用详情
                         if model_calls:
