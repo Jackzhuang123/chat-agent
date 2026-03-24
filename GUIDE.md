@@ -8,8 +8,9 @@
 2. [三种工作模式](#三种工作模式)
 3. [工具系统](#工具系统)
 4. [Skills 系统](#skills-系统)
-5. [常见问题](#常见问题)
-6. [高级用法](#高级用法)
+5. [gstack 架构中间件](#gstack-架构中间件)
+6. [常见问题](#常见问题)
+7. [高级用法](#高级用法)
 
 ---
 
@@ -276,6 +277,13 @@ python3 ui/web_agent_with_skills.py
 - 设计模式
 - 性能优化
 
+**web-qa/** - Web QA 测试（移植自 gstack）
+- Playwright / Selenium / requests 工具选择
+- 用户流程测试（登录/注册/结账）
+- 部署检查（控制台错误 + 网络失败）
+- 响应式布局测试（375/768/1280px）
+- 完成状态报告模板（DONE / DONE_WITH_CONCERNS）
+
 ### 技能标签设计
 
 **好的标签**：
@@ -305,6 +313,147 @@ python3 ui/web_agent_with_skills.py
 
   4. 注入到上下文并处理
 ```
+
+---
+
+## gstack 架构中间件
+
+`chat-Agent` 的中间件系统移植了 [gstack](../gstack) 的核心设计哲学，以轻量"钩子"方式在模型调用前后注入行为约束，无需修改模型本身。
+
+### 中间件概览
+
+| 中间件类 | 触发时机 | 移植来源 |
+|---------|---------|---------|
+| `CompletenessMiddleware` | 首轮对话 | gstack `ETHOS.md` - Boil the Lake |
+| `AskUserQuestionMiddleware` | 检测到提问意图后 | gstack `SKILL.md` - AskUserQuestion |
+| `CompletionStatusMiddleware` | 首轮对话 + 检测阻塞信号 | gstack `SKILL.md` - Completion Status Protocol |
+| `SearchBeforeBuildingMiddleware` | 首轮 + 工具/混合模式 + 检测到构建意图 | gstack `ETHOS.md` - Search Before Building |
+| `RepoOwnershipMiddleware` | 首轮对话 | gstack `SKILL.md` - Repo Ownership Mode |
+
+### 1. 完整性原则（CompletenessMiddleware）
+
+**来源**：gstack `ETHOS.md` 的 "Boil the Lake" 哲学
+
+> "AI 辅助使完整实现的边际成本趋近于零。始终选择完整方案，而非捷径。"
+
+注入后，模型会：
+- 报告任务时同时提供人工时间和 AI 辅助时间估算
+- 选择覆盖所有边界情况的完整方案，而非最小可行版本
+- 在发现更好的完整方案时主动说明
+
+**启用方式**：将 `CompletenessMiddleware` 加入中间件链（默认首轮注入，不重复注入）。
+
+### 2. 结构化提问（AskUserQuestionMiddleware）
+
+**来源**：gstack `SKILL.md` 的 `AskUserQuestion` 协议
+
+当模型需要向用户提问时，强制遵循四段格式：
+
+```
+Re-ground: [重新陈述你对需求的理解]
+Simplify:  [提炼核心问题]
+Recommend: [你的推荐方向]
+Options:   [选项 A / 选项 B / 自定义]
+```
+
+这消除了模糊提问，让用户能快速做出决策。
+
+### 3. 完成状态协议（CompletionStatusMiddleware）
+
+**来源**：gstack `SKILL.md` 的 Completion Status Protocol
+
+强制模型用四种状态之一汇报结果：
+
+| 状态 | 含义 |
+|------|------|
+| `DONE` | 所有步骤完成，每个声明有证据支撑 |
+| `DONE_WITH_CONCERNS` | 已完成，但存在用户需知晓的问题 |
+| `BLOCKED` | 无法继续，说明阻塞原因和已尝试内容 |
+| `NEEDS_CONTEXT` | 缺少必要信息，精确说明需要什么 |
+
+升级规则：同一任务失败 3 次 → 自动上报 `BLOCKED`。
+
+### 4. 搜索优先（SearchBeforeBuildingMiddleware）
+
+**来源**：gstack `ETHOS.md` 的 "Search Before Building" 哲学
+
+在检测到构建意图时（包含"实现"、"构建"、"开发"等关键词），注入三层知识体系框架：
+
+- **Layer 1（经典可靠）**：成熟标准模式，检查成本为零
+- **Layer 2（新颖流行）**：当前最佳实践，批判性审视
+- **Layer 3（第一性原理）**：原创推理，命名 Eureka 发现：
+  ```
+  EUREKA: 大家因为[假设]做X。但[证据]显示这是错的，Y更好因为[推理]。
+  ```
+
+### 5. 仓库所有权模式（RepoOwnershipMiddleware）
+
+**来源**：gstack `SKILL.md` 的 Repo Ownership Mode
+
+通过 `runtime_context["repo_mode"]` 配置：
+
+```python
+runtime_context = {
+    "repo_mode": "solo"  # 或 "collaborative"（默认 "unknown"）
+}
+```
+
+| 模式 | 行为 |
+|------|------|
+| `solo` | 发现范围外问题时，主动调查并提议修复；默认行动，不询问 |
+| `collaborative` | 发现范围外问题时，通知用户；默认询问，不直接修改 |
+| `unknown` | 按 `collaborative` 处理（更安全的默认值） |
+
+无论哪种模式，都遵循 "See Something, Say Something" 原则：一句话说明发现了什么和影响是什么，绝不让问题悄悄溜走。
+
+### 在代码中使用 gstack 中间件
+
+```python
+from core.agent_framework import (
+    QwenAgentFramework,
+    CompletenessMiddleware,
+    AskUserQuestionMiddleware,
+    CompletionStatusMiddleware,
+    SearchBeforeBuildingMiddleware,
+    RepoOwnershipMiddleware,
+)
+
+agent = QwenAgentFramework(
+    model_forward_fn=my_model_fn,
+    middlewares=[
+        CompletenessMiddleware(),
+        AskUserQuestionMiddleware(),
+        CompletionStatusMiddleware(),
+        SearchBeforeBuildingMiddleware(),
+        RepoOwnershipMiddleware(),
+    ]
+)
+
+# 设置仓库所有权模式
+response, log = agent.process_message(
+    "实现一个 Redis 缓存层",
+    history=[],
+    runtime_context={
+        "run_mode": "hybrid",
+        "repo_mode": "solo",  # 主动修复模式
+    }
+)
+```
+
+### Web QA 技能
+
+新增 `skills/web-qa/` 技能，移植自 gstack QA 工作流：
+
+```
+用户: "测试这个登录页面的功能是否正常"
+系统:
+  1. 自动匹配 web-qa 技能（包含 qa、browser、testing 等标签）
+  2. 注入 Playwright 自动化测试方法论
+  3. 模型生成包含截图证据的完整测试代码
+  4. 汇报 STATUS: DONE（含截图路径、错误数等证据）
+```
+
+**触发关键词**：`qa`、`测试`、`browser`、`playwright`、`selenium`、`自动化`、`web`
 
 ---
 

@@ -1,5 +1,7 @@
-# Deer-Flow 架构集成到 chat-Agent 说明
+# 代码细节流程总结（Deer-Flow 思路落地到 chat-Agent）
 
+
+---
 ## 1. 集成目标
 
 本次改造目标：
@@ -271,15 +273,65 @@
 
 ---
 
-## 8. 结论
+## 8. 代码细节流程补充
 
-当前 `chat-Agent` 已完成对 Deer-Flow 核心框架思想的落地集成：
+### 8.1 Framework 主循环顺序
 
-- 有中间件链；
-- 有模式化运行上下文；
-- 有计划模式与上传文件上下文注入；
-- 有工具结果标准化；
-- 有完整日志与可视化回看。
+`QwenAgentFramework.process_message()` / `process_message_stream()` 执行顺序：
 
-并且已完成编译与回归验证，保持可运行状态。
+1. `_build_runtime_context()` 合并默认与请求级上下文。
+2. `_apply_before_model_middlewares()` 注入模式、计划、技能、文件上下文。
+3. `model_forward_fn(...)` 执行模型生成。
+4. `ToolParser.parse_tool_calls(...)` 解析工具调用（包含容错分支）。
+5. `ToolExecutor.execute_tool(...)` 执行工具并产出原始结果。
+6. `_apply_after_tool_call_middlewares(...)` 统一结果结构。
+7. `_format_tool_results(...)` 压缩工具结果并回注下一轮上下文。
+
+### 8.2 read_file 结构化摘要
+
+`_prepare_tool_result_for_model()` 对 `read_file` 的结果转为摘要，核心字段：
+
+- `title`
+- `section_headings`
+- `line_count`
+- `char_count`
+- `preview`
+
+该策略避免把全文 `content` 回灌模型，是“只总结不复述”的第一层防线。
+
+### 8.3 anti-repeat 重写守卫
+
+`_should_trigger_anti_repeat_guard()` 检测复述信号：
+
+- 固定话术（如“工具执行结果如下”）
+- JSON 或代码块回显
+- 与 `preview` 的长片段重叠
+
+命中后 `_rewrite_with_anti_repeat_guard()` 触发一次强约束重写，仅允许输出：
+
+- 核心结论（1-2 句）
+- 关键要点（最多 3 条）
+- 可选后续建议（1 条）
+
+### 8.4 ToolParser 容错规则
+
+`ToolParser.parse_tool_calls()` 同时支持：
+
+- JSON 调用格式
+- 严格 `<tool>/<input>` 标签格式
+- 缺失 `</input>` 的容错解析
+
+`_parse_input_payload()` 在轻微 JSON 不完整时尝试修复并解析，降低小模型格式误差导致的工具链中断。
+
+---
+
+## 9. 结论
+
+当前 `chat-Agent` 已形成可控、可观测、可容错的执行框架：
+
+- 有中间件链
+- 有模式化运行上下文
+- 有工具结果标准化
+- 有 `read_file` 摘要化 + anti-repeat 双层防复述
+- 有会话日志全链路回看能力
 

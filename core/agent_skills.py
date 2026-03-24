@@ -31,9 +31,13 @@ class SkillManager:
         初始化技能管理器
 
         Args:
-            skills_dir: 技能目录路径,默认为 ./skills
+            skills_dir: 技能目录路径，默认为项目根目录下的 skills/
         """
-        self.skills_dir = Path(skills_dir) if skills_dir else Path("./skills")
+        if skills_dir:
+            self.skills_dir = Path(skills_dir)
+        else:
+            # 使用绝对路径，避免从不同工作目录启动时相对路径失效
+            self.skills_dir = Path(__file__).parent.parent / "skills"
         self.skills_metadata: Dict[str, Dict[str, Any]] = {}
         self.skills_cache: Dict[str, str] = {}
 
@@ -57,12 +61,13 @@ class SkillManager:
         """
         加载技能的元数据 (第一层: 始终加载)
 
-        SKILL.md 格式:
+        SKILL.md 格式（兼容 DeerFlow SKILL.md 规范）:
         ```
         ---
         name: PDF 处理
         description: 处理 PDF 文件的技能
         tags: [pdf, document, parsing]
+        license: MIT
         resources:
           - references/pdf_spec.md
           - scripts/extract.py
@@ -71,40 +76,114 @@ class SkillManager:
 
         详细说明...
         ```
+
+        解析策略（借鉴 DeerFlow skills/parser.py 的健壮解析）：
+        - 支持 tags 多种格式：[a, b]、- a\n- b、逗号分隔字符串
+        - 必填字段缺失时跳过技能（name + description）
+        - 支持 license 字段（DeerFlow 新增的合规字段）
+        - 宽容解析：单行/多值字段均兼容
         """
+        import re as _re
         try:
             with open(skill_file, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            # 解析 frontmatter (简化版,用于演示)
-            if content.startswith('---'):
-                parts = content.split('---', 2)
-                if len(parts) >= 3:
-                    frontmatter = parts[1].strip()
-                    body = parts[2].strip()
+            # 提取 YAML frontmatter（借鉴 DeerFlow parser.py 的正则策略）
+            front_matter_match = _re.match(r"^---\s*\n(.*?)\n---\s*\n", content, _re.DOTALL)
+            if not front_matter_match:
+                # 尝试宽松格式：--- 开头，下一个 --- 结束
+                if content.startswith('---'):
+                    parts = content.split('---', 2)
+                    if len(parts) >= 3:
+                        frontmatter_raw = parts[1].strip()
+                        body = parts[2].strip()
+                    else:
+                        return
+                else:
+                    return
+            else:
+                frontmatter_raw = front_matter_match.group(1)
+                body_start = front_matter_match.end()
+                body = content[body_start:].strip()
 
-                    # 解析 YAML frontmatter (简化)
-                    metadata = {
-                        "name": skill_dir.name,
-                        "description": "",
-                        "tags": [],
-                        "resources": [],
-                    }
+            # 初始化元数据（默认值）
+            metadata: Dict[str, Any] = {
+                "name": skill_dir.name,
+                "description": "",
+                "tags": [],
+                "license": None,
+                "resources": [],
+            }
 
-                    for line in frontmatter.split('\n'):
-                        if line.startswith('name:'):
-                            metadata["name"] = line.split(':', 1)[1].strip()
-                        elif line.startswith('description:'):
-                            metadata["description"] = line.split(':', 1)[1].strip()
-                        elif line.startswith('tags:'):
-                            tags_str = line.split(':', 1)[1].strip()
-                            metadata["tags"] = [t.strip() for t in tags_str.strip('[]').split(',')]
+            # 逐行解析 frontmatter
+            # 支持多行列表字段（如 tags: 后跟 - item 格式）
+            current_key: Optional[str] = None
+            list_buffer: List[str] = []
 
-                    metadata["path"] = str(skill_dir)
-                    metadata["full_content"] = content  # 缓存完整内容
-                    metadata["body_preview"] = body[:200] + "..." if len(body) > 200 else body
+            for line in frontmatter_raw.split('\n'):
+                stripped = line.strip()
+                if not stripped:
+                    continue
 
-                    self.skills_metadata[skill_dir.name] = metadata
+                # 检测缩进列表项（YAML 列表格式：- value）
+                if stripped.startswith('- ') and current_key in ('tags', 'resources'):
+                    list_buffer.append(stripped[2:].strip())
+                    continue
+
+                # 键值对行
+                if ':' in line:
+                    # 保存上一个列表键的缓冲
+                    if current_key in ('tags', 'resources') and list_buffer:
+                        metadata[current_key] = list_buffer[:]
+                        list_buffer = []
+
+                    key, _, value = line.partition(':')
+                    key = key.strip().lower()
+                    value = value.strip()
+
+                    if key == 'name':
+                        if value:
+                            metadata['name'] = value
+                        current_key = 'name'
+                    elif key == 'description':
+                        if value:
+                            metadata['description'] = value
+                        current_key = 'description'
+                    elif key == 'license':
+                        metadata['license'] = value or None
+                        current_key = 'license'
+                    elif key == 'tags':
+                        current_key = 'tags'
+                        if value:
+                            # 行内列表：tags: [a, b, c] 或 tags: a, b, c
+                            if value.startswith('['):
+                                tags_str = value.strip('[]')
+                                metadata['tags'] = [t.strip().strip('"\'') for t in tags_str.split(',') if t.strip()]
+                            else:
+                                metadata['tags'] = [t.strip() for t in value.split(',') if t.strip()]
+                    elif key == 'resources':
+                        current_key = 'resources'
+                        if value:
+                            metadata['resources'] = [value]
+
+            # 处理结尾的列表缓冲
+            if current_key in ('tags', 'resources') and list_buffer:
+                metadata[current_key] = list_buffer[:]
+
+            # 过滤空标签
+            metadata['tags'] = [t for t in metadata.get('tags', []) if t]
+
+            # DeerFlow 规范：name 和 description 必须存在
+            if not metadata.get('name') or not metadata.get('description'):
+                print(f"警告: 技能 {skill_dir.name} 缺少 name 或 description，已跳过")
+                return
+
+            metadata["path"] = str(skill_dir)
+            metadata["full_content"] = content  # 缓存完整内容
+            metadata["body_preview"] = body[:200] + "..." if len(body) > 200 else body
+            metadata["enabled"] = True  # 默认启用（DeerFlow 兼容字段）
+
+            self.skills_metadata[skill_dir.name] = metadata
         except Exception as e:
             print(f"警告: 加载技能 {skill_dir.name} 失败: {e}")
 
@@ -315,8 +394,11 @@ class SkillInjector:
 # 示例技能文件创建函数 (用于演示)
 # ============================================================================
 
-def create_example_skills(skills_dir: str = "./skills"):
-    """创建示例技能文件,用于演示"""
+def create_example_skills(skills_dir: str = None):
+    """创建示例技能文件，用于演示。若文件已存在则跳过，不覆盖用户修改。"""
+    # 默认使用项目根目录下的 skills，避免相对路径问题
+    if skills_dir is None:
+        skills_dir = Path(__file__).parent.parent / "skills"
     skills_dir = Path(skills_dir)
     skills_dir.mkdir(exist_ok=True)
 
@@ -369,8 +451,10 @@ python3 -c "import fitz; doc=fitz.open('input.pdf'); print(doc[0].get_text())"
 - 处理加密 PDF 时需要密码
 """
 
-    with open(pdf_skill_dir / "SKILL.md", "w", encoding="utf-8") as f:
-        f.write(pdf_skill_content)
+    _pdf_skill_file = pdf_skill_dir / "SKILL.md"
+    if not _pdf_skill_file.exists():
+        with open(_pdf_skill_file, "w", encoding="utf-8") as f:
+            f.write(pdf_skill_content)
 
     # 示例技能 2: 代码审查
     code_review_skill_dir = skills_dir / "code-review"
@@ -432,8 +516,10 @@ tags: [code-review, quality, best-practices, python]
 ```
 """
 
-    with open(code_review_skill_dir / "SKILL.md", "w", encoding="utf-8") as f:
-        f.write(code_review_skill_content)
+    _code_review_skill_file = code_review_skill_dir / "SKILL.md"
+    if not _code_review_skill_file.exists():
+        with open(_code_review_skill_file, "w", encoding="utf-8") as f:
+            f.write(code_review_skill_content)
 
     # 示例技能 3: Python 开发
     python_skill_dir = skills_dir / "python-dev"
@@ -507,10 +593,12 @@ from memory_profiler import profile
 - **mock**: 模拟对象
 """
 
-    with open(python_skill_dir / "SKILL.md", "w", encoding="utf-8") as f:
-        f.write(python_skill_content)
+    _python_skill_file = python_skill_dir / "SKILL.md"
+    if not _python_skill_file.exists():
+        with open(_python_skill_file, "w", encoding="utf-8") as f:
+            f.write(python_skill_content)
 
-    print(f"✅ 示例技能已创建到 {skills_dir}")
+    print(f"✅ 示例技能已就绪（已存在的文件不覆盖）：{skills_dir}")
     print(f"   - {pdf_skill_dir}")
     print(f"   - {code_review_skill_dir}")
     print(f"   - {python_skill_dir}")

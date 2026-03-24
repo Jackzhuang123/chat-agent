@@ -10,6 +10,32 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 
+def _make_json_serializable(obj: Any) -> Any:
+    """递归地将不可 JSON 序列化的对象转换为可序列化形式。
+
+    主要处理:
+    - set → list（_executed_tool_calls、_read_file_paths 等内部追踪集合）
+    - tuple → list
+    - 其他不可序列化对象 → str
+    """
+    if isinstance(obj, dict):
+        return {k: _make_json_serializable(v) for k, v in obj.items()}
+    if isinstance(obj, (set, frozenset)):
+        # 先转换每个元素，再尝试排序（排序失败时不排序，保证不崩溃）
+        items = [_make_json_serializable(v) for v in obj]
+        try:
+            return sorted(str(v) for v in items)
+        except Exception:
+            return items
+    if isinstance(obj, (list, tuple)):
+        return [_make_json_serializable(v) for v in obj]
+    # 基础 JSON 类型：直接返回
+    if isinstance(obj, (str, int, float, bool)) or obj is None:
+        return obj
+    # 其他不可序列化的对象（Path 等）：转为字符串
+    return str(obj)
+
+
 class SessionLogger:
     """会话日志管理器 - 负责日志的持久化存储和查询"""
 
@@ -29,6 +55,9 @@ class SessionLogger:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.current_session_id = None
         self.current_session_file = None
+        # 以 session_id 为 key 缓存模型调用记录，避免多轮请求/生成器交错时相互污染
+        # 结构: { session_id: [call_record, ...] }
+        self._pending_model_calls: Dict[str, List[Dict[str, Any]]] = {}
 
     def create_session(self) -> str:
         """
@@ -57,6 +86,9 @@ class SessionLogger:
         with open(self.current_session_file, 'w', encoding='utf-8') as f:
             json.dump(session_data, f, ensure_ascii=False, indent=2)
 
+        # 新会话开始时清空该 session 的待绑定记录
+        self._pending_model_calls[self.current_session_id] = []
+
         return self.current_session_id
 
     def log_message(self,
@@ -75,14 +107,37 @@ class SessionLogger:
             user_message: 用户消息
             bot_response: 机器人回复
             execution_time: 执行时间(秒)
-            tokens_used: 使用的token数
+            tokens_used: 使用的token数（若 model_calls 有数据则以计算值为准）
             model: 使用的模型
-            model_calls: 模型调用的详细记录列表，包含每次调用的输入和输出
+            model_calls: 模型调用的详细记录列表
             runtime_context: 运行时上下文（模式、技能、上传文件等）
             execution_log: Agent 执行日志（模型轮次、工具调用等）
         """
         if not self.current_session_file or not self.current_session_file.exists():
             self.create_session()
+
+        # 合并：优先使用传入的 model_calls，若没有则使用当前 session 的缓存 pending calls
+        merged_calls = list(model_calls) if model_calls else []
+        _sid = self.current_session_id or ""
+        if not merged_calls:
+            _pending_cur = self._pending_model_calls.get(_sid, [])
+            merged_calls = list(_pending_cur)
+        # 重置当前 session 的缓存（已绑定到本条消息）
+        self._pending_model_calls[_sid] = []
+        self._pending_model_calls[""] = []
+
+        # 从 model_calls 重新计算真实 token 用量（覆盖传入值）
+        if merged_calls:
+            calculated_tokens = sum(
+                c.get("tokens_total", c.get("tokens_input", 0) + c.get("tokens_output", 0))
+                for c in merged_calls
+            )
+            tokens_used = max(tokens_used, calculated_tokens)
+
+        # 对 runtime_context 做序列化安全处理：
+        # agent_framework 内部使用 set 追踪已执行工具调用（_executed_tool_calls）
+        # 和已读文件路径（_read_file_paths），这些 set 不能直接被 json.dump 序列化。
+        safe_runtime_context = _make_json_serializable(runtime_context or {})
 
         message_record = {
             "timestamp": datetime.now().isoformat(),
@@ -91,21 +146,35 @@ class SessionLogger:
             "execution_time": execution_time,
             "tokens_used": tokens_used,
             "model": model,
-            "model_calls": model_calls or [],
-            "runtime_context": runtime_context or {},
+            "model_calls": merged_calls,
+            "runtime_context": safe_runtime_context,
             "execution_log": execution_log or []
         }
 
-        with open(self.current_session_file, 'r', encoding='utf-8') as f:
-            session_data = json.load(f)
+        try:
+            with open(self.current_session_file, 'r', encoding='utf-8') as f:
+                session_data = json.load(f)
+        except Exception as e:
+            print(f"读取会话文件失败，重新创建: {e}")
+            self.create_session()
+            with open(self.current_session_file, 'r', encoding='utf-8') as f:
+                session_data = json.load(f)
 
         session_data["messages"].append(message_record)
         session_data["statistics"]["total_messages"] += 1
         session_data["statistics"]["total_tokens_used"] += tokens_used
         session_data["statistics"]["total_duration"] += execution_time
+        session_data["statistics"]["total_calls"] += len(merged_calls)
 
-        with open(self.current_session_file, 'w', encoding='utf-8') as f:
-            json.dump(session_data, f, ensure_ascii=False, indent=2)
+        try:
+            with open(self.current_session_file, 'w', encoding='utf-8') as f:
+                json.dump(session_data, f, ensure_ascii=False, indent=2)
+        except TypeError as e:
+            # 兜底：若仍有不可序列化字段，再次清洗后保存
+            print(f"日志序列化失败（{e}），尝试深度清洗后重试")
+            session_data["messages"][-1] = _make_json_serializable(message_record)
+            with open(self.current_session_file, 'w', encoding='utf-8') as f:
+                json.dump(session_data, f, ensure_ascii=False, indent=2)
 
     def log_model_call(self,
                       prompt: str,
@@ -117,7 +186,9 @@ class SessionLogger:
                       top_p: float = 0.9,
                       model_name: str = "Qwen2.5-0.5B") -> None:
         """
-        记录一次模型调用的详细信息（实时记录中间调用）
+        记录一次模型调用的详细信息（实时记录中间调用）。
+
+        调用记录先缓存到 _pending_model_calls，等 log_message 调用时统一绑定到正确的用户消息。
 
         Args:
             prompt: 输入提示词
@@ -129,29 +200,10 @@ class SessionLogger:
             top_p: top_p参数
             model_name: 模型名称
         """
-        if not self.current_session_file or not self.current_session_file.exists():
-            self.create_session()
-
-        # 如果消息列表为空，创建一个临时消息来存储模型调用
-        with open(self.current_session_file, 'r', encoding='utf-8') as f:
-            session_data = json.load(f)
-
-        # 创建或获取当前的消息记录
-        if not session_data["messages"]:
-            session_data["messages"].append({
-                "timestamp": datetime.now().isoformat(),
-                "user_message": "[未设置]",
-                "bot_response": "[在进行中...]",
-                "execution_time": 0,
-                "tokens_used": 0,
-                "model": model_name,
-                "model_calls": []
-            })
-
-        # 添加模型调用记录到最后一条消息
-        current_message = session_data["messages"][-1]
+        _sid = self.current_session_id or ""
+        _cur_pending = self._pending_model_calls.setdefault(_sid, [])
         model_call_record = {
-            "call_index": len(current_message.get("model_calls", [])) + 1,
+            "call_index": len(_cur_pending) + 1,
             "timestamp": datetime.now().isoformat(),
             "prompt": prompt,
             "response": response,
@@ -166,13 +218,8 @@ class SessionLogger:
             "model": model_name
         }
 
-        if "model_calls" not in current_message:
-            current_message["model_calls"] = []
-
-        current_message["model_calls"].append(model_call_record)
-
-        with open(self.current_session_file, 'w', encoding='utf-8') as f:
-            json.dump(session_data, f, ensure_ascii=False, indent=2)
+        # 缓存在当前 session 的 pending 列表，等待 log_message 绑定
+        _cur_pending.append(model_call_record)
 
     def log_skill_call(self,
                       skill_id: str,
@@ -209,7 +256,6 @@ class SessionLogger:
             session_data = json.load(f)
 
         session_data["calls"].append(call_record)
-        session_data["statistics"]["total_calls"] += 1
 
         with open(self.current_session_file, 'w', encoding='utf-8') as f:
             json.dump(session_data, f, ensure_ascii=False, indent=2)
@@ -228,28 +274,39 @@ class SessionLogger:
                 with open(log_file, 'r', encoding='utf-8') as f:
                     session_data = json.load(f)
 
-                    # 计算实际的模型调用次数和token数
-                    total_model_calls = 0
-                    total_tokens_calculated = 0
-                    for msg in session_data.get("messages", []):
-                        model_calls = msg.get("model_calls", [])
-                        total_model_calls += len(model_calls)
-                        # 从model_calls中计算tokens
-                        for call in model_calls:
-                            total_tokens_calculated += call.get("tokens_total",
-                                call.get("tokens_input", 0) + call.get("tokens_output", 0))
+                # 从 messages 重新计算实际 model_calls 数和 tokens
+                # 过滤掉旧代码产生的占位消息（[未设置]/[在进行中...]），只统计真实消息
+                total_model_calls = 0
+                total_tokens_calculated = 0
+                real_message_count = 0
+                for msg in session_data.get("messages", []):
+                    # 跳过旧版代码产生的占位消息
+                    if msg.get("user_message") == "[未设置]" and msg.get("bot_response") == "[在进行中...]":
+                        # 占位消息中的 model_calls 仍需计入统计（是真实调用）
+                        for call in msg.get("model_calls", []):
+                            total_tokens_calculated += call.get(
+                                "tokens_total",
+                                call.get("tokens_input", 0) + call.get("tokens_output", 0)
+                            )
+                            total_model_calls += 1
+                        continue
+                    real_message_count += 1
+                    model_calls = msg.get("model_calls", [])
+                    total_model_calls += len(model_calls)
+                    for call in model_calls:
+                        total_tokens_calculated += call.get(
+                            "tokens_total",
+                            call.get("tokens_input", 0) + call.get("tokens_output", 0)
+                        )
 
-                    # 如果计算出的token数大于统计中的，使用计算出的值
-                    total_tokens = max(session_data["statistics"]["total_tokens_used"], total_tokens_calculated)
-
-                    sessions.append({
-                        "session_id": session_data["session_id"],
-                        "created_at": session_data["created_at"],
-                        "message_count": len(session_data["messages"]),
-                        "call_count": total_model_calls,
-                        "total_duration": session_data["statistics"]["total_duration"],
-                        "total_tokens": total_tokens
-                    })
+                sessions.append({
+                    "session_id": session_data["session_id"],
+                    "created_at": session_data["created_at"],
+                    "message_count": real_message_count,
+                    "call_count": total_model_calls,
+                    "total_duration": session_data["statistics"]["total_duration"],
+                    "total_tokens": total_tokens_calculated
+                })
             except Exception as e:
                 print(f"读取日志文件 {log_file} 失败: {e}")
 
@@ -275,25 +332,37 @@ class SessionLogger:
                 session_data = json.load(f)
 
             # 重新计算统计数据以确保准确性
-            total_messages = len(session_data.get("messages", []))
+            # 过滤掉旧版代码产生的占位消息（[未设置]/[在进行中...]），只计入真实消息
+            total_messages = 0
             total_tokens_calculated = 0
             total_model_calls = 0
             total_duration = 0
 
             for msg in session_data.get("messages", []):
-                # 累计执行时间
-                total_duration += msg.get("execution_time", 0)
+                # 跳过旧版代码产生的占位消息，但其 model_calls 仍计入统计
+                is_placeholder = (
+                    msg.get("user_message") == "[未设置]"
+                    and msg.get("bot_response") == "[在进行中...]"
+                )
+                if is_placeholder:
+                    for call in msg.get("model_calls", []):
+                        total_tokens_calculated += call.get(
+                            "tokens_total",
+                            call.get("tokens_input", 0) + call.get("tokens_output", 0)
+                        )
+                        total_model_calls += 1
+                    continue
 
-                # 统计model_calls
+                total_messages += 1
+                total_duration += msg.get("execution_time", 0)
                 model_calls = msg.get("model_calls", [])
                 total_model_calls += len(model_calls)
-
-                # 从model_calls中计算tokens
                 for call in model_calls:
-                    total_tokens_calculated += call.get("tokens_total",
-                        call.get("tokens_input", 0) + call.get("tokens_output", 0))
+                    total_tokens_calculated += call.get(
+                        "tokens_total",
+                        call.get("tokens_input", 0) + call.get("tokens_output", 0)
+                    )
 
-            # 更新统计信息
             session_data["statistics"] = {
                 "total_messages": total_messages,
                 "total_tokens_used": total_tokens_calculated,

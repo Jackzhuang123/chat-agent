@@ -548,9 +548,10 @@ def create_session_analyzer():
                         )
 
                         with gr.Row():
-                            copy_json_btn = gr.Button("📋 复制JSON", scale=1)
-                            download_json_btn = gr.Button("⬇️ 下载JSON", scale=1)
-                            copy_status = gr.Textbox(interactive=False, label="状态")
+                            # 注意：gr.DownloadButton 在 gradio 4.44.1 + gradio_client 1.3.0
+                            # 中会触发 json_schema_to_python_type 的版本兼容 bug，改用 gr.File
+                            download_json_btn = gr.File(label="⬇️ 下载JSON", scale=1, visible=False)
+                            copy_status = gr.Textbox(interactive=False, label="操作提示", scale=2)
 
                     # ===== 消息详情 =====
                     with gr.TabItem("💬 消息详情"):
@@ -768,6 +769,23 @@ def create_session_analyzer():
 
                     return summary_html, messages_html, model_calls_html, json_str, all_messages_html
 
+                def prepare_json_download(json_content: str):
+                    """将 JSON 内容写入临时文件，供 gr.File 下载组件使用。"""
+                    import tempfile
+                    if not json_content or json_content.strip() == "":
+                        return gr.update(visible=False, value=None), "❌ 没有可下载的数据，请先选择一个会话"
+                    try:
+                        tmp = tempfile.NamedTemporaryFile(
+                            mode="w", suffix=".json", encoding="utf-8",
+                            delete=False, prefix="session_"
+                        )
+                        tmp.write(json_content)
+                        tmp.flush()
+                        tmp.close()
+                        return gr.update(value=tmp.name, visible=True), "✅ 文件已准备好，点击下方文件名即可下载"
+                    except Exception as e:
+                        return gr.update(visible=False, value=None), f"❌ 准备下载失败: {e}"
+
                 # 页面加载时和定时刷新
                 demo.load(
                     load_session_details,
@@ -788,6 +806,13 @@ def create_session_analyzer():
                     load_session_details,
                     inputs=current_session_id,
                     outputs=[summary_stats, messages_summary, model_calls_detail, json_editor, all_messages_detail]
+                )
+
+                # 下载 JSON 按钮（json_editor 内容变化时自动准备下载）
+                json_editor.change(
+                    prepare_json_download,
+                    inputs=json_editor,
+                    outputs=[download_json_btn, copy_status]
                 )
 
     return demo
@@ -817,6 +842,6 @@ if __name__ == "__main__":
         server_port=port,
         inbrowser=True,
         share=False,
-        show_error=True
+        show_error=True,
     )
 

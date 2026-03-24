@@ -114,6 +114,7 @@ def create_session_viewer():
                 )
 
                 selected_session_id = gr.Textbox(visible=False)
+                delete_result_msg = gr.Textbox(label="操作结果", interactive=False, visible=False)
 
                 def refresh_sessions():
                     """刷新会话列表"""
@@ -139,6 +140,14 @@ def create_session_viewer():
                             return sessions[row_idx]["session_id"]
                     return ""
 
+                def delete_selected_session(session_id: str):
+                    """删除选中的会话"""
+                    if not session_id:
+                        return gr.update(visible=True, value="❌ 请先从列表中选择一个会话"), refresh_sessions()
+                    success = logger.delete_session(session_id)
+                    msg = f"✅ 会话 {session_id} 已删除" if success else f"❌ 删除失败（会话不存在或无权限）"
+                    return gr.update(visible=True, value=msg), refresh_sessions()
+
                 # 会话表格选择事件
                 sessions_table.select(
                     on_session_select,
@@ -146,9 +155,11 @@ def create_session_viewer():
                 )
 
                 refresh_btn.click(refresh_sessions, outputs=sessions_table)
-
-                # 初始化表格
-                refresh_sessions()
+                delete_session_btn.click(
+                    delete_selected_session,
+                    inputs=selected_session_id,
+                    outputs=[delete_result_msg, sessions_table]
+                )
 
             # ===== Tab 2: 会话详情 =====
             with gr.TabItem("🔍 会话详情"):
@@ -352,15 +363,10 @@ def create_session_viewer():
             # ===== Tab 3: 数据导出 =====
             with gr.TabItem("💾 数据导出"):
                 gr.Markdown("### 导出会话数据")
-
-                export_format = gr.Radio(
-                    choices=["JSON"],
-                    value="JSON",
-                    label="导出格式"
-                )
+                gr.Markdown("导出格式：**JSON**（当前唯一支持格式）")
 
                 with gr.Row():
-                    export_btn = gr.Button("📥 导出会话", variant="primary")
+                    export_btn = gr.Button("📥 导出选中会话", variant="primary")
                     export_msg = gr.Textbox(
                         label="导出结果",
                         interactive=False
@@ -405,6 +411,9 @@ def create_session_viewer():
                     clear_all_logs,
                     outputs=clear_msg
                 )
+
+        # 页面加载时自动填充会话列表
+        demo.load(refresh_sessions, outputs=sessions_table)
 
     return demo
 
