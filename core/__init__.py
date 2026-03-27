@@ -2,36 +2,24 @@
 core 模块 - Agent 核心系统
 
 包含:
-  - agent_framework  : Agent 主循环（QwenAgentFramework + 工具调用）
+  - agent_framework  : Agent 主循环（QwenAgentFramework - ReAct + 反思 + 并行执行 + 持久化记忆）
   - agent_middlewares: 中间件链（13 个中间件 + 基类）
   - agent_tools      : 工具系统（文件、命令等）
   - agent_skills     : Skills 系统（知识外置化）
-  - todo_manager     : TODO 状态机（四态：pending/in_progress/completed/failed）
-  - intent_router    : 意图路由（规则路由 + AI 语义路由）
-  - task_planner     : 任务规划与执行（Orchestrator-Worker 架构）
-  - memory_manager   : 跨会话持久化记忆系统
 
-设计架构（借鉴 DeerFlow + gstack）：
-  - MemoryManager          : 跨会话记忆 → 借鉴 DeerFlow MemoryUpdater
-  - MemoryInjectionMiddleware : 记忆注入中间件 → 借鉴 DeerFlow MemoryMiddleware
-  - ConversationSummaryMiddleware : 长对话摘要 → 借鉴 DeerFlow SummarizationMiddleware
-  - make_todo_context_middleware  : 增强版 TodoContext 工厂（含上下文丢失检测）
-  - EnhancedTodoContextMiddleware : 顶层类（可直接使用，无需工厂函数）
-  - CompletenessMiddleware : 完整性原则 → 借鉴 gstack Boil the Lake
-  - AskUserQuestionMiddleware : 结构化提问格式 → 借鉴 gstack SKILL.md
-  - CompletionStatusMiddleware : 完成状态协议 → 借鉴 gstack ETHOS.md
-  - SearchBeforeBuildingMiddleware : 搜索优先 → 借鉴 gstack ETHOS.md
-  - RepoOwnershipMiddleware : 仓库所有权模式 → 借鉴 gstack ARCHITECTURE.md
+核心特性：
+  - ReAct 模式：Reasoning → Acting → Observation → Reflection
+  - 并行工具执行：只读工具（read_file/list_dir）自动并发
+  - 持久化记忆：SessionMemory 跨会话保存工具统计和上下文
+  - 语义压缩：基于消息重要性的智能上下文压缩
+  - 循环检测：3次相同失败自动中断
+  - 智能重试：自动修复常见错误（grep转义、路径补全）
 """
 
 # ============================================================================
-# 核心 Agent 框架（保留 QwenAgentFramework + create_qwen_model_forward）
+# 核心 Agent 框架（精简版 201 行）
 # ============================================================================
-from .agent_framework import (
-    QwenAgentFramework,
-    create_qwen_model_forward,
-)
-
+from .agent_framework import QwenAgentFramework
 # ============================================================================
 # 中间件（从 agent_middlewares 导入，包含更优化的实现）
 # ============================================================================
@@ -54,46 +42,68 @@ from .agent_middlewares import (
     SearchBeforeBuildingMiddleware,
     RepoOwnershipMiddleware,
 )
-
-# ============================================================================
-# TODO 状态管理（从 todo_manager 导入）
-# ============================================================================
-from .todo_manager import (
-    TodoItem,
-    TodoManager,
-)
-
-# ============================================================================
-# 意图路由（从 intent_router 导入）
-# ============================================================================
-from .intent_router import (
-    IntentRouter,
-    AIIntentRouter,
-)
-
-# ============================================================================
-# 任务规划与执行（从 task_planner 导入）
-# ============================================================================
-from .task_planner import (
-    TaskPlanner,
-    TaskExecutor,
-)
-
-# ============================================================================
-# 记忆系统（从 memory_manager 导入）
-# ============================================================================
-from .memory_manager import MemoryManager
-
 # ============================================================================
 # 工具与技能系统
 # ============================================================================
 from .agent_skills import SkillManager, SkillInjector, create_example_skills
 from .agent_tools import ToolExecutor, ToolParser, ToolRegistry, create_web_search_tool_placeholder
+from .mode_router import ModeRouter, AutoModeMiddleware, create_auto_mode_framework
+from .multi_agent import (
+    PlannerAgent,
+    ExecutorAgent,
+    ReviewerAgent,
+    MultiAgentOrchestrator,
+)
+from .streaming_framework import StreamingFramework, create_streaming_wrapper
+from .tool_learner import ToolLearner
+# ============================================================================
+# 高级特性（新增）
+# ============================================================================
+from .vector_memory import VectorMemory
+
+
+# 已移除未使用组件：TodoManager, TaskPlanner, IntentRouter, MemoryManager
+# 记忆功能已集成到 agent_framework.SessionMemory
+
+
+# ============================================================================
+# 工具函数：将 Agent 实例包装为 QwenAgentFramework 所需的 forward_fn
+# ============================================================================
+def create_qwen_model_forward(agent):
+    """工厂函数：将 QwenAgent / GLMAgent 包装为 QwenAgentFramework 所需的 model_forward_fn。
+
+    返回一个同步调用函数 forward_fn(messages, system_prompt="", **kwargs) -> str，
+    内部消耗 agent.generate_stream_with_messages 的全部 token，最终返回完整生成文本。
+
+    用法：
+        forward_fn = create_qwen_model_forward(my_agent)
+        framework = QwenAgentFramework(model_forward_fn=forward_fn, ...)
+    """
+    def forward_fn(messages, system_prompt="", **kwargs):
+        full_messages = list(messages)
+        if system_prompt and system_prompt.strip():
+            # 避免重复注入：若 messages 第一条已是内容相同的 system 消息则跳过
+            _already_has_system = (
+                full_messages
+                and full_messages[0].get("role") == "system"
+                and full_messages[0].get("content", "").strip() == system_prompt.strip()
+            )
+            if not _already_has_system:
+                full_messages = [{"role": "system", "content": system_prompt}] + full_messages
+        result = ""
+        for chunk in agent.generate_stream_with_messages(
+            full_messages,
+            temperature=kwargs.get("temperature", 0.7),
+            top_p=kwargs.get("top_p", 0.9),
+            max_tokens=kwargs.get("max_tokens", 8192),
+        ):
+            result = chunk  # generate_stream_with_messages 每次 yield 累积文本
+        return result
+    return forward_fn
 
 __all__ = [
     # ---- 框架核心 ----
     "QwenAgentFramework",
-    "create_qwen_model_forward",
 
     # ---- 中间件基类 ----
     "AgentMiddleware",
@@ -105,36 +115,21 @@ __all__ = [
     "UploadedFilesMiddleware",
     "ToolResultGuardMiddleware",
 
-    # ---- 中间件：TODO 状态追踪 ----
+    # ---- 中间件：TODO 状态追踪（可选）----
     "TodoContextMiddleware",
     "EnhancedTodoContextMiddleware",
     "make_todo_context_middleware",
 
-    # ---- 中间件：记忆与摘要（DeerFlow 架构） ----
+    # ---- 中间件：记忆与摘要（可选）----
     "MemoryInjectionMiddleware",
     "ConversationSummaryMiddleware",
 
-    # ---- 中间件：gstack 架构移植 ----
+    # ---- 中间件：gstack 架构移植（可选）----
     "CompletenessMiddleware",
     "AskUserQuestionMiddleware",
     "CompletionStatusMiddleware",
     "SearchBeforeBuildingMiddleware",
     "RepoOwnershipMiddleware",
-
-    # ---- 记忆系统 ----
-    "MemoryManager",
-
-    # ---- TODO 管理 ----
-    "TodoItem",
-    "TodoManager",
-
-    # ---- 意图路由 ----
-    "IntentRouter",
-    "AIIntentRouter",
-
-    # ---- 任务规划 & 执行 ----
-    "TaskPlanner",
-    "TaskExecutor",
 
     # ---- 工具系统 ----
     "ToolExecutor",
@@ -146,5 +141,21 @@ __all__ = [
     "SkillManager",
     "SkillInjector",
     "create_example_skills",
+
+    # ---- 工具函数 ----
+    "create_qwen_model_forward",
+
+    # ---- 高级特性 ----
+    "VectorMemory",
+    "PlannerAgent",
+    "ExecutorAgent",
+    "ReviewerAgent",
+    "MultiAgentOrchestrator",
+    "ToolLearner",
+    "StreamingFramework",
+    "create_streaming_wrapper",
+    "ModeRouter",
+    "AutoModeMiddleware",
+    "create_auto_mode_framework",
 ]
 

@@ -46,7 +46,12 @@ class ToolExecutor:
             },
             {
                 "name": "write_file",
-                "description": "创建或覆盖文件。用于创建新文件或完全替换文件内容。",
+                "description": (
+                    "写入文件。\n"
+                    "- mode=\"overwrite\"（默认）：创建新文件或完全替换已有内容\n"
+                    "- mode=\"append\"：追加内容到文件末尾（文件不存在时自动创建）\n"
+                    "【重要】整理文档时请用 append 逐步追加，不要用 overwrite 反复覆盖已有内容。"
+                ),
                 "input_schema": {
                     "type": "object",
                     "properties": {
@@ -57,6 +62,10 @@ class ToolExecutor:
                         "content": {
                             "type": "string",
                             "description": "文件内容"
+                        },
+                        "mode": {
+                            "type": "string",
+                            "description": "写入模式：overwrite（覆盖，默认）或 append（追加到末尾）"
                         }
                     },
                     "required": ["path", "content"]
@@ -184,7 +193,11 @@ class ToolExecutor:
             if tool_name == "read_file":
                 return self._read_file(tool_input["path"])
             elif tool_name == "write_file":
-                return self._write_file(tool_input["path"], tool_input["content"])
+                return self._write_file(
+                    tool_input["path"],
+                    tool_input["content"],
+                    mode=tool_input.get("mode", "overwrite"),
+                )
             elif tool_name == "edit_file":
                 return self._edit_file(
                     tool_input["path"],
@@ -276,7 +289,34 @@ class ToolExecutor:
         return None
 
     def _read_file(self, path: str) -> str:
-        """读取文件，支持三级模糊路径搜索（项目内 → 家目录 → 提示）"""
+        """读取文件，支持绝对路径 + 三级模糊路径搜索（项目内 → 家目录 → 提示）"""
+        p = Path(path)
+
+        # ---- 优先：绝对路径直接读取（不做模糊搜索，避免误匹配）----
+        if p.is_absolute():
+            if p.exists() and p.is_file():
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    result_abs: Dict[str, Any] = {
+                        "success": True,
+                        "path": str(p),
+                        "content": content
+                    }
+                    if not content.strip():
+                        result_abs["warning"] = "文件存在但内容为空（0字节或全为空白符），不是文件缺失"
+                    return json.dumps(result_abs)
+                except Exception as e:
+                    return json.dumps({"success": False, "error": f"读取文件失败: {str(e)}"})
+            else:
+                return json.dumps({
+                    "success": False,
+                    "file_not_found": True,
+                    "error": f"文件不存在: {path}",
+                    "hint": "绝对路径指定的文件不存在，请先用 list_dir 确认路径。"
+                })
+
+        # ---- 相对路径：拼接工作目录 ----
         file_path = self.work_dir / path
 
         # 尝试直接路径
@@ -292,23 +332,6 @@ class ToolExecutor:
                 if not content.strip():
                     result["warning"] = "文件存在但内容为空（0字节或全为空白符），不是文件缺失"
                 return json.dumps(result)
-            except Exception as e:
-                return json.dumps({"success": False, "error": f"读取文件失败: {str(e)}"})
-
-        # 也尝试绝对路径（模型可能直接给了绝对路径）
-        abs_path = Path(path)
-        if abs_path.is_absolute() and abs_path.exists() and abs_path.is_file():
-            try:
-                with open(abs_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                result_abs: Dict[str, Any] = {
-                    "success": True,
-                    "path": str(abs_path),
-                    "content": content
-                }
-                if not content.strip():
-                    result_abs["warning"] = "文件存在但内容为空（0字节或全为空白符），不是文件缺失"
-                return json.dumps(result_abs)
             except Exception as e:
                 return json.dumps({"success": False, "error": f"读取文件失败: {str(e)}"})
 
@@ -342,40 +365,60 @@ class ToolExecutor:
             )
         })
 
-    def _write_file(self, path: str, content: str) -> str:
-        """写入文件"""
-        file_path = self.work_dir / path
+    def _write_file(self, path: str, content: str, mode: str = "overwrite") -> str:
+        """写入文件，支持 overwrite（覆盖）和 append（追加）两种模式"""
+        # 支持绝对路径
+        p = Path(path)
+        file_path = p if p.is_absolute() else self.work_dir / path
 
-        # 安全性检查
-        try:
-            file_path.resolve().relative_to(self.work_dir.resolve())
-        except ValueError:
-            return json.dumps({"error": "路径超出工作目录范围"})
+        # 安全性检查：相对路径不得逃逸出工作目录；绝对路径直接放行
+        if not p.is_absolute():
+            try:
+                file_path.resolve().relative_to(self.work_dir.resolve())
+            except ValueError:
+                return json.dumps({"error": "路径超出工作目录范围"})
 
         try:
             # 创建父目录
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(content)
-
-            return json.dumps({
-                "success": True,
-                "path": path,
-                "size": len(content)
-            })
+            if mode == "append":
+                # 追加模式：在已有内容末尾追加，文件不存在时自动创建
+                with open(file_path, "a", encoding="utf-8") as f:
+                    f.write(content)
+                total_size = file_path.stat().st_size
+                return json.dumps({
+                    "success": True,
+                    "path": path,
+                    "mode": "append",
+                    "appended_size": len(content),
+                    "total_size": total_size,
+                })
+            else:
+                # 覆盖模式（默认）：完整替换文件内容
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                return json.dumps({
+                    "success": True,
+                    "path": path,
+                    "mode": "overwrite",
+                    "size": len(content),
+                })
         except Exception as e:
             return json.dumps({"error": f"写入文件失败: {str(e)}"})
 
     def _edit_file(self, path: str, old_content: str, new_content: str) -> str:
         """编辑文件 - 替换指定部分"""
-        file_path = self.work_dir / path
+        # 支持绝对路径
+        p = Path(path)
+        file_path = p if p.is_absolute() else self.work_dir / path
 
-        # 安全性检查
-        try:
-            file_path.resolve().relative_to(self.work_dir.resolve())
-        except ValueError:
-            return json.dumps({"error": "路径超出工作目录范围"})
+        # 安全性检查：相对路径不得逃逸出工作目录；绝对路径直接放行
+        if not p.is_absolute():
+            try:
+                file_path.resolve().relative_to(self.work_dir.resolve())
+            except ValueError:
+                return json.dumps({"error": "路径超出工作目录范围"})
 
         if not file_path.exists():
             return json.dumps({"error": f"文件不存在: {path}"})
@@ -405,13 +448,19 @@ class ToolExecutor:
 
     def _list_dir(self, path: str = ".") -> str:
         """列出目录内容"""
-        dir_path = self.work_dir / path
+        # 支持绝对路径：若 path 是绝对路径则直接使用，否则相对于 work_dir 拼接
+        p = Path(path)
+        if p.is_absolute():
+            dir_path = p
+        else:
+            dir_path = self.work_dir / path
 
-        # 安全性检查
-        try:
-            dir_path.resolve().relative_to(self.work_dir.resolve())
-        except ValueError:
-            return json.dumps({"error": "路径超出工作目录范围"})
+        # 安全性检查：相对路径不得逃逸出工作目录；绝对路径直接放行
+        if not p.is_absolute():
+            try:
+                dir_path.resolve().relative_to(self.work_dir.resolve())
+            except ValueError:
+                return json.dumps({"error": "路径超出工作目录范围"})
 
         if not dir_path.exists():
             return json.dumps({"error": f"目录不存在: {path}"})
@@ -552,31 +601,193 @@ class ToolParser:
         从模型输出中解析工具调用
 
         支持的格式:
-        1. JSON 格式: [{"tool": "bash", "input": {"command": "ls"}}]
-        2. 标记格式: <tool>bash</tool><input>{"command": "ls"}</input>
-        3. 文本格式: Tool: bash, Input: {"command": "ls"}
+        1. JSON 数组格式: [{"tool": "bash", "input": {"command": "ls"}}]
+        2. JSON 单对象格式: {"tool": "bash", "input": {"command": "ls"}}
+        3. function_call 格式: {"name": "bash", "arguments": {"command": "ls"}}
+        4. markdown JSON 代码块: ```json\n{"tool": "list_dir", "input": {...}}\n```
+        5. 工具名 + markdown JSON 代码块: list_dir\n```json\n{...}\n```
+        6. XML 标记格式: <tool>bash</tool><input>{"command": "ls"}</input>
+        7. 裸格式: bash\n{"command": "ls"}
 
         Returns:
             List[(tool_name, tool_input), ...]
         """
         calls: List[Tuple[str, Dict[str, Any]]] = []
         stripped = text.strip()
+        known_tools = {"read_file", "write_file", "edit_file", "list_dir", "bash", "todo_write"}
 
-        # 尝试 JSON 格式（数组或单对象）
+        # ---- 格式1/2/3：全文是 JSON（数组或单对象）----
         try:
             if stripped.startswith("["):
                 data = json.loads(stripped)
                 for item in data:
-                    if isinstance(item, dict) and "tool" in item and "input" in item and isinstance(item["input"], dict):
+                    if not isinstance(item, dict):
+                        continue
+                    # {"tool": ..., "input": ...} 格式
+                    if "tool" in item and "input" in item and isinstance(item["input"], dict):
                         calls.append((item["tool"], item["input"]))
+                    # {"name": ..., "arguments": ...} 格式（OpenAI function_call 风格）
+                    elif "name" in item and "arguments" in item:
+                        args = item["arguments"]
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except Exception:
+                                pass
+                        if isinstance(args, dict):
+                            calls.append((item["name"], args))
                 if calls:
                     return calls
             elif stripped.startswith("{"):
                 item = json.loads(stripped)
-                if isinstance(item, dict) and "tool" in item and "input" in item and isinstance(item["input"], dict):
-                    return [(item["tool"], item["input"])]
+                if isinstance(item, dict):
+                    # {"tool": ..., "input": ...}
+                    if "tool" in item and "input" in item and isinstance(item["input"], dict):
+                        return [(item["tool"], item["input"])]
+                    # {"name": ..., "arguments": ...}
+                    elif "name" in item and "arguments" in item:
+                        args = item["arguments"]
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except Exception:
+                                pass
+                        if isinstance(args, dict):
+                            return [(item["name"], args)]
+                    # {"name": ..., "params": ...} 格式（GLM ReAct 格式）
+                    elif "name" in item and "params" in item and isinstance(item["params"], dict):
+                        return [(item["name"], item["params"])]
+                    # {"api": "tool_name", "param": "value", ...} 格式（GLM 常见错误格式）
+                    # 工具名在 "api" 字段，其余键值对直接作为工具参数
+                    elif "api" in item and isinstance(item["api"], str) and item["api"] in known_tools:
+                        tool_name = item["api"]
+                        tool_args = {k: v for k, v in item.items() if k != "api"}
+                        return [(tool_name, tool_args)]
         except (json.JSONDecodeError, KeyError, TypeError):
             pass
+
+        # ---- 格式1b：markdown 代码块内包含 {"api": ...} 格式 ----
+        # 例：```json\n{"api": "read_file", "path": "xxx.py"}\n```
+        _md_api_pattern = re.compile(r'```(?:json)?\s*\n\s*(\{[\s\S]*?\})\s*\n?\s*```')
+        for _mam in _md_api_pattern.finditer(stripped):
+            try:
+                _obj = json.loads(_mam.group(1))
+                if isinstance(_obj, dict) and "api" in _obj and isinstance(_obj["api"], str) and _obj["api"] in known_tools:
+                    _tname = _obj["api"]
+                    _targs = {k: v for k, v in _obj.items() if k != "api"}
+                    return [(_tname, _targs)]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # ---- 格式4：整段文本是 markdown JSON 代码块 ----
+        # 例：```json\n{"tool": "list_dir", "input": {"path": "core"}}\n```
+        md_block_match = re.match(r'^```(?:json|python)?\s*\n([\s\S]*?)\s*```\s*$', stripped)
+        if md_block_match:
+            inner = md_block_match.group(1).strip()
+            try:
+                item = json.loads(inner)
+                if isinstance(item, dict):
+                    if "tool" in item and "input" in item and isinstance(item["input"], dict):
+                        return [(item["tool"], item["input"])]
+                    elif "name" in item and "arguments" in item:
+                        args = item["arguments"]
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except Exception:
+                                pass
+                        if isinstance(args, dict):
+                            return [(item["name"], args)]
+                    # 新增：支持 {"name": "tool", "params": {...}} 格式
+                    elif "name" in item and "params" in item and isinstance(item["params"], dict):
+                        return [(item["name"], item["params"])]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # ---- 格式4b：自然语言 + ```json {参数} ``` 代码块，从参数键名推断工具名 ----
+        # 例：读取文件内容的操作如下：\n```json\n{"path": "/xxx/yyy.py"}\n```
+        # 此时 JSON 内没有 "tool"/"name" 字段，只有参数字段，需要根据参数键名推断工具
+        #   - 只含 "path" → 结合上文若含"读"/"查看"/"read" 推断 read_file；含"list"/"目录" 推断 list_dir
+        #   - 含 "path" + "content" → write_file
+        #   - 含 "path" + "old_content"/"new_content" → edit_file
+        #   - 含 "command" → bash
+        # 注意：末尾用 \s*``` 而不是 \n```，以兼容多行 JSON 中 } 直接紧接 ``` 的情况
+        # 例如：```json\n{"path":"x","content":"very long...\n..."}\n``` 或 }```
+        _inline_block_pattern = re.compile(
+            r'```(?:json|plaintext|python|bash|shell|text)?\s*\n([\s\S]*?)\s*```',
+            re.MULTILINE
+        )
+        for _m in _inline_block_pattern.finditer(stripped):
+            _inner = _m.group(1).strip()
+            try:
+                _item = json.loads(_inner)
+            except (json.JSONDecodeError, TypeError):
+                _item = None
+            if not isinstance(_item, dict):
+                continue
+
+            # 检查是否有工具名字段
+            if "tool" in _item and "input" in _item and isinstance(_item["input"], dict):
+                return [(_item["tool"], _item["input"])]
+            elif "name" in _item and "arguments" in _item:
+                args = _item["arguments"]
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except Exception:
+                        pass
+                if isinstance(args, dict):
+                    return [(_item["name"], args)]
+            elif "name" in _item and "params" in _item and isinstance(_item["params"], dict):
+                return [(_item["name"], _item["params"])]
+
+            # 如果已有明确的工具字段，不继续推断
+            if "tool" in _item or "name" in _item:
+                continue
+            _keys = set(_item.keys())
+            # 从参数键名推断工具名
+            _inferred_tool = None
+            if "command" in _keys:
+                _inferred_tool = "bash"
+            elif {"path", "old_content", "new_content"}.issubset(_keys):
+                _inferred_tool = "edit_file"
+            elif {"path", "content"}.issubset(_keys):
+                _inferred_tool = "write_file"
+            elif _keys == {"path"}:
+                # 从代码块紧邻的前 150 字符推断是 read_file 还是 list_dir
+                # 注意：只取紧邻窗口避免受到全文中 "list_dir" 等词的干扰
+                _window_start = max(0, _m.start() - 150)
+                _prefix = stripped[_window_start: _m.start()].lower()
+                # list_dir 明确信号：出现"列出"/"列目录"/"list_dir"/"listdir"
+                # 不使用单独的 "list" 或 "dir"，因为 "list_dir" 作为工具名本身会干扰
+                _list_hints_strict = ("列出", "列目录", "list_dir", "listdir", "目录结构", "查看目录", "浏览目录")
+                # read_file 信号：出现"读取"/"读文件"/"read_file"/"阅读"/"查看文件"/"打开文件"
+                _read_hints = ("读取", "读文件", "read_file", "阅读", "查看文件", "打开文件", "文件内容", "read")
+                if any(h in _prefix for h in _list_hints_strict):
+                    _inferred_tool = "list_dir"
+                else:
+                    # 默认推断为 read_file（read 意图更常见，且是更安全的降级选择）
+                    _inferred_tool = "read_file"
+            if _inferred_tool and _inferred_tool in known_tools:
+                calls.append((_inferred_tool, _item))
+        if calls:
+            return calls
+
+        # ---- 格式5：工具名 + markdown JSON 代码块 ----
+        # 例：list_dir\n```json\n{"path": "core"}\n```
+        for tool in known_tools:
+            pattern = re.compile(
+                r'(?:^|(?<=[\s。.，,、！!？?；;：:\n]))' + re.escape(tool) +
+                r'\s*\n\s*```(?:json)?\s*\n([\s\S]*?)\s*```',
+                re.MULTILINE
+            )
+            for m in pattern.finditer(stripped):
+                inner = m.group(1).strip()
+                data = ToolParser._parse_input_payload(inner)
+                if data is not None:
+                    calls.append((tool, data))
+            if calls:
+                return calls
 
         # 尝试严格标记格式
         tool_pattern = r"<tool>(\w+)</tool>"
@@ -624,6 +835,28 @@ class ToolParser:
 
         if tolerant_calls:
             return tolerant_calls
+
+        # ===== 格式8：最宽松裸格式（兜底解析）=====
+        # 适用于模型输出不规范，工具名和JSON参数混在一起的情况
+        for tool in known_tools:
+            if tool in stripped:
+                tool_idx = stripped.find(tool)
+                json_start = stripped.find('{', tool_idx)
+                if json_start != -1:
+                    # 从JSON起始位置向后尝试解析
+                    for json_end in range(len(stripped), json_start, -1):
+                        try:
+                            candidate = stripped[json_start:json_end]
+                            args = ToolParser._parse_input_payload(candidate)
+                            if args and isinstance(args, dict):
+                                return [(tool, args)]
+                        except Exception:
+                            continue
+        # ===== 格式8结束 =====
+
+        # 如果所有格式都解析失败，记录日志
+        if not calls:
+            print(f"⚠️ 工具解析失败 - 模型输出（前200字符）: {stripped[:200]}")
 
         return calls
 

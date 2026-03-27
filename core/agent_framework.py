@@ -1,1422 +1,981 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-Qwen Agent 框架 - 为 Qwen 模型添加工具调用能力
-包含 Agent 循环、工具执行和响应生成
-"""
+"""先进 Agent 框架 - ReAct + 反思 + 并行执行 + 持久化记忆 + 语义压缩"""
 
 import json
-import re
-from copy import deepcopy
+import pickle
+import time
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Any, Dict, Generator, List, Optional, Tuple, Union
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from .agent_middlewares import AgentMiddleware
 from .agent_tools import ToolExecutor, ToolParser
+from .tool_learner import ToolLearner
 
 
-def _inject_context_before_last_user(messages: List[Dict[str, str]], context_message: Dict[str, str]) -> List[Dict[str, str]]:
-    """将上下文消息插入到最后一个用户消息前，保持上下文就近可见。"""
-    updated = list(messages)
-    for idx in range(len(updated) - 1, -1, -1):
-        if updated[idx].get("role") == "user":
-            updated.insert(idx, context_message)
-            return updated
-    updated.append(context_message)
-    return updated
+class SessionMemory:
+    """会话记忆 + 工具使用统计 + 持久化"""
 
-# ============================================================================
-# 子模块导入 - 向后兼容重导出（已迁移至独立子模块）
-# ============================================================================
-from .agent_middlewares import (
-    AgentMiddleware,
-)
+    def __init__(self, memory_dir: str = ".agent_memory"):
+        self.memory_dir = Path(memory_dir)
+        self.memory_dir.mkdir(exist_ok=True)
+        self.current_session = {}
+        self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # 工具使用统计
+        self.tool_stats = defaultdict(lambda: {"success": 0, "failed": 0, "avg_time": 0})
+
+        # 跨会话记忆文件
+        self.memory_file = self.memory_dir / "session_memory.pkl"
+        self._load_from_disk()
+
+    def _load_from_disk(self):
+        """从磁盘加载历史记忆"""
+        if self.memory_file.exists():
+            try:
+                with open(self.memory_file, 'rb') as f:
+                    data = pickle.load(f)
+                    self.tool_stats = data.get("tool_stats", self.tool_stats)
+                    # 加载最近3次会话的关键信息
+                    self.current_session = data.get("recent_context", {})
+            except Exception:
+                pass
+
+    def save_to_disk(self):
+        """保存记忆到磁盘"""
+        try:
+            data = {
+                "tool_stats": dict(self.tool_stats),
+                "recent_context": self.current_session,
+                "last_update": time.time()
+            }
+            with open(self.memory_file, 'wb') as f:
+                pickle.dump(data, f)
+        except Exception:
+            pass
+
+    def add_context(self, key: str, value: Any):
+        """添加上下文"""
+        self.current_session[key] = {"value": value, "timestamp": time.time()}
+
+    def get_context(self, key: str) -> Optional[Any]:
+        """获取上下文"""
+        return self.current_session[key]["value"] if key in self.current_session else None
+
+    def update_tool_stats(self, tool_name: str, success: bool, exec_time: float):
+        """更新工具统计"""
+        # defaultdict 自动创建，但需要先访问才能触发
+        if tool_name not in self.tool_stats:
+            self.tool_stats[tool_name] = {"success": 0, "failed": 0, "avg_time": 0}
+
+        stats = self.tool_stats[tool_name]
+        if success:
+            stats["success"] += 1
+        else:
+            stats["failed"] += 1
+
+        # 更新平均时间
+        total = stats["success"] + stats["failed"]
+        stats["avg_time"] = (stats["avg_time"] * (total - 1) + exec_time) / total
+
+    def get_tool_recommendation(self, task_type: str) -> List[str]:
+        """基于历史推荐工具"""
+        # 按成功率排序
+        ranked = sorted(
+            self.tool_stats.items(),
+            key=lambda x: x[1]["success"] / max(1, x[1]["success"] + x[1]["failed"]),
+            reverse=True
+        )
+        return [tool for tool, _ in ranked[:3]]
+
+    def extract_key_info(self, messages: List[Dict]) -> Dict:
+        """提取关键信息"""
+        info = {"user_requests": [], "files_touched": [], "errors": []}
+
+        for msg in messages[-10:]:
+            content = msg.get("content", "")
+            if msg.get("role") == "user" and len(content) < 100:
+                info["user_requests"].append(content)
+
+            if "path" in content:
+                import re
+                files = re.findall(r'"path":\s*"([^"]+)"', content)
+                info["files_touched"].extend(files)
+
+            if "❌" in content or "Error" in content:
+                info["errors"].append(content[:100])
+
+        info["files_touched"] = list(set(info["files_touched"]))[-5:]
+        info["user_requests"] = info["user_requests"][-3:]
+        info["errors"] = info["errors"][-2:]
+
+        return info
+
+    def build_context_summary(self, messages: List[Dict]) -> str:
+        """构建上下文摘要"""
+        info = self.extract_key_info(messages)
+        parts = []
+        if info["user_requests"]:
+            parts.append(f"请求: {', '.join(info['user_requests'])}")
+        if info["files_touched"]:
+            parts.append(f"文件: {', '.join(info['files_touched'])}")
+        if info["errors"]:
+            parts.append(f"错误: {len(info['errors'])}个")
+        return " | ".join(parts) if parts else "无关键信息"
+
+    def compute_message_importance(self, messages: List[Dict]) -> List[float]:
+        """计算消息重要性（简化版语义评分）"""
+        scores = []
+        keywords = ["error", "failed", "success", "file", "path", "tool", "result"]
+
+        for msg in messages:
+            content = msg.get("content", "").lower()
+            # 基于关键词密度计算重要性
+            score = sum(1 for kw in keywords if kw in content)
+            # 用户消息权重更高
+            if msg.get("role") == "user":
+                score *= 1.5
+            # 工具结果权重更高
+            if "✅" in content or "❌" in content:
+                score *= 1.3
+            scores.append(score)
+
+        return scores
+
+
+class ReflectionEngine:
+    """反思引擎 - ReAct 模式"""
+
+    @staticmethod
+    def reflect_on_result(tool_name: str, result: Dict, expected: str = None) -> Dict:
+        """反思工具执行结果"""
+        reflection = {
+            "success": not result.get("error"),
+            "analysis": "",
+            "suggestions": []
+        }
+
+        if result.get("error"):
+            error = result["error"]
+
+            # 错误分类
+            if "not found" in error.lower():
+                reflection["analysis"] = "文件/路径不存在"
+                reflection["suggestions"] = [
+                    "使用 list_dir 确认路径",
+                    "检查文件名拼写",
+                    "使用相对路径"
+                ]
+            elif "permission" in error.lower():
+                reflection["analysis"] = "权限不足"
+                reflection["suggestions"] = ["检查文件权限", "使用其他路径"]
+            elif "syntax" in error.lower() or "invalid" in error.lower():
+                reflection["analysis"] = "命令语法错误"
+                reflection["suggestions"] = ["检查参数格式", "参考工具文档"]
+            else:
+                reflection["analysis"] = "未知错误"
+                reflection["suggestions"] = ["换用其他工具", "调整策略"]
+        else:
+            reflection["analysis"] = "执行成功"
+
+        return reflection
+
+    @staticmethod
+    def should_continue(history: List[Dict], max_failed: int = 3) -> Tuple[bool, str]:
+        """判断是否应该继续"""
+        if len(history) < max_failed:
+            return True, ""
+
+        recent = history[-max_failed:]
+        all_failed = all(not h.get("success", True) for h in recent)
+
+        if all_failed:
+            return False, "连续失败，建议重新规划任务"
+
+        return True, ""
+
+
+class OutputValidator:
+    """输出验证器 - 确保稳定性"""
+
+    @staticmethod
+    def validate_tool_call(tool_name: str, args: Dict) -> Tuple[bool, str]:
+        """验证工具调用"""
+        # 必需参数检查
+        required_params = {
+            "read_file": ["path"],
+            "write_file": ["path", "content"],
+            "edit_file": ["path", "old_content", "new_content"],
+            "list_dir": [],
+            "bash": ["command"]
+        }
+
+        if tool_name not in required_params:
+            return False, f"未知工具: {tool_name}"
+
+        missing = [p for p in required_params[tool_name] if p not in args]
+        if missing:
+            return False, f"缺少参数: {', '.join(missing)}"
+
+        # 参数类型检查
+        for key, value in args.items():
+            if not isinstance(value, str):
+                return False, f"参数 {key} 必须是字符串"
+
+        return True, ""
+
+    @staticmethod
+    def sanitize_output(output: str, max_length: int = 2000) -> str:
+        """清理输出"""
+        if len(output) > max_length:
+            return f"{output[:max_length]}...\n[输出过长，已截断。共 {len(output)} 字符]"
+        return output
 
 
 class QwenAgentFramework:
-    """
-    Qwen Agent 框架 - 为 Qwen 模型添加工具调用和任务规划能力
-
-    核心循环:
-    1. 用户输入 + 历史
-    2. 模型生成响应(可能包含工具调用)
-    3. 解析和执行工具
-    4. 将结果返回给模型
-    5. 重复直到任务完成
-    """
+    """先进 Agent 框架 - ReAct + 反思 + 并行执行 + 持久化 + 语义压缩"""
 
     def __init__(
         self,
-        model_forward_fn,  # 模型前向函数: fn(messages, system_prompt) -> str
+        model_forward_fn: Callable,
         work_dir: Optional[str] = None,
         enable_bash: bool = False,
-        max_iterations: int = 10,
-        tools_in_system_prompt: bool = True,
+        max_iterations: int = 50,
         middlewares: Optional[List[AgentMiddleware]] = None,
-        default_runtime_context: Optional[Dict[str, Any]] = None,
+        enable_memory: bool = True,
+        enable_reflection: bool = True,
+        enable_parallel: bool = True,
+        tools_in_system_prompt: bool = True,
+        default_runtime_context: Optional[Dict] = None,
     ):
-        """
-        初始化 Agent 框架
-
-        Args:
-            model_forward_fn: 模型前向函数,接收 (messages, system_prompt) 返回生成文本
-            work_dir: 工作目录 (用于工具执行)
-            enable_bash: 是否启用 bash 工具 (需谨慎使用)
-            max_iterations: 最大循环次数 (防止无限循环)
-            tools_in_system_prompt: 是否在系统提示词中包含工具信息
-            middlewares: 可选中间件链（DeerFlow 风格）
-            default_runtime_context: 默认运行时上下文
-        """
         self.model_forward_fn = model_forward_fn
         self.tool_executor = ToolExecutor(work_dir=work_dir, enable_bash=enable_bash)
         self.tool_parser = ToolParser()
         self.max_iterations = max_iterations
+        self.middlewares = middlewares or []
+        self.enable_parallel = enable_parallel
         self.tools_in_system_prompt = tools_in_system_prompt
-        self.middlewares = list(middlewares) if middlewares else []
-        self.default_runtime_context = deepcopy(default_runtime_context) if default_runtime_context else {}
+        self.default_runtime_context = default_runtime_context or {}
 
-        # 构建系统提示词
-        self.system_prompt_template = self._build_system_prompt()
+        # 核心组件
+        self.memory = SessionMemory() if enable_memory else None
+        self.reflection = ReflectionEngine() if enable_reflection else None
+        self.validator = OutputValidator()
+        # 工具学习器（持久化工具成功率，跨轮推荐）
+        self.tool_learner = ToolLearner() if enable_memory else None
 
-    def set_middlewares(self, middlewares: List[AgentMiddleware]):
-        """设置完整中间件链。"""
-        self.middlewares = list(middlewares)
+        # 执行历史
+        self.tool_history = []
+        self.reflection_history = []
+        # 已读文件集合：记录本轮会话中 read_file 成功读过的路径，防止 LLM 重复读取
+        self.read_files_cache: Dict[str, str] = {}  # path -> 读取时间戳
 
-    def add_middleware(self, middleware: AgentMiddleware):
-        """追加一个中间件。"""
-        self.middlewares.append(middleware)
+        # 任务上下文
+        self.task_context = {
+            "current_task": None,
+            "completed_steps": [],
+            "failed_attempts": [],
+        }
 
-    def get_middlewares(self) -> List[AgentMiddleware]:
-        """获取当前中间件列表。"""
-        return list(self.middlewares)
-
-    def _build_runtime_context(self, runtime_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """构建当前请求的运行时上下文。"""
-        merged = deepcopy(self.default_runtime_context)
-        if runtime_context:
-            for key, value in runtime_context.items():
-                merged[key] = deepcopy(value)
-
-        merged.setdefault("run_mode", "chat")
-        merged.setdefault("plan_mode", False)
-        merged.setdefault("uploaded_files", [])
-        merged.setdefault("middleware_errors", [])
-        merged.setdefault("execution_id", datetime.utcnow().strftime("%Y%m%d%H%M%S%f"))
-        # 用于检测重复工具调用；存储已执行过的 (tool_name, input_hash)
-        merged.setdefault("_executed_tool_calls", set())
-        return merged
+        self.system_prompt = self._build_system_prompt()
 
     def _build_system_prompt(self) -> str:
-        """构建包含工具信息和 gstack 架构原则的系统提示词。
+        """构建系统提示 - ReAct 模式"""
+        # bash优先，用于批量扫描任务
+        if self.tool_executor.enable_bash:
+            tools = ["bash", "read_file", "write_file", "edit_file", "list_dir"]
+        else:
+            tools = ["read_file", "write_file", "edit_file", "list_dir"]
 
-        集成了 gstack ETHOS.md / SKILL.md 的核心设计哲学：
-        - 完整性原则（Boil the Lake）
-        - 完成状态协议（DONE/BLOCKED/NEEDS_CONTEXT）
-        - 搜索优先（Search Before Building）
-        - 结构化提问（AskUserQuestion Format）
-        这些原则通过中间件（Middleware）按需动态注入，此处系统提示词仅保留
-        工具调用规则和基础身份定义，保持简洁以节省 Token。
-        """
-        if not self.tools_in_system_prompt:
-            return ""
+        tools_desc = "\n".join(f"- {t}" for t in tools)
 
-        tools_info = self._format_tools_info()
-        return f"""你是一个能够使用工具的智能助手。设计原则来源于 gstack 架构。
+        # 注入当前工作目录的绝对路径，供 LLM 构造正确的文件路径
+        work_dir_abs = str(self.tool_executor.work_dir.resolve())
 
-可用的工具:
-{tools_info}
+        return f"""你是智能助手，使用 ReAct (Reasoning + Acting) 模式工作。
 
-【重要】调用工具时，必须严格使用以下 XML 标签格式，不得使用任何其他格式：
+当前工作目录（绝对路径）：{work_dir_abs}
+使用 read_file/write_file 时若不确定路径，优先用此绝对路径拼接文件名，例如：{work_dir_abs}/文件名.py
 
-✅ 正确格式（必须遵守）:
-<tool>read_file</tool>
-<input>{{"path": "README.md"}}</input>
+可用工具：
+{tools_desc}
 
-✅ 多参数示例:
-<tool>write_file</tool>
-<input>{{"path": "output.txt", "content": "hello"}}</input>
+【工具选择策略】
+- 批量扫描/搜索多个文件 → 优先用 bash (grep, find)
+- 读取单个文件内容 → 用 read_file
+- 浏览目录结构 → 用 list_dir
 
-❌ 错误格式（禁止使用）:
+工具调用格式（严格遵守，每次只调用一个工具）：
+bash
+{{"command": "shell命令，如 grep -rn '^class \\\\|^def ' core/"}}
+
 read_file
-{{"path": "README.md"}}
+{{"path": "相对或绝对路径"}}
 
-❌ 错误格式（禁止使用）:
-```json
-{{"tool": "read_file", "path": "README.md"}}
-```
+write_file
+{{"path": "目标文件路径", "content": "要写入的内容", "mode": "overwrite（默认，完全替换）或 append（追加到末尾）"}}
 
-工具调用规则:
-1. 需要调用工具时，直接输出 <tool>...</tool><input>...</input>，可以在调用前用一句话说明当前步骤
-2. <input> 标签内必须是合法的 JSON 对象
-3. 工具执行完后，我会将结果返回给你，你再决定是继续调用工具还是给出最终回答
-4. 【重要】只有在信息已经足够完成任务时，才给出最终回答；否则继续调用所需工具
-5. 优先使用工具而不是猜测或假设文件内容
-6. 【重要】读取文件前，若不确定文件的完整路径，必须先调用 list_dir 探索目录结构，再调用 read_file，不得直接猜测路径
-7. 【重要】list_dir 只显示一层目录。若目标文件不在当前层，必须对返回结果中每个 type=dir 的子目录继续调用 list_dir，逐层深入，直到找到目标文件
-8. 【重要】当 list_dir 返回 hint 字段时，说明还有未展开的子目录，必须继续探索，不得直接放弃
-9. 当 read_file 返回 file_not_found=true 时，说明文件不存在（而非空文件），必须先调用 list_dir 查找正确路径后再重试
-10. 空文件（文件存在但内容为空）会返回 warning 字段，而非 file_not_found，两者不可混淆
-11. 【重要】工具结果中的 _sys_note 字段是系统内部注释，仅供参考，不要在最终回答中直接引用或提及该字段的内容
+list_dir
+{{"path": "目录路径，支持相对路径（如 core）或绝对路径（如 /Users/xxx/project/core）"}}
 
-核心行为准则（来自 gstack 架构）:
-A. 【完整性】AI 辅助使完整实现成本趋近于零。选择完整方案而非捷径。估算工作量时同时给出人工时间和 AI 辅助时间。
-B. 【状态汇报】完成任务时用 DONE / DONE_WITH_CONCERNS / BLOCKED / NEEDS_CONTEXT 之一汇报。每个声明都要有证据。
-C. 【搜索优先】构建任何功能前，先确认是否已有现成方案（Layer1：标准模式；Layer2：流行方案；Layer3：第一性原理）。
-D. 【主动沟通】发现问题时（See Something, Say Something）立即简短说明：一句话描述发现了什么和影响是什么。
-"""
+edit_file
+{{"path": "文件路径", "old_content": "原文本", "new_content": "新文本"}}
 
-    def _format_tools_info(self) -> str:
-        """格式化工具信息用于系统提示词"""
-        tools = self.tool_executor.get_tools()
-        info = []
+ReAct 流程：
+1. **Thought**: 分析当前情况，思考下一步
+2. **Action**: 调用上方格式之一（工具名单独一行，JSON 紧跟在下一行）
+3. **Observation**: 观察工具返回结果
+4. **Reflection**: 反思是否成功，下一步怎么做
 
-        for tool in tools:
-            info.append(f"- **{tool['name']}**: {tool['description']}")
-            if "properties" in tool.get("input_schema", {}):
-                props = tool["input_schema"]["properties"]
-                for prop_name, prop_info in props.items():
-                    desc = prop_info.get("description", "")
-                    info.append(f"    - {prop_name}: {desc}")
+核心原则：
+- 直接调用工具，不要解释"我无法访问文件系统"——你完全可以调用工具
+- 用户提供绝对路径时（如 /Users/xxx/...），直接用该路径调用工具
+- ⚠️ 扫描/搜索多个文件时，必须用 bash grep，禁止用 list_dir + read_file 逐个读取
+- 【重要】read_file 支持仅凭文件名自动全项目搜索：直接 read_file {{"path": "文件名.py"}} 即可，无需先 list_dir 找路径
+- list_dir 只在需要了解目录整体结构时使用，不要用 list_dir 来"找文件"
+- 相同工具相同参数不要重复调用超过 2 次
+- 失败后换策略，不要循环重试相同操作
+- 禁止说"无法使用工具"、"环境限制"等放弃性话术
 
-        return "\n".join(info)
+文件操作策略（务必遵守）：
+- 【禁止】一次性读完所有文件再统一写出——这会超出迭代限制
+- 【正确】读一个文件 → 立即写/修改它 → 再读下一个（流水线方式）
+- 【write_file 模式选择】：
+  * 新建文件或完全重写：用 overwrite（默认）
+  * 向现有文件末尾追加内容（如整理文档时逐步追加）：必须用 append
+  * 禁止用 overwrite 反复覆盖同一文件（会丢失前一次写入的内容）
+- 【read_file 去重】：Observation 中已显示"已读过"的文件不要重复 read_file，直接使用上次结果
 
-    def _resolve_system_prompt(
-        self,
-        system_prompt_override: Optional[str],
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """解析最终系统提示词，避免覆盖工具指令。"""
-        override = (system_prompt_override or "").strip()
-        if not override:
-            return self.system_prompt_template
+输出要求：
+- 简洁明确，先思考再调用工具
+- 遇到错误分析原因并调整策略"""
 
-        if not self.system_prompt_template:
-            return override
+    def _detect_parallel_tools(self, tool_calls: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
+        """检测可并行执行的工具"""
+        if not self.enable_parallel or len(tool_calls) <= 1:
+            return [], tool_calls
 
-        run_mode = str((runtime_context or {}).get("run_mode", "chat")).lower()
-        if run_mode in {"tools", "hybrid"}:
-            return f"{self.system_prompt_template}\n\n{override}"
+        # 只读工具可并行
+        parallel_tools = []
+        sequential_tools = []
 
-        return override
+        for tc in tool_calls:
+            tool_name = tc["name"]
+            if tool_name in ["read_file", "list_dir"]:
+                parallel_tools.append(tc)
+            else:
+                sequential_tools.append(tc)
 
-    @staticmethod
-    def _clean_path_candidate(raw_value: str) -> str:
-        """清理路径候选值，去掉常见包裹符号。"""
-        return raw_value.strip().strip("`\"'").rstrip("，。；：,.!?)]}>\n\r\t ")
+        return parallel_tools, sequential_tools
 
-    def _extract_path_candidate(self, text: str) -> Optional[str]:
-        """从用户文本中提取最可能的文件路径。"""
-        if not text:
-            return None
+    def _execute_tools_parallel(self, tool_calls: List[Dict]) -> List[Dict]:
+        """并行执行工具"""
+        results = []
 
-        path_patterns = [
-            r"`([^`]+)`",
-            r"(/[^\s\"'`<>]+)",
-            r"((?:\./|\.\./)?[A-Za-z0-9_-]+(?:/[A-Za-z0-9_.-]+)*\.[A-Za-z0-9]{1,10})",
-        ]
-        excluded_tokens = {"read_file", "write_file", "edit_file", "list_dir", "bash"}
-
-        for pattern in path_patterns:
-            for match in re.findall(pattern, text):
-                candidate = self._clean_path_candidate(match)
-                if not candidate or " " in candidate:
-                    continue
-                if candidate.lower() in excluded_tokens:
-                    continue
-                return candidate
-
-        return None
-
-    def _infer_fallback_tool_calls(
-        self,
-        user_message: str,
-        runtime_context: Dict[str, Any],
-        iteration: int,
-        model_response: str = "",
-    ) -> List[Tuple[str, Dict[str, Any]]]:
-        """当模型未按格式调用工具时，尝试基于用户意图兜底。
-
-        注意：fallback 仅在以下条件同时满足时触发：
-          1. 用户消息中包含可识别的独立文件路径（无自然语言附加）
-          2. 用户明确表达了读取/列目录意图
-
-        这样可避免把"读取 /path/to/file 内容并总结"中的附加文字
-        也拼入路径参数，导致路径错误。
-        """
-        if iteration != 0:
-            return []
-
-        run_mode = str(runtime_context.get("run_mode", "chat")).lower()
-        if run_mode not in {"tools", "hybrid"}:
-            return []
-
-        message = (user_message or "").strip()
-        if not message:
-            return []
-
-        # 从用户消息中提取路径
-        path_candidate = self._extract_path_candidate(message)
-        if not path_candidate:
-            return []
-
-        # 严格校验：路径后不能跟随自然语言（如"内容并总结"）
-        # 找到路径在消息中的位置，检查路径之后是否有非路径文字
-        path_pos = message.find(path_candidate)
-        if path_pos >= 0:
-            after_path = message[path_pos + len(path_candidate):].strip()
-            # 如果路径之后还有汉字或有意义的单词，说明用户写的是自然语言描述，不是纯路径指令
-            if after_path and re.search(r'[\u4e00-\u9fff]|[a-zA-Z]{2,}', after_path):
-                return []
-
-        # 必须有明确的读取意图关键词
-        has_read_intent = (
-            "read_file" in message.lower()
-            or "读取" in message
-            or "阅读" in message
-            or "查看" in message
-            or ("read" in message.lower() and "file" in message.lower())
-        )
-        has_list_intent = (
-            "list_dir" in message.lower()
-            or "列目录" in message
-            or "列出" in message
-            or "目录结构" in message
-        )
-
-        if has_list_intent:
-            return [("list_dir", {"path": path_candidate})]
-
-        if has_read_intent:
-            # 防止 fallback 重复触发同一文件（已在上下文中读取过）
-            already_read = runtime_context.get("_read_file_paths", set())
-            if path_candidate in already_read:
-                return []
-            return [("read_file", {"path": path_candidate})]
-
-        # 如果消息本身就只是路径（无其他文字），也触发 read_file
-        if self._clean_path_candidate(message) == path_candidate:
-            already_read = runtime_context.get("_read_file_paths", set())
-            if path_candidate in already_read:
-                return []
-            return [("read_file", {"path": path_candidate})]
-
-        return []
-
-    def _apply_before_model_middlewares(
-        self,
-        messages: List[Dict[str, str]],
-        iteration: int,
-        runtime_context: Dict[str, Any],
-    ) -> List[Dict[str, str]]:
-        """按顺序执行 before_model 钩子。"""
-        updated_messages = messages
-        for middleware in self.middlewares:
-            try:
-                updated_messages = middleware.before_model(updated_messages, iteration, runtime_context)
-            except Exception as error:  # pragma: no cover - 容错兜底
-                runtime_context.setdefault("middleware_errors", []).append(
-                    {
-                        "middleware": middleware.__class__.__name__,
-                        "hook": "before_model",
-                        "error": str(error),
-                    }
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {}
+            for tc in tool_calls:
+                future = executor.submit(
+                    self._execute_single_tool,
+                    tc["name"],
+                    tc["args"]
                 )
-        return updated_messages
+                futures[future] = tc
 
-    def _apply_after_model_middlewares(
-        self,
-        model_response: str,
-        iteration: int,
-        runtime_context: Dict[str, Any],
-    ) -> str:
-        """按顺序执行 after_model 钩子。"""
-        updated_response = model_response
-        for middleware in self.middlewares:
-            try:
-                updated_response = middleware.after_model(updated_response, iteration, runtime_context)
-            except Exception as error:  # pragma: no cover - 容错兜底
-                runtime_context.setdefault("middleware_errors", []).append(
-                    {
-                        "middleware": middleware.__class__.__name__,
-                        "hook": "after_model",
-                        "error": str(error),
-                    }
-                )
-        return updated_response
+            for future in as_completed(futures):
+                tc = futures[future]
+                try:
+                    result = future.result()
+                    results.append({
+                        "tool": tc["name"],
+                        "result": result,
+                        "parallel": True
+                    })
+                except Exception as e:
+                    results.append({
+                        "tool": tc["name"],
+                        "result": {"error": str(e)},
+                        "parallel": True
+                    })
 
-    @staticmethod
-    def _normalize_space(text: str) -> str:
-        """压缩空白字符，便于检测重复文本。"""
-        return re.sub(r"\s+", " ", text or "").strip()
+        return results
 
-    def _should_trigger_anti_repeat_guard(self, model_response: str, runtime_context: Dict[str, Any]) -> bool:
-        """判断是否命中复述工具结果的模式。
+    def _execute_single_tool(self, tool_name: str, tool_args: Dict) -> Dict:
+        """执行单个工具"""
+        # 验证工具调用
+        valid, error_msg = self.validator.validate_tool_call(tool_name, tool_args)
+        if not valid:
+            return {"error": f"参数验证失败: {error_msg}"}
 
-        排除条件：
-        - guard 已使用过
-        - 无读文件摘要上下文
-        - 模型输出是工具调用（应让框架去执行，不是复述）
-        """
-        if runtime_context.get("_anti_repeat_guard_used"):
-            return False
+        # 执行工具
+        start_time = time.time()
+        exec_timestamp = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        result_str = self.tool_executor.execute_tool(tool_name, tool_args)
+        exec_time = time.time() - start_time
 
-        summary = runtime_context.get("_last_read_file_summary")
-        if not isinstance(summary, dict):
-            return False
+        result = {"output": result_str} if not result_str.startswith("Error:") else {"error": result_str}
 
-        text = (model_response or "").strip()
-        if not text:
-            return False
+        # 智能重试
+        if result.get("error"):
+            fixed_args = self._try_fix(tool_name, tool_args, result["error"])
+            if fixed_args:
+                result_str = self.tool_executor.execute_tool(tool_name, fixed_args)
+                result = {"output": result_str} if not result_str.startswith("Error:") else {"error": result_str}
+                tool_args = fixed_args
 
-        # 关键排除：模型输出包含工具调用格式时，说明模型在调用工具而非复述内容，不应触发 guard
-        if self.tool_parser.parse_tool_calls(text):
-            return False
+        # 反思
+        if self.reflection:
+            reflection = self.reflection.reflect_on_result(tool_name, result)
+            self.reflection_history.append({
+                "tool": tool_name,
+                "success": reflection["success"],
+                "analysis": reflection["analysis"],
+                "suggestions": reflection["suggestions"]
+            })
 
-        repetition_markers = [
-            "工具执行结果如下",
-            "工具 'read_file' 的执行结果",
-            "工具 `read_file` 的执行结果",
-            "...[内容已截断",
-        ]
-        if any(marker in text for marker in repetition_markers):
-            return True
+        # 更新统计
+        if self.memory:
+            self.memory.update_tool_stats(tool_name, not result.get("error"), exec_time)
 
-        preview = str(summary.get("preview", "")).strip()
-        if preview:
-            normalized_preview = self._normalize_space(preview)
-            normalized_text = self._normalize_space(text)
-            # 跳过通用文件头（shebang / 编码声明），避免误判正常总结
-            # 这些内容在 Python 文件中极为常见，模型引用也属正常
-            GENERIC_PREFIXES = (
-                "#!/usr/bin/env python",
-                "#!/usr/bin/python",
-                "# -*- coding:",
-                "#!",
+        # 工具学习器：记录本次调用结果，供下次推荐
+        if self.tool_learner:
+            task_types = self.tool_learner.classify_task(
+                self.task_context.get("current_task") or ""
             )
-            effective_preview = normalized_preview
-            for pfx in GENERIC_PREFIXES:
-                if effective_preview.startswith(pfx):
-                    # 跳过到第一个实质性内容（非注释行）
-                    first_real = re.search(r"(?:^| )(?!#)[^\s]", effective_preview)
-                    if first_real:
-                        effective_preview = effective_preview[first_real.start():].strip()
-                    break
+            task_type = task_types[0] if task_types else "通用"
+            self.tool_learner.record_usage(task_type, tool_name, not result.get("error"))
+            self.tool_learner.save_to_disk()
 
-            # probe 取实质内容的前 120 个字符，且要足够有区分度（≥60 字符）
-            probe = effective_preview[:120]
-            if len(probe) >= 60 and probe in normalized_text:
+        # 记录历史
+        self.tool_history.append({
+            "tool": tool_name,
+            "args": json.dumps(tool_args, sort_keys=True),
+            "success": not result.get("error"),
+        })
+
+        # 更新任务上下文
+        if not result.get("error"):
+            self.task_context["completed_steps"].append(f"{tool_name}({list(tool_args.keys())})")
+            # 记录已成功读过的文件路径，供 _format_results 添加去重提示
+            if tool_name == "read_file" and tool_args.get("path"):
+                self.read_files_cache[tool_args["path"]] = exec_timestamp
+        else:
+            self.task_context["failed_attempts"].append(tool_name)
+
+        # 清理输出
+        if result.get("output"):
+            result["output"] = self.validator.sanitize_output(result["output"])
+
+        # 附加真实执行时间戳和工具名，供调用方构建 execution_log
+        result["_exec_timestamp"] = exec_timestamp
+        result["_tool_name"] = tool_name
+
+        return result
+
+    def run(
+        self,
+        user_input: str,
+        history: Optional[List[Dict]] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
+        temperature: float = 0.7,
+        top_p: float = 0.9,
+        max_tokens: int = 8192,
+    ) -> Dict[str, Any]:
+        """主循环 - ReAct 模式 + 并行执行
+
+        Args:
+            user_input: 用户输入
+            history: 历史消息列表
+            runtime_context: 运行时上下文
+            temperature/top_p/max_tokens: 生成参数，透传给 model_forward_fn
+        """
+        messages = self._build_messages(user_input, history)
+        runtime_context = runtime_context or {}
+        runtime_context["start_time"] = time.time()
+
+        if self.memory:
+            self.memory.add_context("current_task", user_input)
+
+        tool_calls_log = []
+        last_response = ""
+
+        for iteration in range(self.max_iterations):
+            # 检查是否应该继续
+            if self.reflection:
+                should_continue, reason = self.reflection.should_continue(self.reflection_history)
+                if not should_continue:
+                    if self.memory:
+                        self.memory.save_to_disk()
+                    return {
+                        "response": f"⚠️ 任务中断: {reason}",
+                        "tool_calls": tool_calls_log,
+                        "iterations": iteration + 1,
+                        "context": self._export_context(),
+                    }
+
+            # 上下文管理
+            messages = self._compress_context_smart(messages)
+            messages = self._inject_task_context(messages)
+            messages = self._inject_reflection(messages)
+
+            # 中间件
+            for mw in self.middlewares:
+                if hasattr(mw, "process_before_llm"):
+                    messages = mw.process_before_llm(messages, runtime_context)
+
+            # 调用模型（透传生成参数）
+            try:
+                response = self.model_forward_fn(
+                    messages,
+                    self.system_prompt,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_tokens=max_tokens,
+                )
+                last_response = response
+            except Exception as e:
+                if self.memory:
+                    self.memory.save_to_disk()
+                return {
+                    "response": f"❌ 模型调用失败: {e}",
+                    "tool_calls": tool_calls_log,
+                    "iterations": iteration + 1,
+                }
+
+            # 解析工具
+            tool_calls_raw = self.tool_parser.parse_tool_calls(response)
+            tool_calls = [{"name": name, "args": args} for name, args in tool_calls_raw]
+
+            if not tool_calls:
+                # 判断是"任务完成自然结束"还是"工具调用格式错误导致解析失败"
+                # 若响应中出现已知工具名但没解析到调用，说明是格式问题，给模型一次纠错机会
+                _tool_names = {"read_file", "write_file", "edit_file", "list_dir", "bash", "todo_write"}
+                _has_tool_mention = any(t in response for t in _tool_names)
+                # 响应包含终止信号：不含工具名，或者包含明确的完成/回答词
+                _finish_signals = ("完成", "已完成", "总结", "综上", "结论", "以上", "如下", "好的", "以下是")
+                _looks_finished = not _has_tool_mention or any(s in response[:80] for s in _finish_signals)
+
+                if _looks_finished:
+                    # 确实完成，正常退出
+                    if self.memory:
+                        self.memory.save_to_disk()
+                    return {
+                        "response": response,
+                        "tool_calls": tool_calls_log,
+                        "iterations": iteration + 1,
+                        "context": self._export_context(),
+                    }
+                else:
+                    # 格式错误：工具名出现在响应里但未能解析
+                    # 注入纠错提示，让模型重新用正确格式输出工具调用
+                    _work_dir = str(self.tool_executor.work_dir.resolve())
+                    format_correction = (
+                        "⚠️ [系统提示] 未检测到有效的工具调用格式。\n"
+                        "❌ 错误格式示例（不要使用）：\n"
+                        '{"api": "read_file", "path": "xxx.py"}  ← 不支持 api 字段\n'
+                        '```json\n{"api": "read_file", ...}\n```  ← 不要用 api 字段\n\n'
+                        "✅ 正确格式（工具名单独一行，JSON 紧跟下一行，不要用代码块包裹）：\n"
+                        "read_file\n"
+                        f'{{\"path\": \"{_work_dir}/文件名.py\"}}\n\n'
+                        f"当前工作目录：{_work_dir}\n"
+                        "请使用绝对路径以确保文件能被正确找到。\n"
+                        "请直接重新输出工具调用，不要添加多余解释。"
+                    )
+                    messages.append({"role": "assistant", "content": response})
+                    messages.append({"role": "user", "content": format_correction})
+                    continue  # 继续下一次迭代，让模型重试
+
+            # 检测可并行工具
+            parallel_tools, sequential_tools = self._detect_parallel_tools(tool_calls)
+
+            # 执行工具
+            results = []
+
+            # 并行执行只读工具
+            if parallel_tools:
+                results.extend(self._execute_tools_parallel(parallel_tools))
+
+            # 串行执行写入工具
+            for tc in sequential_tools:
+                result = self._execute_single_tool(tc["name"], tc["args"])
+                results.append({"tool": tc["name"], "result": result, "parallel": False})
+
+            # 记录日志（_exec_timestamp 由 _execute_single_tool 在真实执行时写入）
+            for r in results:
+                tool_calls_log.append({
+                    "iteration": iteration + 1,
+                    "tool": r["tool"],
+                    "success": not r["result"].get("error"),
+                    "parallel": r.get("parallel", False),
+                    "timestamp": r["result"].get("_exec_timestamp", ""),
+                })
+
+            # 循环检测
+            if self._detect_loop():
+                if self.memory:
+                    self.memory.save_to_disk()
+                return {
+                    "response": "⚠️ 检测到循环。\n💡 建议：\n1. 换用其他工具\n2. 重新分析问题\n3. 调整参数",
+                    "tool_calls": tool_calls_log,
+                    "iterations": iteration + 1,
+                    "loop_detected": True,
+                    "context": self._export_context(),
+                }
+
+            # 回注结果
+            messages.append({"role": "assistant", "content": response})
+            messages.append({"role": "user", "content": self._format_results(results)})
+
+        if self.memory:
+            self.memory.save_to_disk()
+
+        # 截断末尾残留的工具调用字符串，避免污染最终输出
+        clean_response = self._strip_trailing_tool_call(last_response) if last_response else ""
+        return {
+            "response": clean_response or "⚠️ 达到最大迭代次数，请尝试拆分任务或减少步骤",
+            "tool_calls": tool_calls_log,
+            "iterations": self.max_iterations,
+            "context": self._export_context(),
+        }
+
+    @staticmethod
+    def _strip_trailing_tool_call(text: str) -> str:
+        """截断响应末尾残留的工具调用字符串，只保留自然语言思考/推理部分。
+
+        处理以下两类残留：
+        1. 裸格式：工具名独占一行 + 下一行是 JSON
+               接下来我将读取文件。read_file
+               {"path": "core/xxx.py"}
+        2. 代码块格式：```json / ```plaintext 等包裹的工具参数块（LLM 没有正确触发工具）
+               **Action**: 将分析结果写入 Api.md
+               ```json
+               {"path": "Api.md", "content": "..."}
+               ```
+        """
+        import re
+
+        # ── 第一步：清除末尾的 ```lang ... ``` 代码块（可能含工具参数）──────────
+        # 反复清除，直到末尾不再有代码块为止（有时模型输出多个连续代码块）
+        code_block_pattern = re.compile(
+            r'\n?\s*```[^\n]*\n[\s\S]*?```\s*$',
+            re.DOTALL
+        )
+        prev = None
+        result = text
+        while prev != result:
+            prev = result
+            m = code_block_pattern.search(result)
+            if m:
+                # 只有代码块内容看起来像工具参数（含 "path"/"command"/"content" 等键）才截断
+                block_inner = m.group(0)
+                _tool_param_hints = ('"path"', '"command"', '"content"', '"old_content"', '"new_content"')
+                if any(h in block_inner for h in _tool_param_hints):
+                    result = result[:m.start()].rstrip()
+
+        # ── 第二步：清除末尾裸格式「工具名\n{...}」片段 ──────────────────────
+        bare_pattern = r'\n?(read_file|write_file|edit_file|list_dir|bash|todo_write)\s*\n\s*\{[^}]*\}\s*$'
+        result = re.sub(bare_pattern, '', result, flags=re.DOTALL).rstrip()
+
+        return result if result else text
+
+    def _build_messages(self, user_input: str, history: Optional[List[Dict]]) -> List[Dict]:
+        """构建消息"""
+        msgs = history[:] if history else []
+        msgs.append({"role": "user", "content": user_input})
+        return msgs
+
+    def _inject_task_context(self, messages: List[Dict]) -> List[Dict]:
+        """注入任务上下文：包含进度 + 原始目标锚定（防止目标漂移）"""
+        parts = []
+
+        # 锚定用户原始目标（始终注入，防止长对话中 LLM 忘记真正要做什么）
+        original_task = self.task_context.get("current_task")
+        if original_task:
+            parts.append(f"🎯 原始任务（始终牢记，不可偏离）：{original_task}")
+
+        # 进度信息
+        if self.task_context["completed_steps"]:
+            parts.append(
+                f"📋 进度: 已完成 {len(self.task_context['completed_steps'])} 步 - "
+                f"{', '.join(self.task_context['completed_steps'][-3:])}"
+            )
+
+        if not parts:
+            return messages
+
+        context_msg = {
+            "role": "system",
+            "content": "\n".join(parts)
+        }
+        return messages[:-1] + [context_msg] + messages[-1:]
+
+    def _inject_reflection(self, messages: List[Dict]) -> List[Dict]:
+        """注入反思信息"""
+        if not self.reflection_history:
+            return messages
+
+        recent_failures = [r for r in self.reflection_history[-3:] if not r["success"]]
+        if recent_failures:
+            suggestions = []
+            for rf in recent_failures:
+                suggestions.extend(rf["suggestions"])
+
+            reflection_msg = {
+                "role": "system",
+                "content": f"💡 反思: 最近{len(recent_failures)}次失败。建议: {', '.join(suggestions[:3])}"
+            }
+            return messages[:-1] + [reflection_msg] + messages[-1:]
+
+        return messages
+
+    def _detect_loop(self, max_same=3) -> bool:
+        """循环检测：多层次检测模型陷入无进展循环。
+
+        检测策略（按优先级）：
+        1. 连续 max_same 次相同工具+参数调用（无论成功失败） → 立即中断
+        2. 全局累计：同一工具+参数在整个会话中调用超过 5 次 → 中断（防止日志中出现的 87 次死循环）
+        3. 连续全部失败且相同调用 → 中断（原逻辑保留）
+        """
+        if not self.tool_history:
+            return False
+
+        # ── 检测1：连续 max_same 次相同调用（滑动窗口） ──────────────────
+        if len(self.tool_history) >= max_same:
+            recent = self.tool_history[-max_same:]
+            first = recent[0]
+            if all(h["tool"] == first["tool"] and h["args"] == first["args"] for h in recent):
                 return True
 
-        # 代码块复述检测：仅当代码块内容与文件 preview 高度重叠时才触发
-        # （避免误伤正常的代码示例或分析总结）
-        if text.count("```") >= 2 and len(text) > 500 and preview:
-            # 提取代码块内容
-            code_blocks = re.findall(r"```(?:\w+)?\n(.*?)```", text, re.DOTALL)
-            combined_code = " ".join(code_blocks)
-            if combined_code and len(combined_code) > 200:
-                # 代码块占响应比例超过 60%，且与文件内容高度相似，认为是复述
-                code_ratio = len(combined_code) / len(text)
-                if code_ratio > 0.6:
-                    normalized_code = self._normalize_space(combined_code)
-                    code_probe = normalized_preview[:80]
-                    if len(code_probe) >= 40 and code_probe in normalized_code:
-                        return True
+        # ── 检测2：全局累计相同调用超过阈值（防止极端死循环） ────────────
+        # 对整个历史中"相同 tool+args"出现次数进行统计，超过 5 次直接中断
+        _call_counts: Dict[str, int] = {}
+        for h in self.tool_history:
+            key = f"{h['tool']}|{h['args']}"
+            _call_counts[key] = _call_counts.get(key, 0) + 1
+        if any(cnt >= 5 for cnt in _call_counts.values()):
+            return True
 
         return False
 
-    def _rewrite_with_anti_repeat_guard(
-        self,
-        messages: List[Dict[str, str]],
-        model_response: str,
-        system_prompt: str,
-        iteration: int,
-        runtime_context: Dict[str, Any],
-        **model_kwargs,
-    ) -> str:
-        """触发一次强约束重写，避免输出复述工具原文。"""
-        summary = runtime_context.get("_last_read_file_summary") or {}
-        sections = summary.get("section_headings") or []
-        sections_text = ", ".join(str(item) for item in sections[:6]) if sections else "未识别章节"
+    def _compress_context_smart(self, messages: List[Dict], limit=6000) -> List[Dict]:
+        """智能压缩 - 语义重要性"""
+        total_chars = sum(len(json.dumps(m)) for m in messages)
+        if total_chars / 1.5 < limit * 0.75:
+            return messages
 
-        guard_message = {
-            "role": "user",
-            "content": (
-                "<anti_repeat_guard>\n"
-                "你刚才直接复述了工具执行的原始结果，请重写回答。\n"
-                "硬性要求：\n"
-                "1) 禁止出现'工具执行结果如下'等表述。\n"
-                "2) 禁止输出 JSON、原始代码块、目录树或大段原文。\n"
-                "3) 根据已获取的信息，判断任务是否完成：\n"
-                "   - 若信息已足够：输出核心结论（1-2句）+ 关键要点（最多3条），直接完成任务。\n"
-                "   - 若还需更多信息（如调用链路分析需读取其他文件）：\n"
-                "     使用工具格式继续收集：<tool>工具名</tool><input>{参数}</input>\n"
-                f"当前文档标题：{summary.get('title', '未知')}\n"
-                f"可参考章节：{sections_text}\n"
-                "</anti_repeat_guard>"
-            ),
+        system = [m for m in messages if m.get("role") == "system"]
+        user_assistant = [m for m in messages if m.get("role") in ("user", "assistant")]
+
+        # 保留最近6条
+        recent = user_assistant[-6:]
+        old = user_assistant[:-6] if len(user_assistant) > 6 else []
+
+        if not old:
+            return system + recent
+
+        # 计算重要性并保留top-K
+        if self.memory:
+            scores = self.memory.compute_message_importance(old)
+            # 按重要性排序，保留前3条
+            scored_msgs = list(zip(old, scores))
+            scored_msgs.sort(key=lambda x: x[1], reverse=True)
+            important_msgs = [msg for msg, _ in scored_msgs[:3]]
+
+            summary_text = self.memory.build_context_summary(old)
+            summary = {"role": "system", "content": f"📦 历史摘要: {summary_text}"}
+            return system + [summary] + important_msgs + recent
+
+        summary = {"role": "system", "content": f"📦 已压缩 {len(old)} 条"}
+        return system + [summary] + recent
+
+    def _try_fix(self, tool: str, args: Dict, error: str) -> Optional[Dict]:
+        """智能重试"""
+        if tool == "bash" and "grep" in args.get("command", ""):
+            cmd = args["command"]
+            if "\\(" in cmd and "\\\\(" not in cmd:
+                return {"command": cmd.replace("\\(", "(").replace("\\)", ")")}
+            if "\\class" in cmd or "\\def" in cmd:
+                return {"command": cmd.replace("\\class", "class").replace("\\def", "def")}
+
+        if tool in ["read_file", "edit_file"] and "not found" in error.lower():
+            path = args.get("path", "")
+            if path and not path.startswith("/") and not path.startswith("."):
+                return {"path": f"./{path}"}
+
+        return None
+
+    def _format_results(self, results: List[Dict]) -> str:
+        """格式化结果，并在头部注入已读文件清单，防止 LLM 重复读取"""
+        lines = []
+
+        # 已读文件提示：若本轮累计读过文件，在 Observation 顶部注入一次摘要
+        if self.read_files_cache:
+            already_read = list(self.read_files_cache.keys())
+            lines.append(
+                f"📌 [已读文件清单，无需重复 read_file]: {already_read}"
+            )
+
+        for r in results:
+            tool = r["tool"]
+            result = r["result"]
+            parallel_mark = " [并行]" if r.get("parallel") else ""
+
+            if result.get("error"):
+                lines.append(f"❌ {tool}{parallel_mark}: {result['error'][:200]}")
+
+                # 添加反思建议
+                if self.reflection_history:
+                    last_reflection = self.reflection_history[-1]
+                    if last_reflection["suggestions"]:
+                        lines.append(f"   💡 建议: {last_reflection['suggestions'][0]}")
+            else:
+                output = str(result.get("output", ""))
+                lines.append(f"✅ {tool}{parallel_mark}: {output}")
+
+        return "\n".join(lines)
+
+    def _export_context(self) -> Dict:
+        """导出上下文"""
+        ctx = {
+            "task": self.task_context["current_task"],
+            "completed_steps": self.task_context["completed_steps"],
+            "failed_attempts": self.task_context["failed_attempts"],
+            "tool_stats": {
+                "total": len(self.tool_history),
+                "success": sum(1 for h in self.tool_history if h["success"]),
+                "failed": sum(1 for h in self.tool_history if not h["success"]),
+            }
         }
 
-        rewrite_messages = [dict(message) for message in messages]
-        rewrite_messages.append({"role": "assistant", "content": model_response})
-        rewrite_messages.append(guard_message)
+        if self.memory:
+            ctx["tool_recommendations"] = self.memory.get_tool_recommendation("general")
 
-        rewritten = self.model_forward_fn(rewrite_messages, system_prompt, **model_kwargs)
-        rewritten = self._apply_after_model_middlewares(rewritten, iteration, runtime_context)
-        runtime_context["_anti_repeat_guard_used"] = True
-        return rewritten
+        return ctx
 
-    def _force_summarize_on_duplicate(
-        self,
-        messages: List[Dict[str, str]],
-        model_response: str,
-        system_prompt: str,
-        iteration: int,
-        runtime_context: Dict[str, Any],
-        **model_kwargs,
-    ) -> str:
-        """当检测到模型陷入重复工具调用死循环时，强制执行一次总结调用。
-
-        原理：将当前对话历史（含工具结果）追加强约束指令，
-        让模型基于已有上下文直接给出最终回答，不再调用工具。
-        """
-        force_message = {
-            "role": "user",
-            "content": (
-                "<force_summarize>\n"
-                "⚠️ 系统检测到你持续重复调用相同工具，已强制终止工具循环。\n"
-                "上下文中已包含工具执行结果，请立即基于这些已有信息完成用户的任务。\n"
-                "硬性要求：\n"
-                "1) 禁止输出任何 <tool> 工具调用标签。\n"
-                "2) 直接给出最终回答，无需再收集信息。\n"
-                "3) 若内容已截断，请基于已有部分作出尽力回答，并说明局限性。\n"
-                "</force_summarize>"
-            ),
-        }
-
-        force_messages = [dict(m) for m in messages]
-        force_messages.append({"role": "assistant", "content": model_response})
-        force_messages.append(force_message)
-
-        final = self.model_forward_fn(force_messages, system_prompt, **model_kwargs)
-        final = self._apply_after_model_middlewares(final, iteration, runtime_context)
-        return final
-
-    def _apply_after_tool_call_middlewares(
-        self,
-        tool_name: str,
-        tool_input: Dict[str, Any],
-        tool_result: str,
-        iteration: int,
-        runtime_context: Dict[str, Any],
-    ) -> str:
-        """按顺序执行 after_tool_call 钩子。"""
-        updated_result = tool_result
-        for middleware in self.middlewares:
-            try:
-                updated_result = middleware.after_tool_call(
-                    tool_name,
-                    tool_input,
-                    updated_result,
-                    iteration,
-                    runtime_context,
-                )
-            except Exception as error:  # pragma: no cover - 容错兜底
-                runtime_context.setdefault("middleware_errors", []).append(
-                    {
-                        "middleware": middleware.__class__.__name__,
-                        "hook": "after_tool_call",
-                        "error": str(error),
-                        "tool": tool_name,
-                    }
-                )
-        return updated_result
-
-    def _finalize_middlewares(self, execution_log: List[Dict[str, Any]], runtime_context: Dict[str, Any]) -> None:
-        """会话结束时执行 after_run 钩子。"""
-        for middleware in self.middlewares:
-            try:
-                middleware.after_run(execution_log, runtime_context)
-            except Exception as error:  # pragma: no cover - 容错兜底
-                runtime_context.setdefault("middleware_errors", []).append(
-                    {
-                        "middleware": middleware.__class__.__name__,
-                        "hook": "after_run",
-                        "error": str(error),
-                    }
-                )
-
-    @staticmethod
-    def _extract_system_from_messages(
-        messages: List[Dict[str, str]],
-    ) -> Tuple[List[Dict[str, str]], str]:
-        """从消息列表中剥离开头的 system 消息，返回 (非system消息列表, system内容)。
-
-        create_qwen_model_forward 会自行在头部追加 system 消息，
-        因此传入 model_forward_fn 的 messages 不应再包含 system 角色，
-        避免重复拼接导致模型收到两条 system 消息。
-        """
-        if messages and messages[0].get("role") == "system":
-            return messages[1:], messages[0].get("content", "")
-        return messages, ""
-
-    def process_message_direct(
-        self,
-        messages: List[Dict[str, str]],
-        system_prompt_override: Optional[str] = None,
-        runtime_context: Optional[Dict[str, Any]] = None,
-        return_runtime_context: bool = False,
-        **model_kwargs,
-    ) -> Union[Tuple[str, List[Dict[str, Any]]], Tuple[str, List[Dict[str, Any]], Dict[str, Any]]]:
-        """
-        单次调用模型（无工具循环），但完整经过中间件链。
-
-        适用于 chat / skills 模式：不需要工具调用能力，但需要中间件对消息进行
-        上下文注入（PlanModeMiddleware、RuntimeModeMiddleware、SkillsContextMiddleware、
-        UploadedFilesMiddleware 等）。
-
-        与 process_message 的区别：
-        - process_message：带工具循环（max_iterations 次）
-        - process_message_direct：单次调用，走完 before_model → model → after_model 中间件链
-
-        Args:
-            messages: 已构建好的消息列表（可含 system 消息，会自动剥离处理）
-            system_prompt_override: 覆盖系统提示词（优先级高于 messages 中的 system）
-            runtime_context: 本次执行的运行时上下文（含 run_mode、plan_mode 等）
-            return_runtime_context: 是否额外返回运行时上下文
-            **model_kwargs: 传递给模型的参数
-
-        Returns:
-            默认返回 (最终响应, 执行记录)
-            当 return_runtime_context=True 时返回 (最终响应, 执行记录, 运行时上下文)
-        """
-        runtime_ctx = self._build_runtime_context(runtime_context)
-        execution_log: List[Dict[str, Any]] = []
-
-        # 剥离 messages 中的 system 消息，避免 model_forward_fn 重复追加
-        non_system_messages, embedded_system = self._extract_system_from_messages(messages)
-        effective_override = system_prompt_override or embedded_system or None
-        system_prompt = self._resolve_system_prompt(effective_override, runtime_ctx)
-
-        # 经过完整中间件链（before_model 钩子：RuntimeMode / PlanMode / Skills / Files 等）
-        processed_messages = self._apply_before_model_middlewares(non_system_messages, 0, runtime_ctx)
-
-        model_response = self.model_forward_fn(processed_messages, system_prompt, **model_kwargs)
-        model_response = self._apply_after_model_middlewares(model_response, 0, runtime_ctx)
-
-        execution_log.append({
-            "iteration": 0,
-            "type": "model_response",
-            "content": model_response,
-            "run_mode": runtime_ctx.get("run_mode", "chat"),
-            "plan_mode": bool(runtime_ctx.get("plan_mode", False)),
-            "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-        })
-
-        self._finalize_middlewares(execution_log, runtime_ctx)
-        if return_runtime_context:
-            return model_response, execution_log, runtime_ctx
-        return model_response, execution_log
-
-    def process_message_direct_stream(
-        self,
-        messages: List[Dict[str, str]],
-        system_prompt_override: Optional[str] = None,
-        runtime_context: Optional[Dict[str, Any]] = None,
-        stream_forward_fn=None,
-        **model_kwargs,
-    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
-        """
-        单次调用模型的流式版本（无工具循环），完整经过中间件链。
-
-        适用于 chat / skills 模式的流式输出场景。
-        messages 可包含开头的 system 消息，会自动剥离并正确传递给 model_forward_fn。
-
-        架构说明：
-          - model_forward_fn 返回完整字符串（用于工具循环中解析工具调用）
-          - stream_forward_fn（可选）若提供，则为真流式生成器，每次 yield 累积文本
-            优先使用 stream_forward_fn 以获得逐 token 输出体验
-          - 若均不可用，则退化为单次 yield 完整响应
-
-        Args:
-            messages: 消息列表（可含 system 消息，会自动剥离）
-            system_prompt_override: 覆盖系统提示词
-            runtime_context: 运行时上下文
-            stream_forward_fn: 可选真流式前向函数，签名: fn(messages, system_prompt, **kwargs) -> Generator[str, None, None]
-            **model_kwargs: 传递给模型的参数
-
-        Yields:
-            (累积响应文本, 执行信息字典)
-        """
-        runtime_ctx = self._build_runtime_context(runtime_context)
-        execution_log: List[Dict[str, Any]] = []
-
-        # 剥离 messages 中的 system 消息，避免 model_forward_fn 重复追加
-        non_system_messages, embedded_system = self._extract_system_from_messages(messages)
-        effective_override = system_prompt_override or embedded_system or None
-        system_prompt = self._resolve_system_prompt(effective_override, runtime_ctx)
-
-        # 经过完整中间件链（before_model 钩子：RuntimeMode / PlanMode / Skills / Files 等）
-        processed_messages = self._apply_before_model_middlewares(non_system_messages, 0, runtime_ctx)
-
-        model_response = ""
-
-        if stream_forward_fn is not None:
-            # 真流式路径：逐 token yield，给 UI 提供实时输出体验
-            try:
-                for partial in stream_forward_fn(processed_messages, system_prompt, **model_kwargs):
-                    model_response = partial  # 累积文本（生成器每次 yield 已累积）
-                    yield model_response, {"iteration": 0, "type": "model_response_stream"}
-            except Exception:
-                # 降级到非流式
-                model_response = self.model_forward_fn(processed_messages, system_prompt, **model_kwargs)
-        else:
-            # 非流式路径（model_forward_fn 返回完整字符串）
-            model_response = self.model_forward_fn(processed_messages, system_prompt, **model_kwargs)
-
-        model_response = self._apply_after_model_middlewares(model_response, 0, runtime_ctx)
-
-        execution_log.append({
-            "iteration": 0,
-            "type": "model_response",
-            "content": model_response,
-            "run_mode": runtime_ctx.get("run_mode", "chat"),
-            "plan_mode": bool(runtime_ctx.get("plan_mode", False)),
-            "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-        })
-
-        # 最终完整响应（非流式时首次 yield，流式时最后一次 yield 确保 after_model 后内容正确）
-        yield model_response, {"iteration": 0, "type": "model_response"}
-        self._finalize_middlewares(execution_log, runtime_ctx)
+    # ------------------------------------------------------------------
+    # 高层接口：供 UI 层调用
+    # ------------------------------------------------------------------
 
     def process_message(
         self,
-        user_message: str,
-        history: List[Tuple[str, str]],
-        system_prompt_override: Optional[str] = None,
-        runtime_context: Optional[Dict[str, Any]] = None,
+        user_input: str,
+        chat_history=None,
+        system_prompt_override: str = "",
+        runtime_context: Optional[Dict] = None,
         return_runtime_context: bool = False,
-        **model_kwargs,
-    ) -> Union[Tuple[str, List[Dict[str, Any]]], Tuple[str, List[Dict[str, Any]], Dict[str, Any]]]:
-        """
-        处理用户消息并执行 Agent 循环
+        temperature: float = 0.7,
+        top_p: float = 0.9,
+        max_tokens: int = 8192,
+    ):
+        """同步工具模式入口：调用 ReAct 循环，返回 (response, execution_log, runtime_context)。
 
         Args:
-            user_message: 用户输入
-            history: 对话历史 [(user_msg, assistant_msg), ...]
-            system_prompt_override: 覆盖系统提示词
-            runtime_context: 本次执行的运行时上下文
-            return_runtime_context: 是否额外返回运行时上下文
-            **model_kwargs: 传递给模型的其他参数
-
+            user_input: 用户消息文本
+            chat_history: 历史对话（二维列表 [[user, bot], ...] 或 None）
+            system_prompt_override: 覆盖系统提示
+            runtime_context: 运行时上下文字典
+            return_runtime_context: 是否在返回值中包含 runtime_context
+            temperature/top_p/max_tokens: 生成参数（透传给 model_forward_fn）
         Returns:
-            默认返回 (最终响应, 执行记录)
-            当 return_runtime_context=True 时返回 (最终响应, 执行记录, 运行时上下文)
+            (response_str, execution_log_list, updated_runtime_context)
         """
-        messages = self._build_messages(user_message, history)
-        runtime_ctx = self._build_runtime_context(runtime_context)
-        system_prompt = self._resolve_system_prompt(system_prompt_override, runtime_ctx)
+        runtime_context = dict(runtime_context or self.default_runtime_context)
 
-        execution_log: List[Dict[str, Any]] = []
-        model_response = ""
+        # 将 chat_history 转换为 messages 格式
+        history_messages: List[Dict] = []
+        if chat_history:
+            for pair in chat_history:
+                if isinstance(pair, (list, tuple)) and len(pair) == 2:
+                    u, a = pair
+                    if u:
+                        history_messages.append({"role": "user", "content": str(u)})
+                    if a:
+                        history_messages.append({"role": "assistant", "content": str(a)})
 
-        for iteration in range(self.max_iterations):
-            messages = self._apply_before_model_middlewares(messages, iteration, runtime_ctx)
+        result = self.run(
+            user_input,
+            history=history_messages,
+            runtime_context=runtime_context,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+        )
 
-            model_response = self.model_forward_fn(messages, system_prompt, **model_kwargs)
-            model_response = self._apply_after_model_middlewares(model_response, iteration, runtime_ctx)
+        response = result.get("response", "")
+        tool_calls_log = result.get("tool_calls", [])
 
-            if self._should_trigger_anti_repeat_guard(model_response, runtime_ctx):
-                original_response = model_response
-                model_response = self._rewrite_with_anti_repeat_guard(
-                    messages,
-                    model_response,
-                    system_prompt,
-                    iteration,
-                    runtime_ctx,
-                    **model_kwargs,
-                )
-                execution_log.append(
-                    {
-                        "iteration": iteration,
-                        "type": "anti_repeat_rewrite",
-                        "original_preview": original_response[:240],
-                        "rewritten_preview": model_response[:240],
-                        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                    }
-                )
+        # 构建结构化执行日志（timestamp 来自 _execute_single_tool 的真实执行时刻）
+        execution_log = []
+        for tc in tool_calls_log:
+            execution_log.append({
+                "iteration": tc.get("iteration", 0),
+                "type": "tool_call",
+                "tool": tc.get("tool", ""),
+                "success": tc.get("success", True),
+                "parallel": tc.get("parallel", False),
+                "timestamp": tc.get("timestamp", ""),
+            })
 
-            execution_log.append(
-                {
-                    "iteration": iteration,
-                    "type": "model_response",
-                    "content": model_response,
-                    "run_mode": runtime_ctx.get("run_mode", "chat"),
-                    "plan_mode": bool(runtime_ctx.get("plan_mode", False)),
-                    "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                }
-            )
+        return response, execution_log, runtime_context
 
-            tool_calls = self.tool_parser.parse_tool_calls(model_response)
-            if not tool_calls:
-                tool_calls = self._infer_fallback_tool_calls(user_message, runtime_ctx, iteration, model_response)
-                if tool_calls:
-                    execution_log.append(
-                        {
-                            "iteration": iteration,
-                            "type": "tool_fallback",
-                            "tool_calls": [
-                                {"tool": name, "input": payload} for name, payload in tool_calls
-                            ],
-                            "reason": "模型未输出可解析工具格式，触发文件读取兜底",
-                            "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                        }
-                    )
-                else:
-                    self._finalize_middlewares(execution_log, runtime_ctx)
-                    if return_runtime_context:
-                        return model_response, execution_log, runtime_ctx
-                    return model_response, execution_log
-
-            tool_results = []
-            has_duplicate = False
-            new_tool_executed = False
-            executed_calls: set = runtime_ctx.setdefault("_executed_tool_calls", set())
-
-            for tool_name, tool_input in tool_calls:
-                call_key = (tool_name, json.dumps(tool_input, sort_keys=True, ensure_ascii=False))
-                if call_key in executed_calls:
-                    # 检测到重复工具调用，跳过执行，注入强约束提示
-                    has_duplicate = True
-                    duplicate_hint = json.dumps(
-                        {
-                            "duplicate_call": True,
-                            "tool": tool_name,
-                            "message": (
-                                f"⚠️ 你已经调用过 {tool_name}（参数相同），结果已在上下文中。"
-                                "请勿重复调用相同工具。请直接基于已获取的内容完成任务，给出最终回答。"
-                            ),
-                        },
-                        ensure_ascii=False,
-                    )
-                    tool_results.append({
-                        "tool": tool_name,
-                        "input": tool_input,
-                        "result": duplicate_hint,
-                    })
-                    execution_log.append(
-                        {
-                            "iteration": iteration,
-                            "type": "duplicate_tool_call_blocked",
-                            "tool": tool_name,
-                            "input": tool_input,
-                            "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                        }
-                    )
-                    continue
-
-                raw_result = self.tool_executor.execute_tool(tool_name, tool_input)
-                guarded_result = self._apply_after_tool_call_middlewares(
-                    tool_name,
-                    tool_input,
-                    raw_result,
-                    iteration,
-                    runtime_ctx,
-                )
-                # Fix-3: bash 命令失败时（returncode != 0）不加入 executed_calls，
-                # 允许安装依赖后重新执行相同命令（如 pip3 install 后再次 python3 -m pytest）
-                _bash_failed = False
-                if tool_name == "bash":
-                    try:
-                        _result_data = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
-                        if isinstance(_result_data, dict) and _result_data.get("returncode", 0) != 0:
-                            _bash_failed = True
-                    except Exception:
-                        pass
-                if not _bash_failed:
-                    executed_calls.add(call_key)
-                new_tool_executed = True
-                tool_results.append({
-                    "tool": tool_name,
-                    "input": tool_input,
-                    "result": guarded_result,
-                })
-
-                execution_log.append(
-                    {
-                        "iteration": iteration,
-                        "type": "tool_call",
-                        "tool": tool_name,
-                        "input": tool_input,
-                        "result": guarded_result,
-                        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                    }
-                )
-
-            # 当所有工具调用都是重复的（无新工具执行），立即强制总结并退出循环，
-            # 避免模型陷入"重复调用 → 警告提示 → 再次重复调用"的死循环
-            if has_duplicate and not new_tool_executed:
-                execution_log.append(
-                    {
-                        "iteration": iteration,
-                        "type": "force_summarize",
-                        "reason": "所有工具调用均为重复，触发强制总结退出",
-                        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                    }
-                )
-                messages.append({"role": "assistant", "content": model_response})
-                result_text = self._format_tool_results(tool_results, runtime_ctx, has_duplicate=True)
-                messages.append({"role": "user", "content": result_text})
-                final_response = self._force_summarize_on_duplicate(
-                    messages, model_response, system_prompt, iteration, runtime_ctx, **model_kwargs
-                )
-                self._finalize_middlewares(execution_log, runtime_ctx)
-                if return_runtime_context:
-                    return final_response, execution_log, runtime_ctx
-                return final_response, execution_log
-
-            messages.append({"role": "assistant", "content": model_response})
-            result_text = self._format_tool_results(tool_results, runtime_ctx, has_duplicate=has_duplicate)
-            messages.append({"role": "user", "content": result_text})
-
-        final_response = f"已达到最大迭代次数({self.max_iterations})。最后的模型响应:\n\n{model_response}"
-        self._finalize_middlewares(execution_log, runtime_ctx)
-        if return_runtime_context:
-            return final_response, execution_log, runtime_ctx
-        return final_response, execution_log
-
-    def process_message_stream(
+    def process_message_direct_stream(
         self,
-        user_message: str,
-        history: List[Tuple[str, str]],
-        system_prompt_override: Optional[str] = None,
-        runtime_context: Optional[Dict[str, Any]] = None,
-        **model_kwargs,
-    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
-        """
-        流式处理用户消息 (用于实时显示)
+        messages: List[Dict],
+        system_prompt_override: str = "",
+        runtime_context: Optional[Dict] = None,
+        stream_forward_fn=None,
+        temperature: float = 0.7,
+        top_p: float = 0.9,
+        max_tokens: int = 8192,
+    ):
+        """流式对话模式入口：经过中间件链后调用流式生成，逐 token yield (chunk, meta)。
 
+        适用于 chat / skills 模式（不调用工具循环），直接流式输出模型响应。
+
+        Args:
+            messages: 完整的消息列表（含 system / history）
+            system_prompt_override: 覆盖系统提示（已包含在 messages 中时可不传）
+            runtime_context: 运行时上下文
+            stream_forward_fn: 流式生成函数 generator(messages, system_prompt, **kw)
+            temperature/top_p/max_tokens: 生成参数
         Yields:
-            (流式文本, 执行信息)
+            (accumulated_text, meta_dict) 元组
         """
-        messages = self._build_messages(user_message, history)
-        runtime_ctx = self._build_runtime_context(runtime_context)
-        system_prompt = self._resolve_system_prompt(system_prompt_override, runtime_ctx)
-        execution_log: List[Dict[str, Any]] = []
+        runtime_context = dict(runtime_context or self.default_runtime_context)
+        processed = list(messages)
 
-        for iteration in range(self.max_iterations):
-            messages = self._apply_before_model_middlewares(messages, iteration, runtime_ctx)
+        # 应用中间件 process_before_llm
+        for mw in self.middlewares:
+            if hasattr(mw, "process_before_llm"):
+                try:
+                    processed = mw.process_before_llm(processed, runtime_context)
+                except Exception:
+                    pass
 
-            model_response = self.model_forward_fn(messages, system_prompt, **model_kwargs)
-            model_response = self._apply_after_model_middlewares(model_response, iteration, runtime_ctx)
+        # 决定使用哪个流式函数
+        _stream_fn = stream_forward_fn if stream_forward_fn is not None else None
 
-            if self._should_trigger_anti_repeat_guard(model_response, runtime_ctx):
-                original_response = model_response
-                model_response = self._rewrite_with_anti_repeat_guard(
-                    messages,
-                    model_response,
-                    system_prompt,
-                    iteration,
-                    runtime_ctx,
-                    **model_kwargs,
-                )
-                execution_log.append(
-                    {
-                        "iteration": iteration,
-                        "type": "anti_repeat_rewrite",
-                        "original_preview": original_response[:240],
-                        "rewritten_preview": model_response[:240],
-                        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                    }
-                )
-
-            execution_log.append(
-                {
-                    "iteration": iteration,
-                    "type": "model_response",
-                    "content": model_response,
-                    "run_mode": runtime_ctx.get("run_mode", "chat"),
-                    "plan_mode": bool(runtime_ctx.get("plan_mode", False)),
-                    "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                }
-            )
-            yield model_response, {"iteration": iteration, "type": "model_response"}
-
-            tool_calls = self.tool_parser.parse_tool_calls(model_response)
-            if not tool_calls:
-                tool_calls = self._infer_fallback_tool_calls(user_message, runtime_ctx, iteration, model_response)
-                if tool_calls:
-                    execution_log.append(
-                        {
-                            "iteration": iteration,
-                            "type": "tool_fallback",
-                            "tool_calls": [
-                                {"tool": name, "input": payload} for name, payload in tool_calls
-                            ],
-                            "reason": "模型未输出可解析工具格式，触发文件读取兜底",
-                            "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                        }
-                    )
-                else:
-                    self._finalize_middlewares(execution_log, runtime_ctx)
-                    return
-
-            tool_results = []
-            has_duplicate = False
-            new_tool_executed = False
-            executed_calls: set = runtime_ctx.setdefault("_executed_tool_calls", set())
-
-            for tool_name, tool_input in tool_calls:
-                call_key = (tool_name, json.dumps(tool_input, sort_keys=True, ensure_ascii=False))
-                if call_key in executed_calls:
-                    # 检测到重复工具调用，跳过执行，注入强约束提示
-                    has_duplicate = True
-                    duplicate_hint = json.dumps(
-                        {
-                            "duplicate_call": True,
-                            "tool": tool_name,
-                            "message": (
-                                f"⚠️ 你已经调用过 {tool_name}（参数相同），结果已在上下文中。"
-                                "请勿重复调用相同工具。请直接基于已获取的内容完成任务，给出最终回答。"
-                            ),
-                        },
-                        ensure_ascii=False,
-                    )
-                    tool_results.append({
-                        "tool": tool_name,
-                        "input": tool_input,
-                        "result": duplicate_hint,
-                    })
-                    execution_log.append(
-                        {
-                            "iteration": iteration,
-                            "type": "duplicate_tool_call_blocked",
-                            "tool": tool_name,
-                            "input": tool_input,
-                            "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                        }
-                    )
-                    yield f"[重复调用已阻断] {tool_name}\n", {
-                        "iteration": iteration,
-                        "type": "duplicate_tool_call_blocked",
-                        "tool": tool_name,
-                    }
-                    continue
-
-                raw_result = self.tool_executor.execute_tool(tool_name, tool_input)
-                guarded_result = self._apply_after_tool_call_middlewares(
-                    tool_name,
-                    tool_input,
-                    raw_result,
-                    iteration,
-                    runtime_ctx,
-                )
-                # Fix: bash 命令失败时（returncode != 0）不加入 executed_calls，
-                # 允许安装依赖后重新执行相同命令（如 pip install 后再次 pytest）
-                _bash_failed = False
-                if tool_name == "bash":
-                    try:
-                        _result_data = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
-                        if isinstance(_result_data, dict) and _result_data.get("returncode", 0) != 0:
-                            _bash_failed = True
-                    except Exception:
-                        pass
-                if not _bash_failed:
-                    executed_calls.add(call_key)
-                new_tool_executed = True
-
-                tool_results.append({
-                    "tool": tool_name,
-                    "input": tool_input,
-                    "result": guarded_result,
-                })
-                execution_log.append(
-                    {
-                        "iteration": iteration,
-                        "type": "tool_call",
-                        "tool": tool_name,
-                        "input": tool_input,
-                        "result": guarded_result,
-                        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                    }
-                )
-
-                yield f"[执行工具] {tool_name}\n", {
-                    "iteration": iteration,
-                    "type": "tool_execution",
-                    "tool": tool_name,
-                }
-
-            # 当所有工具调用都是重复的（无新工具执行），立即强制总结并退出循环，
-            # 避免模型陷入"重复调用 → 警告提示 → 再次重复调用"的死循环
-            if has_duplicate and not new_tool_executed:
-                execution_log.append(
-                    {
-                        "iteration": iteration,
-                        "type": "force_summarize",
-                        "reason": "所有工具调用均为重复，触发强制总结退出",
-                        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                    }
-                )
-                messages.append({"role": "assistant", "content": model_response})
-                result_text = self._format_tool_results(tool_results, runtime_ctx, has_duplicate=True)
-                messages.append({"role": "user", "content": result_text})
-                final_response = self._force_summarize_on_duplicate(
-                    messages, model_response, system_prompt, iteration, runtime_ctx, **model_kwargs
-                )
-                yield final_response, {"iteration": iteration, "type": "force_summarize"}
-                self._finalize_middlewares(execution_log, runtime_ctx)
-                return
-
-            messages.append({"role": "assistant", "content": model_response})
-            result_text = self._format_tool_results(tool_results, runtime_ctx, has_duplicate=has_duplicate)
-            messages.append({"role": "user", "content": result_text})
-
-        self._finalize_middlewares(execution_log, runtime_ctx)
-
-    def _build_messages(self, user_message: str, history: List[Tuple[str, str]]) -> List[Dict[str, str]]:
-        """构建消息列表"""
-        messages = []
-
-        for user_msg, assistant_msg in history:
-            if user_msg:
-                messages.append({"role": "user", "content": user_msg})
-            if assistant_msg:
-                messages.append({"role": "assistant", "content": assistant_msg})
-
-        messages.append({"role": "user", "content": user_message})
-        return messages
-
-    @staticmethod
-    def _truncate_text(text: str, max_chars: int = 1800) -> Tuple[str, bool]:
-        """按字符截断文本，保留头尾上下文。"""
-        if len(text) <= max_chars:
-            return text, False
-
-        head_chars = int(max_chars * 0.75)
-        tail_chars = max_chars - head_chars
-        omitted_chars = len(text) - max_chars
-        truncated = (
-            text[:head_chars]
-            + f"\n\n...[内容已截断，省略 {omitted_chars} 个字符]...\n\n"
-            + text[-tail_chars:]
-        )
-        return truncated, True
-
-    @staticmethod
-    def _extract_markdown_headings(content: str, limit: int = 8) -> List[str]:
-        """从 Markdown 文本中提取章节标题。"""
-        headings: List[str] = []
-        for raw_line in content.splitlines():
-            match = re.match(r"^#{1,6}\s+(.*)$", raw_line.strip())
-            if not match:
-                continue
-
-            heading = match.group(1).strip()
-            if not heading:
-                continue
-
-            headings.append(heading)
-            if len(headings) >= limit:
-                break
-
-        return headings
-
-    @staticmethod
-    def _first_non_empty_line(content: str) -> str:
-        """返回首个非空行。"""
-        for raw_line in content.splitlines():
-            line = raw_line.strip()
-            if line:
-                return line
-        return ""
-
-    def _build_read_file_summary(self, result_data: Dict[str, Any]) -> Dict[str, Any]:
-        """将 read_file 原文转换为结构化摘要。"""
-        path = str(result_data.get("path", ""))
-        content = result_data.get("content")
-        if not isinstance(content, str):
-            content = ""
-
-        section_headings = self._extract_markdown_headings(content, limit=8)
-        title = section_headings[0] if section_headings else self._first_non_empty_line(content)
-        if not title:
-            title = path or "untitled"
-
-        normalized_content = content.replace("\r\n", "\n").strip()
-        preview_source = normalized_content or "[空文件或无可读文本]"
-        preview, _ = self._truncate_text(preview_source, max_chars=260)
-
-        return {
-            "title": title[:120],
-            "section_headings": section_headings,
-            "line_count": content.count("\n") + (1 if content else 0),
-            "char_count": len(content),
-            "preview": preview,
-        }
-
-    # 文件内容直接透传的字符数上限（超过此限制才截断）
-    _READ_FILE_FULL_CONTENT_LIMIT = 12000
-    # bash stdout 直接透传上限（与 read_file 保持一致，确保 grep 等完整输出不被截断）
-    _BASH_STDOUT_FULL_LIMIT = 12000
-
-    def _prepare_tool_result_for_model(self, tool_name: str, result_data: Any) -> Tuple[Any, bool]:
-        """处理工具结果后回传给模型。
-
-        read_file 策略:
-          - 内容 <= 12000 字符：直接传完整内容，让模型看到真实代码/文本
-          - 内容 >  12000 字符：截断保留头尾上下文，并附带结构化摘要辅助导航
-        bash 策略:
-          - stdout <= 12000 字符：直接透传完整 stdout，让模型看到完整命令输出
-          - stdout >  12000 字符：截断保留头尾，附带省略提示
-        其他工具结果超过 1200 字符时截断。
-        """
-        if tool_name == "bash" and isinstance(result_data, dict):
-            stdout = result_data.get("stdout", "")
-            if not isinstance(stdout, str):
-                stdout = ""
-            stdout_len = len(stdout)
-            if stdout_len > self._BASH_STDOUT_FULL_LIMIT:
-                truncated_stdout, _ = self._truncate_text(stdout, max_chars=self._BASH_STDOUT_FULL_LIMIT)
-                result_data = dict(result_data)
-                result_data["stdout"] = truncated_stdout
-                result_data["_sys_note"] = f"stdout 共 {stdout_len} 字符，已截断显示（保留头尾）。"
-            return result_data, stdout_len > self._BASH_STDOUT_FULL_LIMIT
-
-        if tool_name == "read_file" and isinstance(result_data, dict):
-            content = result_data.get("content", "")
-            if not isinstance(content, str):
-                content = ""
-            char_count = len(content)
-
-            if char_count <= self._READ_FILE_FULL_CONTENT_LIMIT:
-                # 内容较短：直接透传完整内容，不做压缩
-                return {
-                    "success": bool(result_data.get("success", True)),
-                    "path": str(result_data.get("path", "")),
-                    "content": content,
-                    "line_count": content.count("\n") + (1 if content else 0),
-                    "char_count": char_count,
-                }, False
-            else:
-                # 内容超长：截断保留头尾 + 附带结构化摘要
-                truncated_content, _ = self._truncate_text(
-                    content, max_chars=self._READ_FILE_FULL_CONTENT_LIMIT
-                )
-                summary = self._build_read_file_summary(result_data)
-                return {
-                    "success": bool(result_data.get("success", True)),
-                    "path": str(result_data.get("path", "")),
-                    "content": truncated_content,
-                    "summary": summary,
-                    "char_count": char_count,
-                    # _sys_note 是内部系统注释，模型不应在回答中提及
-                    "_sys_note": f"文件共 {char_count} 字符，已截断显示（保留头尾），如需查看其余部分可继续调用 read_file。",
-                }, True
-
-        try:
-            serialized = json.dumps(result_data, ensure_ascii=False)
-        except TypeError:
-            serialized = str(result_data)
-
-        preview, truncated = self._truncate_text(serialized, max_chars=1200)
-        if truncated:
-            return {
-                "truncated": True,
-                "preview": preview,
-                # _sys_note 是内部系统注释，模型不应在回答中提及
-                "_sys_note": "结果过长，已截断显示。",
-            }, True
-
-        return result_data, False
-
-    def _format_tool_results(
-        self,
-        tool_results: List[Dict[str, Any]],
-        runtime_context: Optional[Dict[str, Any]] = None,
-        has_duplicate: bool = False,
-    ) -> str:
-        """格式化工具结果用于返回给模型。"""
-        formatted: List[str] = []
-        has_read_file = False
-        read_file_structured = False
-
-        for result_info in tool_results:
-            tool_name = result_info["tool"]
-            result_str = result_info["result"]
-
+        if _stream_fn is not None:
+            # 使用外部流式函数：yield 累积文本
+            accumulated = ""
+            for chunk in _stream_fn(
+                processed,
+                system_prompt=system_prompt_override,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+            ):
+                accumulated = chunk  # chunk 是累积文本
+                yield accumulated, {}
+        else:
+            # 降级：同步调用 model_forward_fn，一次性返回全部文本
             try:
-                result_data = json.loads(result_str)
-            except json.JSONDecodeError:
-                result_data = {"raw": result_str}
-
-            prepared_result, was_structured = self._prepare_tool_result_for_model(tool_name, result_data)
-
-            formatted.append(f"工具 '{tool_name}' 的执行结果:")
-            formatted.append(json.dumps(prepared_result, ensure_ascii=False, indent=2))
-            formatted.append("")
-
-            if tool_name == "read_file":
-                has_read_file = True
-                read_file_structured = read_file_structured or was_structured
-                if runtime_context is not None and isinstance(prepared_result, dict):
-                    # 优先使用 summary 字段（超长截断时存在），否则从完整内容即时构建摘要
-                    summary_payload = prepared_result.get("summary")
-                    if not isinstance(summary_payload, dict):
-                        # 短文件直接透传了 content，现场生成摘要供 anti-repeat guard 使用
-                        summary_payload = self._build_read_file_summary(
-                            {"path": prepared_result.get("path", ""), "content": prepared_result.get("content", "")}
-                        )
-                    runtime_context["_last_read_file_summary"] = dict(summary_payload)
-                    # 注意：不重置 _anti_repeat_guard_used。
-                    # 仅在尚未设置时初始化为 False（首次读文件），避免每轮重置导致 guard 每轮都触发。
-                    if "_anti_repeat_guard_used" not in runtime_context:
-                        runtime_context["_anti_repeat_guard_used"] = False
-                    # 记录已读文件路径集合，用于检测重复读取同一文件
-                    read_path = str(prepared_result.get("path", ""))
-                    if read_path:
-                        runtime_context.setdefault("_read_file_paths", set()).add(read_path)
-
-        if has_duplicate:
-            formatted.append("⚠️【重要】你刚才重复调用了已执行过的工具（参数完全相同）。")
-            formatted.append("框架已阻断重复执行。文件内容已在上下文历史中，请勿再次调用相同工具。")
-            formatted.append("**请立即基于上下文中已有的文件内容，直接完成用户的任务并给出最终回答。**")
-            formatted.append("禁止输出任何新的工具调用。")
-            formatted.append("")
-        elif has_read_file:
-            if read_file_structured:
-                # 文件过长被截断：提示还可以继续读，但要明确说明截断情况
-                formatted.append("文件内容已读取（内容较长，已保留头尾关键部分）。")
-                formatted.append("【重要】该文件已完整读取过，上下文中已有内容。请直接基于已有内容完成任务。")
-                formatted.append("- 如果已有内容已足够：直接给出最终回答。")
-                formatted.append("- 如果确实需要查看文件其他部分：说明原因并使用 read_file 继续读取。")
-                formatted.append("- 【禁止】重复读取相同路径的文件，上下文中已有该文件内容。")
-                formatted.append("- 【注意】回答时不要提及文件截断相关的技术细节（如字符数、截断位置等），直接基于已有内容作答即可。")
-            else:
-                # 文件内容已完整读取：明确禁止重复读同一文件
-                formatted.append("文件内容已完整读取。")
-                formatted.append("【重要】上下文中已包含该文件的完整内容，无需再次读取同一文件。")
-                formatted.append("请立即基于已读取的文件内容完成用户任务：")
-                formatted.append("- 如果任务只需要这一个文件：直接给出最终回答。")
-                formatted.append("- 如果任务还需要读取其他文件（不是同一个文件）：调用 read_file 读取其他路径。")
-            formatted.append("")
-
-        return "\n".join(formatted)
-
-    def enable_tools_in_prompt(self, enable: bool):
-        """动态启用/禁用工具信息在系统提示词中"""
-        self.tools_in_system_prompt = enable
-
-
-# ============================================================================
-# 意图路由器 - 自动分析用户意图，无需手动选择模式
-# ============================================================================
-
-
-def create_qwen_model_forward(qwen_agent, system_prompt_base: str = ""):
-    """
-    创建 Qwen 模型前向函数
-
-    Args:
-        qwen_agent: QwenAgent 实例
-        system_prompt_base: 基础系统提示词
-
-    Returns:
-        适配的前向函数
-    """
-
-    def _consume_stream(stream) -> str:
-        response_text = ""
-        for token in stream:
-            response_text = token
-        return response_text
-
-    def forward(messages: List[Dict[str, str]], system_prompt: str = "", **kwargs) -> str:
-        combined_system_prompt = system_prompt_base
-        if system_prompt:
-            combined_system_prompt = f"{combined_system_prompt}\n\n{system_prompt}"
-
-        full_messages = [{"role": "system", "content": combined_system_prompt}] + messages
-
-        if hasattr(qwen_agent, "generate_stream_with_messages"):
-            stream = qwen_agent.generate_stream_with_messages(
-                full_messages,
-                temperature=kwargs.get("temperature", 0.7),
-                top_p=kwargs.get("top_p", 0.9),
-                max_tokens=kwargs.get("max_tokens", 8192),
-            )
-            return _consume_stream(stream)
-
-        if hasattr(qwen_agent, "generate_stream_text"):
-            stream = qwen_agent.generate_stream_text(
-                full_messages,
-                temperature=kwargs.get("temperature", 0.7),
-                top_p=kwargs.get("top_p", 0.9),
-                max_tokens=kwargs.get("max_tokens", 8192),
-            )
-            return _consume_stream(stream)
-
-        if hasattr(qwen_agent, "generate_stream"):
-            chat_messages = [m for m in full_messages if m.get("role") != "system"]
-            if not chat_messages:
-                return ""
-
-            latest_user = ""
-            if chat_messages[-1].get("role") == "user":
-                latest_user = chat_messages[-1].get("content", "")
-                history_messages = chat_messages[:-1]
-            else:
-                history_messages = chat_messages
-
-            history_pairs: List[Tuple[str, str]] = []
-            pending_user = None
-            for message in history_messages:
-                role = message.get("role")
-                content = message.get("content", "")
-                if role == "user":
-                    if pending_user is not None:
-                        history_pairs.append((pending_user, ""))
-                    pending_user = content
-                elif role == "assistant":
-                    if pending_user is None:
-                        history_pairs.append(("", content))
-                    else:
-                        history_pairs.append((pending_user, content))
-                        pending_user = None
-
-            if pending_user is not None:
-                history_pairs.append((pending_user, ""))
-
-            stream = qwen_agent.generate_stream(
-                latest_user,
-                history_pairs,
-                system_prompt=combined_system_prompt,
-                temperature=kwargs.get("temperature", 0.7),
-                top_p=kwargs.get("top_p", 0.9),
-                max_tokens=kwargs.get("max_tokens", 8192),
-            )
-            return _consume_stream(stream)
-
-        raise AttributeError(
-            "qwen_agent 缺少可用的流式接口，请实现 generate_stream_with_messages、"
-            "generate_stream_text 或 generate_stream。"
-        )
-
-    return forward
-
-
-# ============================================================================
-# 持久化记忆系统 - 借鉴 DeerFlow MemoryUpdater，适配轻量本地/API 模型
-# ============================================================================
-
-
-
-if __name__ == "__main__":
-    print("\u2705 Agent 框架模块加载成功")
-    print("ℹ️  本文件只包含核心类：")
-    print("  - QwenAgentFramework        Agent 主循环（工具调用 + 中间件链）")
-    print("  - create_qwen_model_forward 适配 Qwen 模型的前向函数工厂")
-    print("ℹ️  下列类已迁移至独立子模块，在此仅保留导入（向后兼容）：")
-    print("  - AgentMiddleware / 中间件链   → agent_middlewares.py")
-    print("  - TodoItem / TodoManager    → todo_manager.py")
-    print("  - IntentRouter / AIIntentRouter → intent_router.py")
-    print("  - TaskPlanner / TaskExecutor    → task_planner.py")
-    print("  - MemoryManager                 → memory_manager.py")
+                response = self.model_forward_fn(
+                    processed,
+                    system_prompt_override or self.system_prompt,
+                )
+                yield response, {}
+            except Exception as e:
+                yield f"❌ 模型调用失败: {e}", {}

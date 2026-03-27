@@ -1,11 +1,66 @@
-# Chat-Agent
+# Chat-Agent - 先进 AI Agent 框架
 
-本项目是一个本地可运行的 Qwen Agent 系统，支持：
+基于 ReAct 模式的智能 Agent 框架，针对 glm-4-flash (8k context) 优化，实现并行执行、持久化记忆和语义压缩。
 
-- 对话 + 工具调用
-- Skills 知识注入
-- 计划模式（Plan Mode）
-- 会话日志记录与可视化分析
+## 核心特性（基础版）
+
+### 1. ReAct 模式
+- **Thought**: 分析当前情况，思考下一步
+- **Action**: 选择并执行工具
+- **Observation**: 观察结果
+- **Reflection**: 反思是否成功，需要调整吗
+
+### 2. 并行工具执行
+- 自动检测只读工具（`read_file`, `list_dir`）
+- 使用 `ThreadPoolExecutor` 并发执行，最多3个并发
+- 写入工具（`write_file`, `edit_file`, `bash`）保持串行
+
+### 3. 持久化记忆
+- `SessionMemory` 自动保存到 `.agent_memory/session_memory.pkl`
+- 跨会话记录工具使用统计（成功率、平均耗时）
+- 保留最近3次会话的关键上下文
+
+### 4. 语义压缩
+- 基于关键词密度计算消息重要性
+- 用户消息权重 1.5x，工具结果权重 1.3x
+- 保留最近6条 + 历史top-3重要消息
+
+### 5. 循环检测与智能重试
+- 3次相同失败自动中断
+- 自动修复 grep 转义错误
+- 自动补全相对路径
+
+## 高级特性（新增）
+
+### 1. 向量记忆（VectorMemory）
+- 使用 TF-IDF embedding 存储历史对话
+- 基于余弦相似度的语义检索
+- 持久化到 `.agent_memory/vector_memory.pkl`
+- 自动去重（相似度 >0.95）
+
+### 2. 多Agent协作（MultiAgentOrchestrator）
+- **Planner**：任务分解和规划
+- **Executor**：执行具体步骤
+- **Reviewer**：结果审查和质量控制
+- 完整的 Plan → Execute → Review 循环
+
+### 3. 工具学习（ToolLearner）
+- 任务分类（文件操作、代码分析、系统命令等）
+- 基于历史成功率推荐工具
+- 持久化学习结果
+- 自适应优化
+
+### 4. 流式输出（StreamingFramework）
+- SSE（Server-Sent Events）格式
+- 实时展示思考、工具调用、结果
+- 支持 Web 应用集成
+- 8种事件类型（start, thought, tool_call, tool_result, reflection, progress, complete, error）
+
+### 5. 智能模式路由（ModeRouter）
+- **自动检测**：根据用户输入自动识别意图
+- **5种模式**：chat（对话）、tools（工具）、plan（计划）、multi_agent（多Agent）、streaming（流式）
+- **智能升级**：复杂任务自动启用高级模式
+- **零配置**：无需手动指定 `runtime_context`
 
 ---
 

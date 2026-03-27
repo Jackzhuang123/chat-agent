@@ -15,7 +15,7 @@ import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from .todo_manager import TodoManager
+# TodoManager 已移除，相关中间件保留但标记为可选
 
 
 def _inject_context_before_last_user(
@@ -367,49 +367,54 @@ class ToolResultGuardMiddleware(AgentMiddleware):
 
 class TodoContextMiddleware(AgentMiddleware):
     """
-    Claude Code 风格的 TODO 上下文中间件。
+    Claude Code 风格的 TODO 上下文中间件（已废弃 - TodoManager 已移除）。
 
-    每次 before_model 时将当前 TodoManager 的状态注入消息列表，
-    让模型感知当前执行到哪一步。
-
-    与 PlanModeMiddleware 的区别：
-      PlanModeMiddleware  → 只注入"请先规划"的提示词，不跟踪状态
-      TodoContextMiddleware → 注入实时 TODO 状态，形成真正的状态感知循环
+    保留此类仅为向后兼容，不建议使用。
+    推荐使用 agent_framework.SessionMemory 的任务跟踪功能。
     """
 
-    def __init__(self, todo_manager: "TodoManager", worker_mode: bool = False):
+    def __init__(self, todo_manager: Any = None, worker_mode: bool = False):
         self.todo_manager = todo_manager
-        # worker_mode=True：只显示 in_progress + completed，隐藏 pending
         self.worker_mode = worker_mode
+        if todo_manager is None:
+            import warnings
+            warnings.warn("TodoContextMiddleware is deprecated. Use SessionMemory instead.", DeprecationWarning)
 
     def _build_context_content(self) -> str:
-        """构建注入内容（策略模式：worker/orchestrator 两种渲染路径）。"""
-        if self.worker_mode:
-            todo_text = self.todo_manager.render_for_context_worker()
-            current_step_lines = [
-                f"  ▶ [{item.id}] {item.task}"
-                for item in self.todo_manager._items
-                if item.status == "in_progress"
-            ]
-            in_progress_hint = (
-                ("\n当前正在执行：\n" + "\n".join(current_step_lines))
-                if current_step_lines
-                else ""
-            )
-            return (
-                f"{todo_text}\n"
-                f"当前正在执行任务计划中的单个步骤。{in_progress_hint}\n"
-                "请只完成上方标注 ▶ 的当前步骤，任务完成后直接返回结果，"
-                "不要调用 todo_write，不要描述后续步骤。"
-            )
-        else:
-            todo_text = self.todo_manager.render_for_context(show_completed=True)
-            return (
-                f"{todo_text}\n"
-                "当前正在执行任务计划。请聚焦于下一个 in_progress 或 pending 步骤。\n"
-                "完成某步骤后，可调用 todo_write 更新状态：\n"
-                '<tool>todo_write</tool><input>{"action": "update", "id": <步骤ID>, "status": "completed"}</input>'
-            )
+        """构建注入内容（已废弃）。"""
+        if self.todo_manager is None:
+            return ""
+
+        # 保留原有逻辑以防有遗留代码依赖
+        try:
+            if self.worker_mode:
+                todo_text = self.todo_manager.render_for_context_worker()
+                current_step_lines = [
+                    f"  ▶ [{item.id}] {item.task}"
+                    for item in self.todo_manager._items
+                    if item.status == "in_progress"
+                ]
+                in_progress_hint = (
+                    ("\n当前正在执行：\n" + "\n".join(current_step_lines))
+                    if current_step_lines
+                    else ""
+                )
+                return (
+                    f"{todo_text}\n"
+                    f"当前正在执行任务计划中的单个步骤。{in_progress_hint}\n"
+                    "请只完成上方标注 ▶ 的当前步骤，任务完成后直接返回结果，"
+                    "不要调用 todo_write，不要描述后续步骤。"
+                )
+            else:
+                todo_text = self.todo_manager.render_for_context(show_completed=True)
+                return (
+                    f"{todo_text}\n"
+                    "当前正在执行任务计划。请聚焦于下一个 in_progress 或 pending 步骤。\n"
+                    "完成某步骤后，可调用 todo_write 更新状态：\n"
+                    '<tool>todo_write</tool><input>{"action": "update", "id": <步骤ID>, "status": "completed"}</input>'
+                )
+        except Exception:
+            return ""
 
     def before_model(
         self,
@@ -500,13 +505,15 @@ class EnhancedTodoContextMiddleware(TodoContextMiddleware):
         return _inject_context_before_last_user(messages, context_message)
 
 
-def make_todo_context_middleware(todo_manager: "TodoManager") -> "TodoContextMiddleware":
+def make_todo_context_middleware(todo_manager: Any = None) -> "TodoContextMiddleware":
     """
-    创建增强版 TodoContextMiddleware（含上下文丢失检测）工厂函数。
+    创建增强版 TodoContextMiddleware（含上下文丢失检测）工厂函数（已废弃）。
 
     Returns:
         EnhancedTodoContextMiddleware 实例
     """
+    import warnings
+    warnings.warn("make_todo_context_middleware is deprecated. Use SessionMemory instead.", DeprecationWarning)
     return EnhancedTodoContextMiddleware(todo_manager)
 
 
@@ -516,23 +523,23 @@ def make_todo_context_middleware(todo_manager: "TodoManager") -> "TodoContextMid
 
 class MemoryInjectionMiddleware(AgentMiddleware):
     """
-    记忆注入中间件（借鉴 DeerFlow MemoryMiddleware 架构思路）。
+    记忆注入中间件（已废弃 - MemoryManager 已移除）。
 
-    工作原理：
-      1. before_model 时将记忆注入上下文（仅首轮，避免重复）
-      2. after_run 时可选触发记忆更新（auto_update=True）
-      3. 记忆以 <memory> XML 标签包裹，与工具结果区分
+    推荐使用 agent_framework.SessionMemory 的持久化记忆功能。
     """
 
     def __init__(
         self,
-        memory_manager,  # MemoryManager 实例（避免循环导入用 Any 类型）
+        memory_manager: Any = None,
         auto_update: bool = False,
         model_forward_fn=None,
     ):
         self.memory_manager = memory_manager
         self.auto_update = auto_update
         self.model_forward_fn = model_forward_fn
+        if memory_manager is None:
+            import warnings
+            warnings.warn("MemoryInjectionMiddleware is deprecated. Use SessionMemory instead.", DeprecationWarning)
 
     def before_model(
         self,
@@ -540,15 +547,21 @@ class MemoryInjectionMiddleware(AgentMiddleware):
         iteration: int,
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, str]]:
+        if self.memory_manager is None:
+            return messages
+
         if runtime_context is None:
             runtime_context = {}
         if runtime_context.get("_memory_injected"):
             return messages
 
-        memory_text = self.memory_manager.format_for_injection()
-        runtime_context["_memory_injected"] = True
+        try:
+            memory_text = self.memory_manager.format_for_injection()
+            runtime_context["_memory_injected"] = True
 
-        if not memory_text:
+            if not memory_text:
+                return messages
+        except Exception:
             return messages
 
         memory_message = {

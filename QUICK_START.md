@@ -1,189 +1,194 @@
-# 🚀 快速开始指南
+# 快速开始
 
-## 一键启动
+## 安装
 
 ```bash
-cd /Users/zhuangranxin/PyCharmProjects/chat-Agent
-./start_all.sh
+pip install -r requirements.txt
 ```
 
-系统会自动启动两个应用：
-- **Chat Agent**: http://localhost:7860 (对话界面)
-- **Session Viewer**: http://localhost:7861 (日志查看)
+## 基础使用
 
-## 📱 应用功能
+### 1. 创建 Agent
 
-### Chat Agent (7860)
-1. 在侧边栏配置模式和参数
-2. 在对话框输入问题
-3. 点击"发送"或按 Enter
-4. 对话自动保存到日志
-
-### Session Viewer (7861)
-
-#### 📁 会话列表
-- 查看所有保存的对话会话
-- 点击选择会话查看详情
-- 删除不需要的会话
-
-#### 🔍 会话详情
-1. 从会话列表选择一个会话
-2. 点击"查看选中会话详情"
-3. 查看统计信息（对话数、Token数等）
-4. 查看完整的对话记录
-5. 查看技能调用追踪
-
-#### 💾 数据导出
-- **导出会话**: 保存为 JSON 文件
-- **清空日志**: 删除所有会话记录
-
-## 📊 查看日志数据
-
-### 方式 1: 通过 UI (推荐)
-1. 打开 Session Viewer: http://localhost:7861
-2. 在"会话列表"选择要查看的会话
-3. 在"会话详情"中查看所有信息
-
-### 方式 2: 直接查看文件
-```bash
-# 查看日志文件列表
-ls -lah /Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/
-
-# 查看某个会话的内容
-cat /Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20240204_152030_123.json | jq .
-```
-
-### 方式 3: 代码查询
 ```python
-from ui.session_logger import get_logger
+from core import QwenAgentFramework
 
-logger = get_logger()
+def model_forward(messages, system_prompt):
+    # 调用你的 LLM API
+    # 例如：OpenAI, GLM, Qwen 等
+    return llm.chat(messages, system_prompt)
 
-# 列出所有会话
-sessions = logger.get_all_sessions()
-for s in sessions:
-    print(f"{s['session_id']}: {s['message_count']} 条消息")
-
-# 查看某个会话
-data = logger.get_session_details("20240204_152030_123")
-print(f"总对话数: {len(data['messages'])}")
-print(f"总 Token: {data['statistics']['total_tokens_used']}")
+framework = QwenAgentFramework(
+    model_forward_fn=model_forward,
+    enable_bash=True,       # 启用 bash 工具
+    enable_parallel=True,   # 启用并行执行
+    enable_memory=True,     # 启用持久化记忆
+)
 ```
 
-## 🎯 常见操作
+### 2. 运行任务
 
-### 导出单个会话
-1. 打开 Session Viewer
-2. 进入"会话列表"标签
-3. 选择要导出的会话
-4. 切换到"数据导出"标签
-5. 点击"导出会话"
+```python
+result = framework.run(
+    user_input="读取 core/agent_framework.py 并分析代码结构",
+    history=[]
+)
 
-### 删除旧日志
-1. 打开 Session Viewer
-2. 进入"数据导出"标签
-3. 点击"清空所有日志"确认
+print(result["response"])
+print(f"工具调用: {len(result['tool_calls'])} 次")
+print(f"迭代: {result['iterations']} 轮")
+```
 
-### 分析对话数据
-1. 打开 Session Viewer
-2. 进入"会话详情"标签
-3. 查看统计卡片了解全局信息
-4. 浏览对话记录查看具体内容
+### 3. 多轮对话
 
-## 💡 使用技巧
+```python
+history = []
 
-### 对话优化
-- 使用"Skills 系统"获得更好的回答
-- 上传 PDF 文件让 AI 参考文档
-- 调整"Temperature"控制回答的创意程度
+# 第一轮
+result1 = framework.run("列出 core 目录", history)
+history.append({"role": "user", "content": "列出 core 目录"})
+history.append({"role": "assistant", "content": result1["response"]})
 
-### 日志管理
-- 定期导出重要的对话记录
-- 清空不需要的旧日志以节省空间
-- 使用导出的 JSON 数据进行后续分析
+# 第二轮（带上下文）
+result2 = framework.run("读取其中的 agent_framework.py", history)
+```
 
-### 性能监控
-- 查看"会话详情"中的执行时间
-- 监控 Token 使用量
-- 追踪技能调用的性能表现
+## 配置选项
 
-## 🐛 故障排除
+```python
+framework = QwenAgentFramework(
+    model_forward_fn=model_forward,
+    work_dir=".",                # 工作目录
+    enable_bash=True,            # 启用 bash 工具
+    max_iterations=10,           # 最大迭代次数
+    middlewares=[...],           # 中间件列表
+    enable_memory=True,          # 启用持久化记忆
+    enable_reflection=True,      # 启用反思引擎
+    enable_parallel=True,        # 启用并行执行
+)
+```
 
-### 应用无法启动
+## 工具列表
+
+| 工具 | 描述 | 示例 | 可并行 |
+|------|------|------|--------|
+| `read_file` | 读取文件内容 | `read_file\n{"path": "test.py"}` | ✅ |
+| `list_dir` | 列出目录内容 | `list_dir\n{"path": "core"}` | ✅ |
+| `write_file` | 写入文件 | `write_file\n{"path": "out.txt", "content": "..."}` | ❌ |
+| `edit_file` | 编辑文件 | `edit_file\n{"path": "test.py", "old_content": "...", "new_content": "..."}` | ❌ |
+| `bash` | 执行命令 | `bash\n{"command": "ls -la"}` | ❌ |
+
+## 使用中间件
+
+```python
+from core import (
+    QwenAgentFramework,
+    SkillsContextMiddleware,
+    RuntimeModeMiddleware,
+)
+
+framework = QwenAgentFramework(
+    model_forward_fn=model_forward,
+    middlewares=[
+        RuntimeModeMiddleware(),
+        SkillsContextMiddleware(skills_dir="skills"),
+    ]
+)
+```
+
+## 查看工具统计
+
+```python
+if framework.memory:
+    stats = framework.memory.tool_stats
+    for tool_name, stat in stats.items():
+        print(f"{tool_name}:")
+        print(f"  成功: {stat['success']}")
+        print(f"  失败: {stat['failed']}")
+        print(f"  平均耗时: {stat['avg_time']:.2f}s")
+```
+
+## 导出上下文
+
+```python
+result = framework.run("分析项目结构", [])
+context = result["context"]
+
+print(f"当前任务: {context['task']}")
+print(f"已完成步骤: {context['completed_steps']}")
+print(f"失败尝试: {context['failed_attempts']}")
+print(f"工具统计: {context['tool_stats']}")
+```
+
+## 性能优化技巧
+
+### 1. 减少迭代次数（简单任务）
+```python
+framework = QwenAgentFramework(
+    model_forward_fn=model_forward,
+    max_iterations=5  # 默认10
+)
+```
+
+### 2. 禁用并行执行（调试时）
+```python
+framework = QwenAgentFramework(
+    model_forward_fn=model_forward,
+    enable_parallel=False
+)
+```
+
+### 3. 清理记忆（重新开始）
+```bash
+rm -rf .agent_memory/
+```
+
+## 测试
 
 ```bash
-# 检查虚拟环境
-test -d .venv && echo "✅ 虚拟环境存在" || echo "❌ 需要创建虚拟环境"
-
-# 检查依赖
-arch -arm64 .venv/bin/python3.9 -m pip list | grep gradio
-
-# 重新安装依赖
-arch -arm64 .venv/bin/python3.9 -m pip install -r requirements.txt
+python test_simple.py
 ```
 
-### 日志无法保存
+输出示例：
+```
+=== 测试：记忆和上下文管理 ===
 
-```bash
-# 检查日志目录
-test -d session_logs && echo "✅ 日志目录存在" || mkdir session_logs
+第1轮:
+  迭代: 2
+  工具调用: 1
+  上下文导出: {'task': None, 'completed_steps': ["list_dir(['path'])"], ...}
 
-# 检查权限
-ls -ld session_logs
+第2轮:
+  迭代: 1
+  响应: 我看到了任务进度，继续执行下一步
+
+✅ 测试通过
 ```
 
-### 端口被占用
+## 常见问题
 
-```bash
-# 查看占用 7860 端口的进程
-lsof -i :7860
-
-# 查看占用 7861 端口的进程
-lsof -i :7861
-
-# 杀死进程（如需要）
-kill -9 <PID>
+### Q: 工具执行失败怎么办？
+A: 框架会自动反思并提供建议，例如：
+```
+❌ read_file: Error: File not found
+   💡 建议: 使用 list_dir 确认路径
 ```
 
-## 📚 更多信息
-
-- **详细文档**: 见 `SESSION_LOGGER_README.md`
-- **实现细节**: 见 `IMPLEMENTATION_SUMMARY.md`
-- **代码示例**: 见 `ui/session_logger.py` 和 `ui/session_viewer.py`
-
-## ⚡ 快速命令
-
-```bash
-# 进入项目目录
-cd /Users/zhuangranxin/PyCharmProjects/chat-Agent
-
-# 启动全部应用
-./start_all.sh
-
-# 单独启动 Chat Agent
-arch -arm64 .venv/bin/python3.9 ui/web_agent_with_skills.py
-
-# 单独启动 Session Viewer
-arch -arm64 .venv/bin/python3.9 ui/session_viewer.py
-
-# 查看所有日志
-ls session_logs/
-
-# 统计对话数
-find session_logs -name "*.json" | wc -l
-
-# 查看最新日志大小
-ls -lSh session_logs/ | head -10
+### Q: 如何避免循环？
+A: 框架自动检测3次相同失败并中断：
+```
+⚠️ 检测到循环。
+💡 建议：
+1. 换用其他工具
+2. 重新分析问题
+3. 调整参数
 ```
 
-## 🎉 开始使用
+### Q: 上下文太长怎么办？
+A: 框架自动压缩，保留最近6条 + 历史top-3重要消息。
 
-现在您已经准备好了！
+## 下一步
 
-1. 运行 `./start_all.sh`
-2. 打开 Chat Agent 进行对话
-3. 打开 Session Viewer 查看日志
-4. 享受完整的对话分析体验！
-
-有任何问题，欢迎查阅详细文档或检查代码注释。
-
+- 查看 [README.md](README.md) 了解架构设计
+- 查看 [ARCHITECTURE.md](ARCHITECTURE.md) 了解实现细节
+- 查看 `core/agent_framework.py` 源码

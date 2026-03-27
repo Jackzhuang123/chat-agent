@@ -40,22 +40,23 @@ _GLM_AUTO_ENABLED = HAS_GLM and bool(_GLM_API_KEY)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from core import (
-    AIIntentRouter,
-    IntentRouter,
     PlanModeMiddleware,
     QwenAgentFramework,
     RuntimeModeMiddleware,
     SkillInjector,
     SkillManager,
     SkillsContextMiddleware,
-    TaskExecutor,
-    TaskPlanner,
-    TodoManager,
     ToolResultGuardMiddleware,
     UploadedFilesMiddleware,
     create_example_skills,
     create_qwen_model_forward,
+    MultiAgentOrchestrator,
+    create_streaming_wrapper,
+    # 已移除：TodoManager, TaskPlanner, IntentRouter, AIIntentRouter
+    # 如需使用，请改用 ModeRouter
 )
+from core.prompts import get_system_prompt, inject_few_shot_examples
+from core.tool_enforcement_middleware import ToolEnforcementMiddleware
 from session_logger import get_logger
 
 try:
@@ -221,32 +222,159 @@ def create_ui_with_skills():
 
     # 初始化意图路由器（AI 增强版，自动感知可用 skill 列表）
     _available_skill_ids = list(skill_manager.skills_metadata.keys())
-    _rule_router = IntentRouter(available_skill_ids=_available_skill_ids)
 
-    # AIIntentRouter 在 agent 初始化后注入 model_forward_fn（懒初始化）
-    intent_router = _rule_router  # 初始先用规则路由，待 agent 就绪后升级
-    _ai_router_initialized = {"done": False}
+    # 使用新的 ModeRouter 替代旧的 IntentRouter
+    # LLM forward 函数延迟绑定（在 dynamic_routing_forward 定义后调用 set_llm_forward）
+    from core import ModeRouter
+    mode_router = ModeRouter(llm_forward_fn=None, llm_confidence_threshold=0.70)
+
+    # 兼容层：模拟旧的 intent_router 接口
+    class IntentRouterCompat:
+        """兼容层：将 ModeRouter 适配为旧的 IntentRouter 接口。
+
+        两级路由策略：
+        1. ModeRouter 规则路由（快速）：正则 + 关键词，置信度 >= 0.55 直接返回
+        2. ModeRouter LLM 路由（精确）：调用语言模型语义分析，置信度 < 0.55 时触发
+        """
+        def __init__(self, mode_router, available_skill_ids):
+            self.mode_router = mode_router
+            self.available_skill_ids = available_skill_ids
+
+        def route(self, user_input, context=None):
+            """模拟 route 方法"""
+            detection = self.mode_router.detect_mode(user_input, context)
+            return {
+                "matched_skills": [],
+                "mode": detection["recommended_mode"],
+                "confidence": detection["confidence"]
+            }
+
+        def analyze(self, user_message, uploaded_files=None, chat_history=None):
+            """适配 analyze 接口：将 ModeRouter.detect_mode 结果转换为标准意图格式。
+
+            两级路由：
+            - 规则路由置信度 >= 0.55：直接返回，router="rule"
+            - 规则路由置信度 < 0.55 且 LLM 可用：调用 LLM，router="llm"
+            - LLM 路由失败：兜底规则路由，router="rule"
+
+            追问继承（inherited_context）：
+            - 若上一轮是工具模式且有有效响应，且当前轮检测为 chat/tools，
+              则提取上一轮摘要注入 inherited_context，避免模型幻觉。
+            - 若用户在追问"之前/上次/刚才"等，强制继承上下文。
+
+            返回格式：
+            {
+                "run_mode": "chat|tools|skills|hybrid",
+                "skill_ids": [],
+                "reasons": ["..."],
+                "needs_breakdown": False,
+                "router": "rule|llm",
+                "inherited_context": "上一轮工具结果摘要（或空字符串）",
+            }
+            """
+            import re as _re
+
+            context = {}
+            if uploaded_files:
+                context["uploaded_files"] = uploaded_files
+            if chat_history:
+                context["history"] = chat_history
+
+            detection = self.mode_router.detect_mode(user_message, context)
+            recommended = detection["recommended_mode"]
+            confidence = detection["confidence"]
+            reasoning = detection.get("reasoning", "")
+            router_type = detection.get("router", "rule")
+
+            # 将 ModeRouter 的模式映射到旧接口的 run_mode
+            mode_map = {
+                "chat": "chat",
+                "tools": "tools",
+                "skills": "skills",
+                "hybrid": "hybrid",
+                "plan": "tools",       # plan 模式映射为 tools（由 plan_mode 控制）
+                "multi_agent": "multi_agent",  # 多 Agent 模式：Planner-Executor-Reviewer
+                "streaming": "tools",           # 流式模式：走工具循环 + StreamingFramework
+            }
+            run_mode = mode_map.get(recommended, "chat")
+
+            # 技能匹配：如果是 skills/hybrid 模式，尝试匹配技能
+            skill_ids = []
+            if run_mode in ("skills", "hybrid") and self.available_skill_ids:
+                msg_lower = user_message.lower()
+                for sid in self.available_skill_ids:
+                    if sid.lower() in msg_lower or any(
+                        kw in msg_lower for kw in sid.lower().replace("-", " ").split()
+                    ):
+                        skill_ids.append(sid)
+                # 没有精确匹配时，默认取第一个技能（保持可用）
+                if not skill_ids and run_mode == "skills":
+                    skill_ids = self.available_skill_ids[:1]
+
+            # 是否需要任务拆解
+            needs_breakdown = (
+                recommended in ("plan", "multi_agent")
+                or detection.get("complexity") == "complex"
+            )
+
+            # ---- 追问上下文继承 (inherited_context) ----
+            # 解决问题：用户说"查询聊天记录"/"我之前问什么了"时，
+            # 模型应基于当前会话上下文回答，而不是说"我无法访问历史"
+            inherited_context = ""
+            _followup_patterns = _re.compile(
+                r'(之前|上次|刚才|刚刚|刚刚|上一轮|上一条|查看|回顾|总结|再说一遍|'
+                r'什么问题|聊过什么|聊了什么|问过什么|说了什么|记录|历史|'
+                r'前面|那个|之前说|你刚|you said|previous|last|above)',
+                _re.IGNORECASE
+            )
+            _is_followup = bool(_followup_patterns.search(user_message))
+
+            if chat_history and (_is_followup or run_mode == "chat"):
+                # 从最近 3 轮历史中提取有效的 assistant 响应摘要
+                _ctx_parts = []
+                for _pair in chat_history[-3:]:
+                    if not (isinstance(_pair, (list, tuple)) and len(_pair) == 2):
+                        continue
+                    _u, _a = _pair
+                    if not _u or not _a:
+                        continue
+                    # 过滤掉错误消息
+                    _skip_prefixes = ("[⚠️", "[GLM", "[在进行中", "[未设置")
+                    if any(_a.startswith(p) for p in _skip_prefixes):
+                        continue
+                    # 截取摘要（最多 200 字符/轮）
+                    _a_summary = _a[:200] + ("…" if len(_a) > 200 else "")
+                    _ctx_parts.append(f"用户: {str(_u)[:80]}\n助手: {_a_summary}")
+
+                if _ctx_parts:
+                    inherited_context = "\n\n".join(_ctx_parts)
+                    # 追问时更新 reasoning
+                    if _is_followup:
+                        reasoning = f"检测到追问意图，注入上一轮上下文（{len(_ctx_parts)}轮）"
+                        router_type = router_type  # 保持原有路由类型
+
+            reason_text = reasoning if reasoning else f"模式检测置信度: {confidence:.2f}"
+            if router_type == "llm":
+                reason_text = f"[LLM路由] {reason_text}"
+
+            return {
+                "run_mode": run_mode,
+                "recommended_mode_raw": recommended,  # 未经 mode_map 映射的原始推荐模式
+                "skill_ids": skill_ids,
+                "reasons": [reason_text],
+                "needs_breakdown": needs_breakdown,
+                "router": router_type,
+                "inherited_context": inherited_context,
+            }
+
+    intent_router = IntentRouterCompat(mode_router, _available_skill_ids)
 
     def _get_or_init_ai_router():
-        """懒初始化 AI 路由器（GLM 就绪后才能使用）。"""
-        if not _ai_router_initialized["done"]:
-            agent_inst = _active_agent.get("instance")
-            if agent_inst is not None:
-                nonlocal intent_router
-                # 使用 dynamic_routing_forward（不记日志）作为路由器的 LLM 前向函数，
-                # 避免意图分析阶段的 LLM 调用污染 session_logger，产生 [未设置] 占位消息
-                intent_router = AIIntentRouter(
-                    model_forward_fn=dynamic_routing_forward,
-                    rule_router=_rule_router,
-                    available_skill_ids=_available_skill_ids,
-                    enable_ai_routing=True,
-                )
-                _ai_router_initialized["done"] = True
-                print("🧠 AI 意图路由器已就绪（LLM 驱动，路由调用不写日志）")
+        """兼容函数：返回 intent_router（已集成 LLM 路由）"""
         return intent_router
 
-    print(f"🧭 规则意图路由器已就绪，可感知技能: {_available_skill_ids}")
-    print("🔄 AI 意图路由器将在首次对话时自动激活")
+    print(f"🧭 智能模式路由器已就绪（ModeRouter + LLM语义路由），可感知技能: {_available_skill_ids}")
+    print("🔄 自动模式检测已激活（规则路由 + LLM兜底）")
 
     middlewares = [
         RuntimeModeMiddleware(),
@@ -296,10 +424,16 @@ def create_ui_with_skills():
         if current_agent is None:
             current_agent = get_or_init_local_agent()
 
-        # 构建含 system 的完整消息（与 create_qwen_model_forward 保持一致）
-        full_messages = messages
-        if system_prompt:
-            full_messages = [{"role": "system", "content": system_prompt}] + list(messages)
+        # 构建含 system 的完整消息（避免重复注入）
+        full_messages = list(messages)
+        if system_prompt and system_prompt.strip():
+            _already = (
+                full_messages
+                and full_messages[0].get("role") == "system"
+                and full_messages[0].get("content", "").strip() == system_prompt.strip()
+            )
+            if not _already:
+                full_messages = [{"role": "system", "content": system_prompt}] + full_messages
 
         if hasattr(current_agent, "generate_stream_with_messages"):
             yield from current_agent.generate_stream_with_messages(
@@ -312,13 +446,18 @@ def create_ui_with_skills():
             # 降级：直接用非流式调用返回整体字符串
             yield dynamic_model_forward(messages, system_prompt=system_prompt, **kwargs)
 
+    # 延迟绑定 LLM forward 到 mode_router，激活语义路由能力
+    # dynamic_routing_forward 临时关闭 session logger，避免路由调用污染用户日志
+    mode_router.set_llm_forward(dynamic_routing_forward)
+    print("🤖 LLM 语义路由已绑定（路由调用不写入 session_log）")
+
     agent_framework = QwenAgentFramework(
         model_forward_fn=dynamic_model_forward,
         work_dir=str(Path(__file__).parent.parent),
-        enable_bash=False,
-        max_iterations=5,
+        enable_bash=True,  # 启用bash工具用于批量扫描
+        max_iterations=100,
         tools_in_system_prompt=True,
-        middlewares=middlewares,
+        middlewares=middlewares + [ToolEnforcementMiddleware(max_retries=2)],
         default_runtime_context={"run_mode": "chat", "plan_mode": False},
     )
 
@@ -1257,7 +1396,20 @@ def create_ui_with_skills():
             }]
 
             # ---- 2. 构建基础消息列表 ----
+            # 使用优化的 system prompt
+            if not sys_prompt or sys_prompt.strip() == "":
+                sys_prompt = get_system_prompt(
+                    mode=run_mode,
+                    work_dir=str(Path.cwd()),
+                    skills_context=skills_text if selected_skills else ""
+                )
+
             base_messages = [{"role": "system", "content": sys_prompt}]
+
+            # tools 模式注入 Few-Shot 示例
+            if run_mode == "tools":
+                base_messages = inject_few_shot_examples(base_messages, max_examples=2)
+
             for u, a in chat_history:
                 base_messages.append({"role": "user", "content": u})
                 base_messages.append({"role": "assistant", "content": a})
@@ -1314,118 +1466,182 @@ def create_ui_with_skills():
 
             # ---- 4. 路由分发 ----
 
-            # 分支 A：复杂任务 → TodoManager + TaskExecutor 依次执行
-            if needs_breakdown:
+            # 分支 A：复杂任务 → MultiAgentOrchestrator（Planner-Executor-Reviewer）
+            if needs_breakdown or run_mode == "multi_agent":
+                print("🤝 多 Agent 模式：Planner → Executor → Reviewer")
                 try:
-                    # ── 优先使用 AIIntentRouter 已返回的 todos（节省一次 LLM 调用）──
-                    todos_from_intent = intent.get("todos", [])
-
-                    # 降级规划标题（TaskPlanner 降级时使用）
-                    _planner_title = ""
-                    if not todos_from_intent:
-                        # 降级：调用 TaskPlanner 补充规划（AI 路由未返回 todos 的情况）
-                        planner = TaskPlanner(model_forward_fn=dynamic_model_forward)
-                        plan = planner.plan(user_message + pdf_info)
-                        todos_from_intent = plan.get("todos", []) if plan else []
-                        _planner_title = plan.get("title", "") if plan else ""
-
-                    if todos_from_intent:
-                        todos = todos_from_intent
-                        # 优先使用 AI 路由返回的 title，其次 TaskPlanner 的 title，最后默认值
-                        plan_title = intent.get("title") or _planner_title or "任务执行计划"
-
-                        # ── 初始化 TodoManager，渲染初始 UI ──────────────────
-                        todo_mgr = TodoManager(title=plan_title)
-                        todo_mgr.load_from_todos_list(todos, title=plan_title)
-
-                        # 先展示任务计划（pending 状态）
-                        history[-1][1] = todo_mgr.render_for_ui()
-                        mode_display_text_plan = mode_display_text.replace(
-                            "📋任务拆解中...", f"📋{len(todos)}步任务"
-                        )
-                        response_started = True
-                        yield history, mode_display_text_plan
-
-                        execution_log.append({
-                            "iteration": -1,
-                            "type": "task_plan",
-                            "title": plan_title,
-                            "todos": [item.to_dict() for item in todo_mgr._items],
-                            "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                        })
-
-                        # ── 执行 TODO 列表（新版：集成 QwenAgentFramework 主循环）──
-                        task_executor = TaskExecutor(
-                            model_forward_fn=dynamic_model_forward,
-                            tool_executor=agent_framework.tool_executor,
-                            work_dir=str(Path(__file__).parent.parent),
-                            max_iterations_per_step=3,
-                        )
-                        exec_result = task_executor.execute_todos(
-                            todos=todos,
-                            user_message=user_message + pdf_info,
-                            system_prompt=sys_prompt,
-                            context_messages=base_messages[:-1],  # 不含当前消息
-                            temperature=temp,
-                            top_p=top_p_val,
-                            max_tokens=max_tok,
-                        )
-
-                        # ── 用执行后的 TodoManager 渲染最终 UI ────────────────
-                        final_todo_mgr = exec_result.get("todo_manager", todo_mgr)
-                        completed_lines = [final_todo_mgr.render_for_ui()]
-                        completed_lines.append("\n---\n")
-                        completed_lines.append(exec_result["final_response"])
-                        history[-1][1] = "\n".join(completed_lines)
-
-                        execution_log.extend(exec_result.get("execution_log", []))
-                        mode_display_text = mode_display_text_plan
-                        yield history, mode_display_text
-                    else:
-                        # 拆解失败，降级为普通对话
-                        needs_breakdown = False
-
-                except Exception as e:
-                    needs_breakdown = False
+                    _ma_forward = create_qwen_model_forward(get_active_agent())
+                    _orchestrator = MultiAgentOrchestrator(
+                        model_forward_fn=_ma_forward,
+                        tool_executor=agent_framework.tool_executor,
+                        max_retries=1,
+                    )
+                    _ma_result = _orchestrator.run(
+                        user_input=user_message + pdf_info,
+                        context=runtime_context,
+                    )
+                    # 构建响应文本
+                    _plan_steps = _ma_result.get("plan", {}).get("steps", [])
+                    _exec_results = _ma_result.get("execution_results", [])
+                    _review = _ma_result.get("review", {})
+                    _ma_lines = ["## 🤝 多Agent执行报告\n"]
+                    if _plan_steps:
+                        _ma_lines.append("### 📋 执行计划")
+                        for _s in _plan_steps:
+                            _ma_lines.append(f"- 步骤{_s.get('id','?')}: {_s.get('action','')}（工具: {_s.get('tool','none')}）")
+                        _ma_lines.append("")
+                    if _exec_results:
+                        _ma_lines.append("### ⚙️ 执行结果")
+                        for _r in _exec_results:
+                            _ok = "✅" if _r.get("success") else "❌"
+                            _ma_lines.append(f"- {_ok} 步骤{_r.get('step_id','?')}: {_r.get('action','')}")
+                            if not _r.get("success") and _r.get("error"):
+                                _ma_lines.append(f"  错误: {_r['error']}")
+                        _ma_lines.append("")
+                    if _review:
+                        _quality = _review.get('quality', 'unknown')
+                        _completed = _review.get('completed', False)
+                        _ma_lines.append(f"### 📊 审查结果")
+                        _ma_lines.append(f"- 完成状态: {'✅ 完成' if _completed else '⚠️ 未完全完成'}")
+                        _ma_lines.append(f"- 质量评级: {_quality}")
+                        if _review.get('issues'):
+                            _ma_lines.append(f"- 发现问题: {', '.join(_review['issues'])}")
+                        if _review.get('suggestions'):
+                            _ma_lines.append(f"- 改进建议: {', '.join(_review['suggestions'])}")
+                    response = "\n".join(_ma_lines)
+                    history[-1][1] = response
+                    response_started = True
+                    needs_breakdown = False  # 已处理
                     execution_log.append({
-                        "type": "task_plan_error",
+                        "iteration": 0,
+                        "type": "multi_agent_run",
+                        "completed": _ma_result.get("completed", False),
+                        "duration": _ma_result.get("duration", 0),
+                        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                    })
+                    yield history, mode_display_text
+                except Exception as e:
+                    print(f"⚠️ 多Agent模式异常，降级为工具模式: {e}")
+                    needs_breakdown = False  # 降级为工具模式
+                    execution_log.append({
+                        "type": "multi_agent_error",
                         "error": str(e),
                         "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
                     })
 
             # 分支 B：工具模式（无任务拆解）
             if not needs_breakdown and run_mode in ("tools", "hybrid"):
-                # 工具模式：走 agent_framework 完整工具循环
-                try:
-                    response, execution_log_fw, runtime_context = agent_framework.process_message(
-                        user_message + pdf_info,
-                        chat_history,
-                        system_prompt_override=sys_prompt,
-                        runtime_context=runtime_context,
-                        return_runtime_context=True,
-                        temperature=temp,
-                        top_p=top_p_val,
-                        max_tokens=max_tok,
-                    )
-                    execution_log.extend(execution_log_fw)
-                    history[-1][1] = response
-                    response_started = True
-                    yield history, mode_display_text
-                except Exception as e:
-                    error_msg = f"[⚠️ 工具模式错误] {str(e)}"
-                    execution_log.append({
-                        "iteration": 0,
-                        "type": "runtime_error",
-                        "content": error_msg,
-                        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                    })
-                    # 降级：直接调用模型（携带已注入的 skill 内容）
-                    for text_chunk in get_active_agent().generate_stream_with_messages(
-                            base_messages, temperature=temp, top_p=top_p_val, max_tokens=max_tok
-                    ):
-                        history[-1][1] = error_msg + "\n\n" + text_chunk
+                # 分支 B1：流式模式 → StreamingFramework 实时展示执行进度
+                _use_streaming = (intent.get("recommended_mode_raw") == "streaming")
+                if _use_streaming:
+                    print("🌊 流式模式：StreamingFramework 实时展示进度")
+                    try:
+                        _sf = create_streaming_wrapper(agent_framework)
+                        _chat_history_dicts = [
+                            {"role": "user", "content": u} if i % 2 == 0
+                            else {"role": "assistant", "content": a}
+                            for u, a in chat_history
+                            for i, _ in [(0, u), (1, a)]
+                        ]
+                        _sf_progress_lines = []
+                        for _evt in _sf.run_stream(
+                            user_input=user_message + pdf_info,
+                            history=_chat_history_dicts or None,
+                            runtime_context=runtime_context,
+                        ):
+                            _evt_type = _evt.event_type
+                            _evt_data = _evt.data
+                            if _evt_type == "start":
+                                _sf_progress_lines = ["## 🌊 流式执行进度\n"]
+                            elif _evt_type == "thought":
+                                if _evt_data.get("content"):
+                                    _sf_progress_lines.append(
+                                        f"💭 **思考**: {_evt_data['content'][:100]}"
+                                    )
+                            elif _evt_type == "tool_call":
+                                _tool_nm = _evt_data.get("tool", "")
+                                _mode_nm = _evt_data.get("mode", "sequential")
+                                if _tool_nm:
+                                    _sf_progress_lines.append(
+                                        f"🔧 **工具调用** [{_mode_nm}]: `{_tool_nm}`"
+                                    )
+                            elif _evt_type == "tool_result":
+                                _ok_icon = "✅" if _evt_data.get("success") else "❌"
+                                _sf_progress_lines.append(
+                                    f"{_ok_icon} **工具结果**: {str(_evt_data.get('result',''))[:80]}"
+                                )
+                            elif _evt_type == "reflection":
+                                _sf_progress_lines.append(
+                                    f"🔍 **反思**: {_evt_data.get('analysis','')}"
+                                )
+                            elif _evt_type == "progress":
+                                _sf_progress_lines.append(
+                                    f"⏳ {_evt_data.get('message','')}"
+                                )
+                            elif _evt_type == "error":
+                                _sf_progress_lines.append(
+                                    f"⚠️ **错误**: {_evt_data.get('message', _evt_data.get('reason',''))}"
+                                )
+                            elif _evt_type == "complete":
+                                _final_resp = _evt_data.get("response", "")
+                                _iters = _evt_data.get("iterations", 0)
+                                _dur = _evt_data.get("duration", 0)
+                                _sf_progress_lines.append(
+                                    f"\n---\n✅ **完成** | 迭代: {_iters} 轮 | 耗时: {_dur:.1f}s"
+                                )
+                                if _final_resp:
+                                    _sf_progress_lines.append(f"\n### 最终结果\n{_final_resp}")
+                                execution_log.append({
+                                    "iteration": _iters,
+                                    "type": "streaming_complete",
+                                    "duration": _dur,
+                                    "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                                })
+                            # 每次事件后实时刷新 UI
+                            history[-1][1] = "\n".join(_sf_progress_lines)
+                            response_started = True
+                            yield history, mode_display_text
+                    except Exception as e:
+                        print(f"⚠️ 流式模式异常，降级为工具模式: {e}")
+                        _use_streaming = False  # 降级
+                        execution_log.append({
+                            "type": "streaming_error",
+                            "error": str(e),
+                            "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                        })
+
+                # 分支 B2：普通工具模式 → agent_framework 完整工具循环
+                if not _use_streaming:
+                    try:
+                        response, execution_log_fw, runtime_context = agent_framework.process_message(
+                            user_message + pdf_info,
+                            chat_history,
+                            system_prompt_override=sys_prompt,
+                            runtime_context=runtime_context,
+                            return_runtime_context=True,
+                            temperature=temp,
+                            top_p=top_p_val,
+                            max_tokens=max_tok,
+                        )
+                        execution_log.extend(execution_log_fw)
+                        history[-1][1] = response
                         response_started = True
                         yield history, mode_display_text
+                    except Exception as e:
+                        error_msg = f"[⚠️ 工具模式错误] {str(e)}"
+                        execution_log.append({
+                            "iteration": 0,
+                            "type": "runtime_error",
+                            "content": error_msg,
+                            "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                        })
+                        # 降级：直接调用模型（携带已注入的 skill 内容）
+                        for text_chunk in get_active_agent().generate_stream_with_messages(
+                                base_messages, temperature=temp, top_p=top_p_val, max_tokens=max_tok
+                        ):
+                            history[-1][1] = error_msg + "\n\n" + text_chunk
+                            response_started = True
+                            yield history, mode_display_text
 
             # 分支 C：纯对话 / Skills 知识模式
             elif not needs_breakdown:
