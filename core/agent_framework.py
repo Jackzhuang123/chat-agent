@@ -227,7 +227,7 @@ class OutputValidator:
         return True, ""
 
     @staticmethod
-    def sanitize_output(output: str, max_length: int = 2000) -> str:
+    def sanitize_output(output: str, max_length: int = 100000) -> str:
         """清理输出"""
         if len(output) > max_length:
             return f"{output[:max_length]}...\n[输出过长，已截断。共 {len(output)} 字符]"

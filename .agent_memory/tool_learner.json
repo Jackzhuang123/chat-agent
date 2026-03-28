@@ -12,15 +12,15 @@
     },
     "通用": {
       "list_dir": {
-        "success": 47,
+        "success": 74,
         "failed": 0
       },
       "read_file": {
-        "success": 124,
+        "success": 143,
         "failed": 0
       },
       "write_file": {
-        "success": 49,
+        "success": 51,
         "failed": 0
       },
       "edit_file": {
@@ -28,7 +28,7 @@
         "failed": 0
       },
       "bash": {
-        "success": 5,
+        "success": 11,
         "failed": 0
       }
     }

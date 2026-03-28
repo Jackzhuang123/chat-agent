@@ -190,15 +190,37 @@ class ToolExecutor:
             工具执行结果 (JSON 字符串)
         """
         try:
+            # 检查 tool_input 中是否包含错误信息（来自参数提取失败）
+            if "error" in tool_input and "path" not in tool_input:
+                return json.dumps({
+                    "success": False,
+                    "error": tool_input["error"]
+                }, ensure_ascii=False)
+
             if tool_name == "read_file":
+                if "path" not in tool_input:
+                    return json.dumps({
+                        "success": False,
+                        "error": "缺少必需参数 'path'"
+                    }, ensure_ascii=False)
                 return self._read_file(tool_input["path"])
             elif tool_name == "write_file":
+                if "path" not in tool_input or "content" not in tool_input:
+                    return json.dumps({
+                        "success": False,
+                        "error": "缺少必需参数 'path' 或 'content'"
+                    }, ensure_ascii=False)
                 return self._write_file(
                     tool_input["path"],
                     tool_input["content"],
                     mode=tool_input.get("mode", "overwrite"),
                 )
             elif tool_name == "edit_file":
+                if "path" not in tool_input:
+                    return json.dumps({
+                        "success": False,
+                        "error": "缺少必需参数 'path'"
+                    }, ensure_ascii=False)
                 return self._edit_file(
                     tool_input["path"],
                     tool_input["old_content"],
@@ -207,6 +229,11 @@ class ToolExecutor:
             elif tool_name == "list_dir":
                 return self._list_dir(tool_input.get("path", "."))
             elif tool_name == "bash" and self.enable_bash:
+                if "command" not in tool_input:
+                    return json.dumps({
+                        "success": False,
+                        "error": "缺少必需参数 'command'"
+                    }, ensure_ascii=False)
                 return self._bash(tool_input["command"])
             elif tool_name == "todo_write":
                 # 虚拟工具：正常由 TodoContextMiddleware.after_tool_call 拦截处理

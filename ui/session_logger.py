@@ -73,6 +73,9 @@ class SessionLogger:
         session_data = {
             "session_id": self.current_session_id,
             "created_at": datetime.now().isoformat(),
+            "start_time": datetime.now().isoformat(),
+            "end_time": None,
+            "status": "active",
             "messages": [],
             "calls": [],
             "statistics": {
@@ -165,6 +168,8 @@ class SessionLogger:
         session_data["statistics"]["total_tokens_used"] += tokens_used
         session_data["statistics"]["total_duration"] += execution_time
         session_data["statistics"]["total_calls"] += len(merged_calls)
+        session_data["end_time"] = datetime.now().isoformat()
+        session_data["status"] = "active"
 
         try:
             with open(self.current_session_file, 'w', encoding='utf-8') as f:

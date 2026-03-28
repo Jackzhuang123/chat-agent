@@ -1465,7 +1465,6 @@ def create_ui_with_skills():
             response_started = False
 
             # ---- 4. 路由分发 ----
-
             # 分支 A：复杂任务 → MultiAgentOrchestrator（Planner-Executor-Reviewer）
             if needs_breakdown or run_mode == "multi_agent":
                 print("🤝 多 Agent 模式：Planner → Executor → Reviewer")
@@ -1476,42 +1475,22 @@ def create_ui_with_skills():
                         tool_executor=agent_framework.tool_executor,
                         max_retries=1,
                     )
-                    _ma_result = _orchestrator.run(
+                    # 使用 run_and_generate_response 获取最终自然语言回答
+                    _ma_result = _orchestrator.run_and_generate_response(
                         user_input=user_message + pdf_info,
+                        model_forward_fn=_ma_forward,  # 用于最终回答生成
                         context=runtime_context,
+                        system_prompt="你是一个智能助手。请根据以下执行结果，用简洁的语言回答用户的问题。如果执行失败，请说明失败原因。",
+                        temperature=temp,
+                        top_p=top_p_val,
+                        max_tokens=max_tok,
                     )
-                    # 构建响应文本
-                    _plan_steps = _ma_result.get("plan", {}).get("steps", [])
-                    _exec_results = _ma_result.get("execution_results", [])
-                    _review = _ma_result.get("review", {})
-                    _ma_lines = ["## 🤝 多Agent执行报告\n"]
-                    if _plan_steps:
-                        _ma_lines.append("### 📋 执行计划")
-                        for _s in _plan_steps:
-                            _ma_lines.append(f"- 步骤{_s.get('id','?')}: {_s.get('action','')}（工具: {_s.get('tool','none')}）")
-                        _ma_lines.append("")
-                    if _exec_results:
-                        _ma_lines.append("### ⚙️ 执行结果")
-                        for _r in _exec_results:
-                            _ok = "✅" if _r.get("success") else "❌"
-                            _ma_lines.append(f"- {_ok} 步骤{_r.get('step_id','?')}: {_r.get('action','')}")
-                            if not _r.get("success") and _r.get("error"):
-                                _ma_lines.append(f"  错误: {_r['error']}")
-                        _ma_lines.append("")
-                    if _review:
-                        _quality = _review.get('quality', 'unknown')
-                        _completed = _review.get('completed', False)
-                        _ma_lines.append(f"### 📊 审查结果")
-                        _ma_lines.append(f"- 完成状态: {'✅ 完成' if _completed else '⚠️ 未完全完成'}")
-                        _ma_lines.append(f"- 质量评级: {_quality}")
-                        if _review.get('issues'):
-                            _ma_lines.append(f"- 发现问题: {', '.join(_review['issues'])}")
-                        if _review.get('suggestions'):
-                            _ma_lines.append(f"- 改进建议: {', '.join(_review['suggestions'])}")
-                    response = "\n".join(_ma_lines)
-                    history[-1][1] = response
-                    response_started = True
-                    needs_breakdown = False  # 已处理
+                    # 提取最终回答
+                    final_response = _ma_result.get("final_response", "")
+                    if not final_response:
+                        final_response = "多 Agent 执行完成，但未能生成最终回答。"
+
+                    # 记录执行日志（可选，保留原始执行信息）
                     execution_log.append({
                         "iteration": 0,
                         "type": "multi_agent_run",
@@ -1519,6 +1498,10 @@ def create_ui_with_skills():
                         "duration": _ma_result.get("duration", 0),
                         "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
                     })
+
+                    # 将最终回答写入历史
+                    history[-1][1] = final_response
+                    response_started = True
                     yield history, mode_display_text
                 except Exception as e:
                     print(f"⚠️ 多Agent模式异常，降级为工具模式: {e}")
