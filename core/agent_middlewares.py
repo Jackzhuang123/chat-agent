@@ -1,28 +1,32 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-Agent 中间件模块 - 实现 Middleware Chain 设计模式
-
-所有中间件遵循统一接口 AgentMiddleware，可任意组合注入 QwenAgentFramework。
-每个中间件职责单一：
-  - before_model   : 模型调用前修改消息列表（注入上下文）
-  - after_model    : 模型返回后后处理文本
-  - after_tool_call: 工具执行后标准化结果
-  - after_run      : 会话结束钩子
-"""
+"""Agent 中间件模块 - 实现 Middleware Chain 设计模式"""
 
 import json
+from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-# TodoManager 已移除，相关中间件保留但标记为可选
+
+class AgentMiddleware(ABC):
+    @abstractmethod
+    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+        pass
+
+    def process_after_llm(self, response: str, context: Dict[str, Any]) -> str:
+        return response
+
+    def process_before_tool(self, tool_name: str, tool_args: Dict[str, Any], context: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        return tool_name, tool_args
+
+    def process_after_tool(self, tool_name: str, tool_args: Dict[str, Any], result: str, context: Dict[str, Any]) -> str:
+        return result
+
+    def process_on_error(self, error: Exception, phase: str, context: Dict[str, Any]) -> Optional[str]:
+        return None
 
 
-def _inject_context_before_last_user(
-    messages: List[Dict[str, str]],
-    context_message: Dict[str, str],
-) -> List[Dict[str, str]]:
-    """将上下文消息插入到最后一个用户消息前，保持上下文就近可见。"""
+def _inject_context_before_last_user(messages: List[Dict[str, str]], context_message: Dict[str, str]) -> List[Dict[str, str]]:
     updated = list(messages)
     for idx in range(len(updated) - 1, -1, -1):
         if updated[idx].get("role") == "user":
@@ -32,106 +36,28 @@ def _inject_context_before_last_user(
     return updated
 
 
-# ============================================================================
-# 中间件基类
-# ============================================================================
-
-class AgentMiddleware:
-    """轻量中间件接口，借鉴 DeerFlow 的 middleware chain 设计。"""
-
-    def before_model(
-        self,
-        messages: List[Dict[str, str]],
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, str]]:
-        """模型调用前可修改消息列表。"""
-        return messages
-
-    def after_model(
-        self,
-        model_response: str,
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """模型返回后可修正文本。"""
-        return model_response
-
-    def after_tool_call(
-        self,
-        tool_name: str,
-        tool_input: Dict[str, Any],
-        tool_result: str,
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """工具执行后可标准化结果。"""
-        return tool_result
-
-    def after_run(
-        self,
-        execution_log: List[Dict[str, Any]],
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """会话结束后钩子。"""
-        return None
-
-
-# ============================================================================
-# 基础上下文注入中间件（首轮一次性注入模式的公共基类）
-# ============================================================================
-
 class _OnceInjectMiddleware(AgentMiddleware):
-    """
-    模板基类：首轮注入固定提示词，之后不再重复。
-
-    子类只需实现 _should_inject() 和 _build_message() 即可，
-    无需重复编写"已注入则跳过/标记注入"的样板代码。
-    """
-
-    #: 在 runtime_context 中标记"已注入"的键名，子类可覆盖
     _inject_flag: str = "_once_injected"
 
     def _should_inject(self, iteration: int, runtime_context: Dict[str, Any]) -> bool:
-        """子类可覆盖：决定本次是否注入（基类默认只在首轮注入）。"""
         return iteration == 0
 
-    def _build_message(
-        self,
-        messages: List[Dict[str, str]],
-        runtime_context: Dict[str, Any],
-    ) -> Optional[Dict[str, str]]:
-        """子类实现：返回要注入的消息 dict，返回 None 则不注入。"""
+    def _build_message(self, messages: List[Dict[str, str]], runtime_context: Dict[str, Any]) -> Optional[Dict[str, str]]:
         raise NotImplementedError
 
-    def before_model(
-        self,
-        messages: List[Dict[str, str]],
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, str]]:
-        if runtime_context is None:
-            runtime_context = {}
-        if runtime_context.get(self._inject_flag):
+    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+        if context.get(self._inject_flag):
             return messages
-        if not self._should_inject(iteration, runtime_context):
+        if not self._should_inject(context.get("iteration", 0), context):
             return messages
-
-        msg = self._build_message(messages, runtime_context)
+        msg = self._build_message(messages, context)
         if msg is None:
             return messages
-
-        runtime_context[self._inject_flag] = True
+        context[self._inject_flag] = True
         return _inject_context_before_last_user(messages, msg)
 
 
-# ============================================================================
-# 运行模式中间件
-# ============================================================================
-
 class RuntimeModeMiddleware(AgentMiddleware):
-    """模式注入中间件：将运行模式信息注入上下文。"""
-
     MODE_HINTS = {
         "chat": "当前是纯对话模式：直接回答用户问题，不主动规划工具调用。",
         "tools": "当前是工具模式：优先通过工具收集事实，避免凭空猜测。",
@@ -139,46 +65,19 @@ class RuntimeModeMiddleware(AgentMiddleware):
         "hybrid": "当前是混合模式：先利用技能制定方法，再通过工具执行和验证。",
     }
 
-    def before_model(
-        self,
-        messages: List[Dict[str, str]],
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, str]]:
-        if runtime_context is None:
-            runtime_context = {}
-        if runtime_context.get("_runtime_mode_injected"):
+    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+        if context.get("_runtime_mode_injected"):
             return messages
-
-        run_mode = str(runtime_context.get("run_mode", "chat")).lower()
+        run_mode = str(context.get("run_mode", "chat")).lower()
         hint = self.MODE_HINTS.get(run_mode)
         if not hint:
             return messages
-
-        runtime_context["_runtime_mode_injected"] = True
-        mode_message = {
-            "role": "user",
-            "content": (
-                f"<runtime_mode name=\"{run_mode}\">\n"
-                f"{hint}\n"
-                "请按该模式约束完成任务。\n"
-                "</runtime_mode>"
-            ),
-        }
+        context["_runtime_mode_injected"] = True
+        mode_message = {"role": "user", "content": f"<runtime_mode name=\"{run_mode}\">\n{hint}\n请按该模式约束完成任务。\n</runtime_mode>"}
         return _inject_context_before_last_user(messages, mode_message)
 
 
-# ============================================================================
-# 计划模式中间件
-# ============================================================================
-
 class PlanModeMiddleware(AgentMiddleware):
-    """计划模式中间件：在首轮注入计划约束。
-
-    注意：当 run_mode 为 tools 或 hybrid 时，plan_mode 不注入"先写计划"提示。
-    工具模式下模型应直接输出 <tool> 格式调用，而非先写自然语言计划再执行。
-    """
-
     PLAN_HINT = (
         "<plan_mode>\n"
         "当前已开启计划模式。\n"
@@ -186,7 +85,6 @@ class PlanModeMiddleware(AgentMiddleware):
         "如果需要工具调用，先写计划再执行，并在最终答复里同步状态。\n"
         "</plan_mode>"
     )
-
     TOOL_PLAN_HINT = (
         "<plan_mode>\n"
         "当前已开启计划模式，且处于工具模式。\n"
@@ -198,57 +96,31 @@ class PlanModeMiddleware(AgentMiddleware):
         "</plan_mode>"
     )
 
-    def before_model(
-        self,
-        messages: List[Dict[str, str]],
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, str]]:
-        if runtime_context is None:
-            runtime_context = {}
-        if not runtime_context.get("plan_mode"):
+    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+        if not context.get("plan_mode"):
             return messages
-        if runtime_context.get("_plan_mode_injected"):
+        if context.get("_plan_mode_injected"):
             return messages
-
-        runtime_context["_plan_mode_injected"] = True
-
-        run_mode = str(runtime_context.get("run_mode", "chat")).lower()
+        context["_plan_mode_injected"] = True
+        run_mode = str(context.get("run_mode", "chat")).lower()
         hint = self.TOOL_PLAN_HINT if run_mode in ("tools", "hybrid") else self.PLAN_HINT
-
         plan_message = {"role": "user", "content": hint}
         return _inject_context_before_last_user(messages, plan_message)
 
 
-# ============================================================================
-# 技能上下文中间件
-# ============================================================================
-
 class SkillsContextMiddleware(AgentMiddleware):
-    """技能上下文中间件：在工具模式中保留技能指令。"""
-
-    def before_model(
-        self,
-        messages: List[Dict[str, str]],
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, str]]:
-        if runtime_context is None:
-            runtime_context = {}
-        if runtime_context.get("_skills_context_injected"):
+    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+        if context.get("_skills_context_injected"):
             return messages
-
-        skill_contexts = runtime_context.get("skill_contexts") or []
+        skill_contexts = context.get("skill_contexts") or []
         if not skill_contexts:
             return messages
-
         lines = ["<skills_context>", "当前任务可使用以下技能知识：", ""]
         for item in skill_contexts:
             skill_id = str(item.get("id", "unknown"))
             name = str(item.get("name", skill_id))
             desc = str(item.get("description", "")).strip()
             tags = item.get("tags", [])
-
             lines.append(f"- {name} ({skill_id})")
             if desc:
                 lines.append(f"  描述: {desc}")
@@ -257,22 +129,14 @@ class SkillsContextMiddleware(AgentMiddleware):
                 if tag_text:
                     lines.append(f"  标签: {tag_text}")
             lines.append("")
-
         lines.append("请优先参考上述技能步骤，再决定是否调用工具。")
         lines.append("</skills_context>")
-
-        runtime_context["_skills_context_injected"] = True
+        context["_skills_context_injected"] = True
         skills_message = {"role": "user", "content": "\n".join(lines)}
         return _inject_context_before_last_user(messages, skills_message)
 
 
-# ============================================================================
-# 上传文件中间件
-# ============================================================================
-
 class UploadedFilesMiddleware(AgentMiddleware):
-    """上传文件中间件：把文件元数据注入上下文。"""
-
     @staticmethod
     def _format_size(size: int) -> str:
         if size < 1024:
@@ -282,21 +146,12 @@ class UploadedFilesMiddleware(AgentMiddleware):
             return f"{size_kb:.1f} KB"
         return f"{size_kb / 1024:.1f} MB"
 
-    def before_model(
-        self,
-        messages: List[Dict[str, str]],
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, str]]:
-        if runtime_context is None:
-            runtime_context = {}
-        if runtime_context.get("_uploaded_files_injected"):
+    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+        if context.get("_uploaded_files_injected"):
             return messages
-
-        uploaded_files = runtime_context.get("uploaded_files") or []
+        uploaded_files = context.get("uploaded_files") or []
         if not uploaded_files:
             return messages
-
         lines = ["<uploaded_files>", "以下文件可用于当前任务：", ""]
         for file_info in uploaded_files:
             filename = str(file_info.get("filename", "unknown"))
@@ -306,41 +161,72 @@ class UploadedFilesMiddleware(AgentMiddleware):
             lines.append(f"- {filename} ({self._format_size(size)})")
             lines.append(f"  Path: {path_text}")
             lines.append("")
-
         lines.append("如需读取文件，请优先使用 read_file 或相关工具。")
         lines.append("</uploaded_files>")
-
-        runtime_context["_uploaded_files_injected"] = True
+        context["_uploaded_files_injected"] = True
         upload_message = {"role": "user", "content": "\n".join(lines)}
         return _inject_context_before_last_user(messages, upload_message)
 
 
-# ============================================================================
-# 工具结果守卫中间件
-# ============================================================================
-
 class ToolResultGuardMiddleware(AgentMiddleware):
-    """工具结果守卫：统一工具结果结构，降低模型误判。"""
+    """工具结果守卫中间件。
 
-    def after_tool_call(
-        self,
-        tool_name: str,
-        tool_input: Dict[str, Any],
-        tool_result: str,
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> str:
+    额外功能：
+    1. 防止 write_file append 重复写入：追踪每个文件的 append 内容哈希，
+       发现重复时拦截并返回警告，避免 API.md 等文件出现内容叠加。
+    2. 标准化工具结果 JSON 格式（原有逻辑保持不变）。
+    """
+
+    def __init__(self):
+        # key: 文件路径, value: set of content hash（追踪已 append 过的内容）
+        self._append_history: Dict[str, set] = {}
+
+    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+        return messages
+
+    def process_before_tool(self, tool_name: str, tool_input: Dict[str, Any], context: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        """拦截重复 append 写入。"""
+        if tool_name != "write_file":
+            return tool_name, tool_input
+
+        mode = tool_input.get("mode", "overwrite")
+        path = tool_input.get("path", "")
+        content = tool_input.get("content", "")
+
+        if mode == "append" and path and content:
+            content_hash = hash(content.strip())
+            if path not in self._append_history:
+                self._append_history[path] = set()
+            if content_hash in self._append_history[path]:
+                # 将工具名替换为 _noop 占位，并在结果中返回警告
+                # 实际上通过修改 tool_input 注入一个空内容来跳过写入
+                tool_input = dict(tool_input)
+                tool_input["_duplicate_append_blocked"] = True
+                tool_input["content"] = ""  # 空内容写入，实际无副作用
+            else:
+                self._append_history[path].add(content_hash)
+        elif mode == "overwrite" and path:
+            # overwrite 重置该文件的 append 历史
+            self._append_history.pop(path, None)
+
+        return tool_name, tool_input
+
+    def process_after_tool(self, tool_name: str, tool_input: Dict[str, Any], tool_result: str, context: Dict[str, Any]) -> str:
         timestamp = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+        # 拦截了重复 append 的情况：返回友好提示而非空写入结果
+        if tool_name == "write_file" and tool_input.get("_duplicate_append_blocked"):
+            return json.dumps({
+                "success": True,
+                "tool": tool_name,
+                "timestamp": timestamp,
+                "output": f"⚠️ 已跳过重复 append：文件 {tool_input.get('path', '')} 已包含相同内容，无需再次写入。"
+            }, ensure_ascii=False)
 
         try:
             payload = json.loads(tool_result)
         except json.JSONDecodeError:
-            payload = {
-                "success": False,
-                "error": "工具返回非 JSON 字符串",
-                "raw_result": tool_result,
-            }
-
+            payload = {"success": False, "error": "工具返回非 JSON 字符串", "raw_result": tool_result}
         if isinstance(payload, dict):
             if "error" in payload:
                 payload.setdefault("success", False)
@@ -349,294 +235,18 @@ class ToolResultGuardMiddleware(AgentMiddleware):
             payload.setdefault("tool", tool_name)
             payload.setdefault("timestamp", timestamp)
             return json.dumps(payload, ensure_ascii=False)
+        return json.dumps({"success": True, "tool": tool_name, "timestamp": timestamp, "result": payload}, ensure_ascii=False)
 
-        return json.dumps(
-            {
-                "success": True,
-                "tool": tool_name,
-                "timestamp": timestamp,
-                "result": payload,
-            },
-            ensure_ascii=False,
-        )
-
-
-# ============================================================================
-# TODO 上下文中间件
-# ============================================================================
-
-class TodoContextMiddleware(AgentMiddleware):
-    """
-    Claude Code 风格的 TODO 上下文中间件（已废弃 - TodoManager 已移除）。
-
-    保留此类仅为向后兼容，不建议使用。
-    推荐使用 agent_framework.SessionMemory 的任务跟踪功能。
-    """
-
-    def __init__(self, todo_manager: Any = None, worker_mode: bool = False):
-        self.todo_manager = todo_manager
-        self.worker_mode = worker_mode
-        if todo_manager is None:
-            import warnings
-            warnings.warn("TodoContextMiddleware is deprecated. Use SessionMemory instead.", DeprecationWarning)
-
-    def _build_context_content(self) -> str:
-        """构建注入内容（已废弃）。"""
-        if self.todo_manager is None:
-            return ""
-
-        # 保留原有逻辑以防有遗留代码依赖
-        try:
-            if self.worker_mode:
-                todo_text = self.todo_manager.render_for_context_worker()
-                current_step_lines = [
-                    f"  ▶ [{item.id}] {item.task}"
-                    for item in self.todo_manager._items
-                    if item.status == "in_progress"
-                ]
-                in_progress_hint = (
-                    ("\n当前正在执行：\n" + "\n".join(current_step_lines))
-                    if current_step_lines
-                    else ""
-                )
-                return (
-                    f"{todo_text}\n"
-                    f"当前正在执行任务计划中的单个步骤。{in_progress_hint}\n"
-                    "请只完成上方标注 ▶ 的当前步骤，任务完成后直接返回结果，"
-                    "不要调用 todo_write，不要描述后续步骤。"
-                )
-            else:
-                todo_text = self.todo_manager.render_for_context(show_completed=True)
-                return (
-                    f"{todo_text}\n"
-                    "当前正在执行任务计划。请聚焦于下一个 in_progress 或 pending 步骤。\n"
-                    "完成某步骤后，可调用 todo_write 更新状态：\n"
-                    '<tool>todo_write</tool><input>{"action": "update", "id": <步骤ID>, "status": "completed"}</input>'
-                )
-        except Exception:
-            return ""
-
-    def before_model(
-        self,
-        messages: List[Dict[str, str]],
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, str]]:
-        if runtime_context is None:
-            runtime_context = {}
-
-        if not self.todo_manager._items:
-            return messages
-        # 所有任务完成后，iteration > 0 时不再注入（iteration=0 仍注入，给模型最终状态感知）
-        if self.todo_manager.all_done() and iteration > 0:
-            return messages
-
-        context_message = {"role": "user", "content": self._build_context_content()}
-        return _inject_context_before_last_user(messages, context_message)
-
-    def after_tool_call(
-        self,
-        tool_name: str,
-        tool_input: Dict[str, Any],
-        tool_result: str,
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """拦截 todo_write 工具调用，直接处理 TODO 状态更新。"""
-        if tool_name == "todo_write":
-            return self.todo_manager.apply_tool_write(tool_input)
-        return tool_result
-
-
-class EnhancedTodoContextMiddleware(TodoContextMiddleware):
-    """
-    增强版 TodoContextMiddleware，含上下文丢失检测。
-
-    当对话被压缩/截断导致 TODO 状态消失时，自动重新注入恢复提示。
-    （借鉴 DeerFlow TodoMiddleware 的上下文丢失检测机制）
-    """
-
-    def before_model(
-        self,
-        messages: List[Dict[str, str]],
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, str]]:
-        if runtime_context is None:
-            runtime_context = {}
-
-        if not self.todo_manager._items:
-            return messages
-        if self.todo_manager.all_done() and iteration > 0:
-            return messages
-
-        todo_text = self.todo_manager.render_for_context(show_completed=True)
-
-        # 检测消息历史中是否已有 TODO 上下文
-        has_todo_in_context = any(
-            "<todo_list" in msg.get("content", "") or "todo_write" in msg.get("content", "")
-            for msg in messages
-            if msg.get("role") == "user"
-        )
-
-        # 已有 TODO 且非首轮 → 跳过（避免重复注入）
-        if has_todo_in_context and iteration > 0:
-            return messages
-
-        # 上下文丢失（找不到 TODO）且非首轮 → 注入恢复提示
-        if not has_todo_in_context and iteration > 0:
-            context_content = (
-                "<system_reminder>\n"
-                "任务计划状态（上下文压缩后恢复）：\n"
-                f"{todo_text}\n"
-                "请继续追踪并更新任务状态。\n"
-                "</system_reminder>"
-            )
-        else:
-            # 首轮 → 标准注入
-            context_content = (
-                f"{todo_text}\n"
-                "当前正在执行任务计划。请聚焦于下一个 in_progress 或 pending 步骤。\n"
-                "完成某步骤后，可调用 todo_write 更新状态：\n"
-                '<tool>todo_write</tool><input>{"action": "update", "id": <步骤ID>, "status": "completed"}</input>'
-            )
-
-        context_message = {"role": "user", "content": context_content}
-        return _inject_context_before_last_user(messages, context_message)
-
-
-def make_todo_context_middleware(todo_manager: Any = None) -> "TodoContextMiddleware":
-    """
-    创建增强版 TodoContextMiddleware（含上下文丢失检测）工厂函数（已废弃）。
-
-    Returns:
-        EnhancedTodoContextMiddleware 实例
-    """
-    import warnings
-    warnings.warn("make_todo_context_middleware is deprecated. Use SessionMemory instead.", DeprecationWarning)
-    return EnhancedTodoContextMiddleware(todo_manager)
-
-
-# ============================================================================
-# 记忆注入中间件
-# ============================================================================
-
-class MemoryInjectionMiddleware(AgentMiddleware):
-    """
-    记忆注入中间件（已废弃 - MemoryManager 已移除）。
-
-    推荐使用 agent_framework.SessionMemory 的持久化记忆功能。
-    """
-
-    def __init__(
-        self,
-        memory_manager: Any = None,
-        auto_update: bool = False,
-        model_forward_fn=None,
-    ):
-        self.memory_manager = memory_manager
-        self.auto_update = auto_update
-        self.model_forward_fn = model_forward_fn
-        if memory_manager is None:
-            import warnings
-            warnings.warn("MemoryInjectionMiddleware is deprecated. Use SessionMemory instead.", DeprecationWarning)
-
-    def before_model(
-        self,
-        messages: List[Dict[str, str]],
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, str]]:
-        if self.memory_manager is None:
-            return messages
-
-        if runtime_context is None:
-            runtime_context = {}
-        if runtime_context.get("_memory_injected"):
-            return messages
-
-        try:
-            memory_text = self.memory_manager.format_for_injection()
-            runtime_context["_memory_injected"] = True
-
-            if not memory_text:
-                return messages
-        except Exception:
-            return messages
-
-        memory_message = {
-            "role": "user",
-            "content": (
-                "<memory>\n"
-                "以下是关于你和用户过往交互的记忆摘要，请参考但不要直接引用：\n\n"
-                f"{memory_text}\n"
-                "</memory>"
-            ),
-        }
-        return _inject_context_before_last_user(messages, memory_message)
-
-    def after_run(
-        self,
-        execution_log: List[Dict[str, Any]],
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """会话结束时可选触发记忆更新。"""
-        if not self.auto_update:
-            return
-        if runtime_context is None:
-            runtime_context = {}
-        conversation = runtime_context.get("_conversation_pairs", [])
-        if not conversation:
-            return
-
-        session_id = runtime_context.get("execution_id")
-        try:
-            self.memory_manager.update_from_conversation(
-                conversation=conversation,
-                session_id=session_id,
-                model_forward_fn=self.model_forward_fn,
-            )
-        except Exception as e:
-            print(f"[MemoryInjectionMiddleware] 记忆更新失败: {e}")
-
-
-# ============================================================================
-# 对话摘要中间件
-# ============================================================================
 
 class ConversationSummaryMiddleware(AgentMiddleware):
-    """
-    对话摘要中间件：当历史消息超过阈值时压缩早期对话。
-
-    设计目标（借鉴 DeerFlow SummarizationMiddleware）：
-      1. 保留最近 N 轮原始对话（模型处理时序关系需要）
-      2. 对超出阈值的早期对话生成摘要，插入上下文头部
-      3. 支持 LLM 语义摘要和规则摘要两种模式
-    """
-
-    def __init__(
-        self,
-        max_history_pairs: int = 8,
-        keep_recent_pairs: int = 4,
-        model_forward_fn=None,
-    ):
+    def __init__(self, max_history_pairs: int = 8, keep_recent_pairs: int = 4, model_forward_fn=None):
         self.max_history_pairs = max_history_pairs
         self.keep_recent_pairs = keep_recent_pairs
         self.model_forward_fn = model_forward_fn
 
-    def before_model(
-        self,
-        messages: List[Dict[str, str]],
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, str]]:
-        if runtime_context is None:
-            runtime_context = {}
-
-        # 提取消息中的用户-助手对
-        pairs: List[Tuple[str, str]] = []
-        pending_user: Optional[str] = None
-
+    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+        pairs = []
+        pending_user = None
         for msg in messages:
             role = msg.get("role", "")
             content = msg.get("content", "")
@@ -648,81 +258,47 @@ class ConversationSummaryMiddleware(AgentMiddleware):
                 if pending_user is not None:
                     pairs.append((pending_user, content))
                     pending_user = None
-
-        # 未超过阈值，无需压缩
         if len(pairs) <= self.max_history_pairs:
             return messages
-
-        # 超出阈值：压缩早期对话
         old_pairs = pairs[: len(pairs) - self.keep_recent_pairs]
         recent_pairs = pairs[len(pairs) - self.keep_recent_pairs:]
-
         summary_text = self._summarize(old_pairs)
-
-        # 重建消息列表：摘要 + 最近轮次 + 当前用户消息
-        new_messages: List[Dict[str, str]] = []
+        new_messages = []
         if summary_text:
-            new_messages.append({
-                "role": "user",
-                "content": (
-                    "<conversation_summary>\n"
-                    f"以下是早期对话的摘要（共 {len(old_pairs)} 轮）：\n"
-                    f"{summary_text}\n"
-                    "</conversation_summary>"
-                ),
-            })
-            new_messages.append({
-                "role": "assistant",
-                "content": "好的，我了解了之前对话的背景。",
-            })
-
+            new_messages.append({"role": "user", "content": f"<conversation_summary>\n以下是早期对话的摘要（共 {len(old_pairs)} 轮）：\n{summary_text}\n</conversation_summary>"})
+            new_messages.append({"role": "assistant", "content": "好的，我了解了之前对话的背景。"})
         for u, a in recent_pairs:
             new_messages.append({"role": "user", "content": u})
             if a:
                 new_messages.append({"role": "assistant", "content": a})
-
         if pending_user is not None:
             new_messages.append({"role": "user", "content": pending_user})
-
-        runtime_context["_summary_compressed_pairs"] = len(old_pairs)
+        context["_summary_compressed_pairs"] = len(old_pairs)
         return new_messages
 
     def _summarize(self, pairs: List[Tuple[str, str]]) -> str:
-        """生成早期对话摘要：优先 LLM，降级为规则摘要。"""
         if self.model_forward_fn is not None:
             return self._llm_summarize(pairs)
         return self._rule_summarize(pairs)
 
     def _llm_summarize(self, pairs: List[Tuple[str, str]]) -> str:
-        """调用 LLM 生成语义摘要。"""
-        SUMMARY_SYSTEM = (
-            "你是一个对话摘要助手。将以下多轮对话总结为 3-5 句话的摘要，"
-            "保留关键信息（用户需求、已完成的操作、重要结论）。只输出摘要，不加任何前缀。"
-        )
-        conv_lines: List[str] = []
+        SUMMARY_SYSTEM = "你是一个对话摘要助手。将以下多轮对话总结为 3-5 句话的摘要，保留关键信息（用户需求、已完成的操作、重要结论）。只输出摘要，不加任何前缀。"
+        conv_lines = []
         for u, a in pairs[-6:]:
             if u:
                 conv_lines.append(f"用户: {u[:150]}")
             if a:
                 conv_lines.append(f"助手: {a[:150]}")
-
         try:
-            return self.model_forward_fn(
-                [{"role": "user", "content": "\n".join(conv_lines)}],
-                system_prompt=SUMMARY_SYSTEM,
-                temperature=0.3,
-                top_p=0.9,
-                max_tokens=200,
-            )
+            return self.model_forward_fn([{"role": "user", "content": "\n".join(conv_lines)}], system_prompt=SUMMARY_SYSTEM, temperature=0.3, top_p=0.9, max_tokens=200)
         except Exception:
             return self._rule_summarize(pairs)
 
     @staticmethod
     def _rule_summarize(pairs: List[Tuple[str, str]]) -> str:
-        """规则摘要：提取关键词 + 轮次计数，无 LLM 开销。"""
         if not pairs:
             return ""
-        topics: List[str] = []
+        topics = []
         for u, _ in pairs[-4:]:
             if u:
                 snippet = u.strip()[:50].replace("\n", " ")
@@ -734,20 +310,8 @@ class ConversationSummaryMiddleware(AgentMiddleware):
         return summary
 
 
-# ============================================================================
-# gstack 架构移植中间件
-# ============================================================================
-
 class CompletenessMiddleware(_OnceInjectMiddleware):
-    """
-    完整性原则中间件（移植自 gstack Boil the Lake 哲学）
-
-    AI 辅助编码使完整实现的边际成本趋近于零。
-    当"完整方案 A"与"捷径方案 B"仅差几十行代码时，始终选择 A。
-    """
-
     _inject_flag = "_completeness_injected"
-
     COMPLETENESS_HINT = (
         "<completeness_principle>\n"
         "【完整性原则 - Boil the Lake】\n"
@@ -768,32 +332,15 @@ class CompletenessMiddleware(_OnceInjectMiddleware):
     )
 
     def _should_inject(self, iteration: int, runtime_context: Dict[str, Any]) -> bool:
-        # 仅工具/混合/技能模式的首轮注入
         run_mode = str(runtime_context.get("run_mode", "chat")).lower()
         return iteration == 0 and run_mode in ("tools", "hybrid", "skills")
 
-    def _build_message(
-        self,
-        messages: List[Dict[str, str]],
-        runtime_context: Dict[str, Any],
-    ) -> Optional[Dict[str, str]]:
+    def _build_message(self, messages: List[Dict[str, str]], runtime_context: Dict[str, Any]) -> Optional[Dict[str, str]]:
         return {"role": "user", "content": self.COMPLETENESS_HINT}
 
 
 class AskUserQuestionMiddleware(AgentMiddleware):
-    """
-    结构化提问中间件（移植自 gstack AskUserQuestion Format）
-
-    检测模型提问意图，注入结构化提问格式要求（Re-ground / Simplify / Recommend / Options）。
-    """
-
-    QUESTION_SIGNALS = [
-        "请问", "是否", "需要确认", "请确认", "您是否", "你是否",
-        "需要我", "要不要", "是否需要", "请选择", "可以告诉我",
-        "请提供", "需要澄清", "需要更多信息", "还不清楚",
-        "应该", "还是", "哪种", "哪个方案",
-    ]
-
+    QUESTION_SIGNALS = ["请问", "是否", "需要确认", "请确认", "您是否", "你是否", "需要我", "要不要", "是否需要", "请选择", "可以告诉我", "请提供", "需要澄清", "需要更多信息", "还不清楚", "应该", "还是", "哪种", "哪个方案"]
     FORMAT_HINT = (
         "<ask_user_question_format>\n"
         "【结构化提问格式】当你需要向用户提问时，必须按以下结构组织提问：\n\n"
@@ -813,51 +360,27 @@ class AskUserQuestionMiddleware(AgentMiddleware):
         "</ask_user_question_format>"
     )
 
-    def after_model(
-        self,
-        model_response: str,
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """检测提问意图，标记下一轮需要注入格式提示。"""
-        if runtime_context is None:
-            runtime_context = {}
-        if runtime_context.get("_ask_format_injected"):
-            return model_response
-
-        text = (model_response or "").strip()
+    def process_after_llm(self, response: str, context: Dict[str, Any]) -> str:
+        if context.get("_ask_format_injected"):
+            return response
+        text = (response or "").strip()
         has_question = any(signal in text for signal in self.QUESTION_SIGNALS)
         if has_question or text.endswith("？") or text.endswith("?"):
-            runtime_context["_pending_ask_format_injection"] = True
-        return model_response
+            context["_pending_ask_format_injection"] = True
+        return response
 
-    def before_model(
-        self,
-        messages: List[Dict[str, str]],
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, str]]:
-        if runtime_context is None:
-            runtime_context = {}
-        if not runtime_context.get("_pending_ask_format_injection"):
+    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+        if not context.get("_pending_ask_format_injection"):
             return messages
-        if runtime_context.get("_ask_format_injected"):
+        if context.get("_ask_format_injected"):
             return messages
-
-        runtime_context["_ask_format_injected"] = True
-        runtime_context["_pending_ask_format_injection"] = False
-
+        context["_ask_format_injected"] = True
+        context["_pending_ask_format_injection"] = False
         format_message = {"role": "user", "content": self.FORMAT_HINT}
         return _inject_context_before_last_user(messages, format_message)
 
 
 class CompletionStatusMiddleware(AgentMiddleware):
-    """
-    完成状态协议中间件（移植自 gstack Completion Status Protocol）
-
-    强制要求 Agent 用 DONE / DONE_WITH_CONCERNS / BLOCKED / NEEDS_CONTEXT 汇报结果。
-    """
-
     STATUS_PROTOCOL_HINT = (
         "<completion_status_protocol>\n"
         "【完成状态报告格式】完成工作流时，必须用以下状态之一汇报：\n\n"
@@ -879,64 +402,28 @@ class CompletionStatusMiddleware(AgentMiddleware):
         "坏的工作比没有工作更糟糕。上报不会受到惩罚。\n"
         "</completion_status_protocol>"
     )
+    BLOCKED_SIGNALS = ["无法继续", "无法完成", "遇到问题", "权限不足", "文件不存在", "找不到", "缺少", "无法访问", "失败了", "错误", "异常", "cannot", "failed", "error", "blocked", "unable to", "不确定", "不清楚", "需要更多"]
 
-    BLOCKED_SIGNALS = [
-        "无法继续", "无法完成", "遇到问题", "权限不足", "文件不存在",
-        "找不到", "缺少", "无法访问", "失败了", "错误", "异常",
-        "cannot", "failed", "error", "blocked", "unable to",
-        "不确定", "不清楚", "需要更多",
-    ]
-
-    def before_model(
-        self,
-        messages: List[Dict[str, str]],
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, str]]:
-        if runtime_context is None:
-            runtime_context = {}
-        if runtime_context.get("_completion_status_injected"):
+    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+        if context.get("_completion_status_injected"):
             return messages
-
-        if iteration == 0:
-            runtime_context["_completion_status_injected"] = True
+        if context.get("iteration", 0) == 0:
+            context["_completion_status_injected"] = True
             status_message = {"role": "user", "content": self.STATUS_PROTOCOL_HINT}
             return _inject_context_before_last_user(messages, status_message)
-
         return messages
 
-    def after_model(
-        self,
-        model_response: str,
-        iteration: int,
-        runtime_context: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """检测阻塞信号，统计失败次数。"""
-        if runtime_context is None:
-            runtime_context = {}
-        text = (model_response or "").lower()
+    def process_after_llm(self, response: str, context: Dict[str, Any]) -> str:
+        text = (response or "").lower()
         if any(signal in text for signal in self.BLOCKED_SIGNALS):
-            count = runtime_context.get("_blocked_attempt_count", 0) + 1
-            runtime_context["_blocked_attempt_count"] = count
-        return model_response
+            count = context.get("_blocked_attempt_count", 0) + 1
+            context["_blocked_attempt_count"] = count
+        return response
 
 
 class SearchBeforeBuildingMiddleware(_OnceInjectMiddleware):
-    """
-    搜索优先中间件（移植自 gstack Search Before Building 哲学）
-
-    在构建任何基础设施前先搜索，提供三层知识体系框架。
-    """
-
     _inject_flag = "_search_first_injected"
-
-    BUILD_SIGNALS = [
-        "实现", "开发", "构建", "创建", "设计", "编写",
-        "implement", "build", "create", "develop", "design",
-        "框架", "库", "组件", "模块", "系统", "架构",
-        "自定义", "从头开始", "重新实现", "重写",
-    ]
-
+    BUILD_SIGNALS = ["实现", "开发", "构建", "创建", "设计", "编写", "implement", "build", "create", "develop", "design", "框架", "库", "组件", "模块", "系统", "架构", "自定义", "从头开始", "重新实现", "重写"]
     SEARCH_BEFORE_BUILDING_HINT = (
         "<search_before_building>\n"
         "【搜索优先原则】在构建任何基础设施或不熟悉的模式之前，先确认是否已有现成方案。\n\n"
@@ -957,73 +444,26 @@ class SearchBeforeBuildingMiddleware(_OnceInjectMiddleware):
         run_mode = str(runtime_context.get("run_mode", "chat")).lower()
         return iteration == 0 and run_mode in ("tools", "hybrid")
 
-    def _build_message(
-        self,
-        messages: List[Dict[str, str]],
-        runtime_context: Dict[str, Any],
-    ) -> Optional[Dict[str, str]]:
-        # 只在检测到"构建意图"时注入
+    def _build_message(self, messages: List[Dict[str, str]], runtime_context: Dict[str, Any]) -> Optional[Dict[str, str]]:
         last_user_content = ""
         for msg in reversed(messages):
             if msg.get("role") == "user":
                 last_user_content = msg.get("content", "")
                 break
-
         if not any(signal in last_user_content for signal in self.BUILD_SIGNALS):
             return None
-
         return {"role": "user", "content": self.SEARCH_BEFORE_BUILDING_HINT}
 
 
 class RepoOwnershipMiddleware(_OnceInjectMiddleware):
-    """
-    仓库所有权模式中间件（移植自 gstack Repo Ownership Mode）
-
-    区分 solo / collaborative / unknown 三种模式，决定 Agent 主动程度。
-    """
-
     _inject_flag = "_repo_mode_injected"
-
     MODE_HINTS = {
-        "solo": (
-            "<repo_ownership_mode mode=\"solo\">\n"
-            "【仓库所有权 - 独立开发模式（Solo）】\n"
-            "这是一个主要由你维护的仓库。当你在工作流步骤中发现当前修改范围之外的问题时：\n"
-            "- 测试失败、废弃警告、安全建议、lint 错误、死代码、环境问题\n"
-            "→ 主动调查并提议修复。这个独立开发者是唯一会修复它的人，不要等待。\n"
-            "默认行动，而不是询问。\n\n"
-            "【See Something, Say Something】无论在哪个步骤发现问题，都要简短说明：\n"
-            "一句话：发现了什么 + 影响是什么 + '需要我来修复吗？'\n"
-            "绝不让发现的问题悄悄溜走。\n"
-            "</repo_ownership_mode>"
-        ),
-        "collaborative": (
-            "<repo_ownership_mode mode=\"collaborative\">\n"
-            "【仓库所有权 - 协作开发模式（Collaborative）】\n"
-            "这个仓库有多个活跃贡献者。当你发现当前修改范围之外的问题时：\n"
-            "→ 通过提问告知用户——那可能是其他人的职责。\n"
-            "默认询问，而不是直接修改。\n\n"
-            "【See Something, Say Something】无论在哪个步骤发现问题，都要简短说明：\n"
-            "一句话：发现了什么 + 影响是什么。然后继续，不要主动修复。\n"
-            "绝不让发现的问题悄悄溜走。\n"
-            "</repo_ownership_mode>"
-        ),
-        "unknown": (
-            "<repo_ownership_mode mode=\"unknown\">\n"
-            "【仓库所有权 - 未知模式（Unknown）】\n"
-            "仓库所有权未配置，按协作开发模式处理（更安全的默认值）。\n"
-            "发现范围外问题时：通知用户，不要主动修复。\n"
-            "可通过 runtime_context['repo_mode'] = 'solo' | 'collaborative' 配置。\n"
-            "</repo_ownership_mode>"
-        ),
+        "solo": ("<repo_ownership_mode mode=\"solo\">\n【仓库所有权 - 独立开发模式（Solo）】\n这是一个主要由你维护的仓库。当你在工作流步骤中发现当前修改范围之外的问题时：\n- 测试失败、废弃警告、安全建议、lint 错误、死代码、环境问题\n→ 主动调查并提议修复。这个独立开发者是唯一会修复它的人，不要等待。\n默认行动，而不是询问。\n\n【See Something, Say Something】无论在哪个步骤发现问题，都要简短说明：\n一句话：发现了什么 + 影响是什么 + '需要我来修复吗？'\n绝不让发现的问题悄悄溜走。\n</repo_ownership_mode>"),
+        "collaborative": ("<repo_ownership_mode mode=\"collaborative\">\n【仓库所有权 - 协作开发模式（Collaborative）】\n这个仓库有多个活跃贡献者。当你发现当前修改范围之外的问题时：\n→ 通过提问告知用户——那可能是其他人的职责。\n默认询问，而不是直接修改。\n\n【See Something, Say Something】无论在哪个步骤发现问题，都要简短说明：\n一句话：发现了什么 + 影响是什么。然后继续，不要主动修复。\n绝不让发现的问题悄悄溜走。\n</repo_ownership_mode>"),
+        "unknown": ("<repo_ownership_mode mode=\"unknown\">\n【仓库所有权 - 未知模式（Unknown）】\n仓库所有权未配置，按协作开发模式处理（更安全的默认值）。\n发现范围外问题时：通知用户，不要主动修复。\n可通过 runtime_context['repo_mode'] = 'solo' | 'collaborative' 配置。\n</repo_ownership_mode>"),
     }
 
-    def _build_message(
-        self,
-        messages: List[Dict[str, str]],
-        runtime_context: Dict[str, Any],
-    ) -> Optional[Dict[str, str]]:
+    def _build_message(self, messages: List[Dict[str, str]], runtime_context: Dict[str, Any]) -> Optional[Dict[str, str]]:
         repo_mode = str(runtime_context.get("repo_mode", "unknown")).lower()
         hint = self.MODE_HINTS.get(repo_mode, self.MODE_HINTS["unknown"])
         return {"role": "user", "content": hint}
-

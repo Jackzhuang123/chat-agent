@@ -1,254 +1,245 @@
 # -*- coding: utf-8 -*-
-"""流式输出框架 - 支持 SSE 实时展示进度"""
+"""流式输出框架 - 基于 QwenAgentFramework._run_iter() 生成器，支持 SSE 实时展示进度
+
+设计原则：
+  StreamingFramework 不重复实现任何 ReAct 逻辑，
+  完全消费 QwenAgentFramework._run_iter() 产出的事件，
+  仅负责将事件翻译为 SSE / StreamEvent 格式输出给前端。
+"""
 
 import json
 import time
-from typing import Any, Callable, Dict, Generator, List, Optional
 from datetime import datetime
+from typing import Any, Dict, Generator, List, Optional
 
 
 class StreamEvent:
-    """流式事件"""
-
     def __init__(self, event_type: str, data: Any, timestamp: Optional[float] = None):
         self.event_type = event_type
         self.data = data
         self.timestamp = timestamp or time.time()
 
     def to_sse(self) -> str:
-        """转换为 SSE 格式"""
         data_json = json.dumps(self.data, ensure_ascii=False)
         return f"event: {self.event_type}\ndata: {data_json}\n\n"
 
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
-        return {
-            "event": self.event_type,
-            "data": self.data,
-            "timestamp": self.timestamp
-        }
+        return {"event": self.event_type, "data": self.data, "timestamp": self.timestamp}
 
 
 class StreamingFramework:
-    """
-    流式输出框架 - 实时展示 Agent 执行进度
+    """流式包装器——完全复用 QwenAgentFramework._run_iter()，零逻辑重复。
 
-    事件类型：
-    - start: 开始执行
-    - thought: 思考过程
-    - tool_call: 工具调用
-    - tool_result: 工具结果
-    - reflection: 反思
-    - progress: 进度更新
-    - complete: 完成
-    - error: 错误
+    职责：
+      1. 初始化 _run_iter 所需的 messages / runtime_context
+      2. 将生成器事件映射为 StreamEvent（SSE 友好格式）
+      3. 通过 run_stream_sse() 对外暴露 SSE 字符串生成器
     """
 
-    def __init__(
-        self,
-        framework,  # QwenAgentFramework 实例
-        enable_sse: bool = True
-    ):
+    def __init__(self, framework, enable_sse: bool = True):
         self.framework = framework
         self.enable_sse = enable_sse
 
+    # ------------------------------------------------------------------
+    # 主要公共接口
+    # ------------------------------------------------------------------
     def run_stream(
-        self,
-        user_input: str,
-        history: Optional[List[Dict]] = None,
-        runtime_context: Optional[Dict[str, Any]] = None,
+            self,
+            user_input: str,
+            history: Optional[List[Dict]] = None,
+            runtime_context: Optional[Dict[str, Any]] = None,
+            temperature: float = 0.7,
+            top_p: float = 0.9,
+            max_tokens: int = 8192,
     ) -> Generator[StreamEvent, None, None]:
-        """流式运行 - 生成事件流"""
+        """消费 _run_iter 生成器，将内部事件转换为 StreamEvent 序列。"""
+        fw = self.framework
 
-        # 发送开始事件
+        # ── 初始化（与 run() 保持一致） ──
+        import uuid
+        fw._current_tool_chain_id = f"chain_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+        messages = fw._build_messages(user_input, history)
+        runtime_context = runtime_context or {}
+        runtime_context["start_time"] = time.time()
+        runtime_context["tool_chain_id"] = fw._current_tool_chain_id
+
+        if fw.memory:
+            fw.memory.add_context("current_task", user_input)
+            if hasattr(fw.memory, "add"):
+                fw.memory.add(
+                    content=f"User: {user_input}",
+                    metadata={"role": "user", "type": "input"},
+                    importance=0.8,
+                    tool_chain_id=fw._current_tool_chain_id
+                )
+
+        fw.task_context["current_task"] = user_input
+
         yield StreamEvent("start", {
             "user_input": user_input,
             "timestamp": datetime.now().isoformat()
         })
 
-        messages = self.framework._build_messages(user_input, history)
-        runtime_context = runtime_context or {}
-        runtime_context["start_time"] = time.time()
-
-        if self.framework.memory:
-            self.framework.memory.add_context("current_task", user_input)
-
-        tool_calls_log = []
+        tool_calls_log: List[Dict] = []
         last_response = ""
+        final_response = ""
 
-        for iteration in range(self.framework.max_iterations):
-            # 发送进度事件
-            yield StreamEvent("progress", {
-                "iteration": iteration + 1,
-                "max_iterations": self.framework.max_iterations,
-                "message": f"迭代 {iteration + 1}/{self.framework.max_iterations}"
-            })
+        # ── 消费 _run_iter ──
+        for event in fw._run_iter(messages, user_input, runtime_context, temperature, top_p, max_tokens):
+            evt = event.get("event")
 
-            # 检查是否应该继续
-            if self.framework.reflection:
-                should_continue, reason = self.framework.reflection.should_continue(
-                    self.framework.reflection_history
-                )
-                if not should_continue:
-                    yield StreamEvent("error", {
-                        "reason": reason,
-                        "iteration": iteration + 1
-                    })
-                    break
+            if evt == "progress":
+                yield StreamEvent("progress", {
+                    "iteration": event["iteration"],
+                    "max_iterations": event["max_iterations"],
+                    "message": f"迭代 {event['iteration']}/{event['max_iterations']}"
+                })
 
-            # 上下文管理
-            messages = self.framework._compress_context_smart(messages)
-            messages = self.framework._inject_task_context(messages)
-            messages = self.framework._inject_reflection(messages)
-
-            # 中间件
-            for mw in self.framework.middlewares:
-                if hasattr(mw, "process_before_llm"):
-                    messages = mw.process_before_llm(messages, runtime_context)
-
-            # 发送思考事件
-            yield StreamEvent("thought", {
-                "iteration": iteration + 1,
-                "message": "正在思考下一步..."
-            })
-
-            # 调用模型
-            try:
-                response = self.framework.model_forward_fn(messages, self.framework.system_prompt)
-                last_response = response
-
-                # 发送思考结果
+            elif evt == "thought":
+                last_response = event.get("content", "")
+                snippet = last_response[:200] + ("..." if len(last_response) > 200 else "")
                 yield StreamEvent("thought", {
-                    "iteration": iteration + 1,
-                    "content": response[:200] + "..." if len(response) > 200 else response
+                    "iteration": event["iteration"],
+                    "content": snippet
                 })
 
-            except Exception as e:
-                yield StreamEvent("error", {
-                    "type": "model_error",
-                    "message": str(e),
-                    "iteration": iteration + 1
-                })
-                break
-
-            # 解析工具
-            tool_calls_raw = self.framework.tool_parser.parse_tool_calls(response)
-            tool_calls = [{"name": name, "args": args} for name, args in tool_calls_raw]
-
-            if not tool_calls:
-                # 无工具调用，完成
-                yield StreamEvent("complete", {
-                    "response": response,
-                    "iterations": iteration + 1,
-                    "tool_calls": tool_calls_log
-                })
-                break
-
-            # 检测可并行工具
-            parallel_tools, sequential_tools = self.framework._detect_parallel_tools(tool_calls)
-
-            # 执行工具
-            results = []
-
-            # 并行执行
-            if parallel_tools:
-                yield StreamEvent("tool_call", {
-                    "mode": "parallel",
-                    "tools": [tc["name"] for tc in parallel_tools],
-                    "count": len(parallel_tools)
-                })
-
-                for tc in parallel_tools:
+            elif evt == "tool_call":
+                mode = event.get("mode", "sequential")
+                if mode == "parallel":
                     yield StreamEvent("tool_call", {
-                        "tool": tc["name"],
-                        "args": tc["args"],
-                        "mode": "parallel"
+                        "mode": "parallel",
+                        "tools": event.get("tools", []),
+                        "count": len(event.get("tools", []))
+                    })
+                else:
+                    yield StreamEvent("tool_call", {
+                        "mode": "sequential",
+                        "tool": event.get("tool"),
+                        "args": event.get("args", {})
                     })
 
-                parallel_results = self.framework._execute_tools_parallel(parallel_tools)
-                results.extend(parallel_results)
-
-                for r in parallel_results:
-                    yield StreamEvent("tool_result", {
-                        "tool": r["tool"],
-                        "success": not r["result"].get("error"),
-                        "result": str(r["result"])[:200],
-                        "mode": "parallel"
-                    })
-
-            # 串行执行
-            for tc in sequential_tools:
-                yield StreamEvent("tool_call", {
-                    "tool": tc["name"],
-                    "args": tc["args"],
-                    "mode": "sequential"
-                })
-
-                result = self.framework._execute_single_tool(tc["name"], tc["args"])
-                results.append({"tool": tc["name"], "result": result, "parallel": False})
-
+            elif evt == "tool_result":
+                result = event.get("result", {})
+                result_preview = str(result)[:200] if result else ""
                 yield StreamEvent("tool_result", {
-                    "tool": tc["name"],
-                    "success": not result.get("error"),
-                    "result": str(result)[:200],
-                    "mode": "sequential"
+                    "tool": event.get("tool"),
+                    "success": event.get("success", False),
+                    "result": result_preview,
+                    "mode": event.get("mode", "sequential")
                 })
-
-            # 记录日志
-            for r in results:
+                # 累积 tool_calls_log
                 tool_calls_log.append({
-                    "iteration": iteration + 1,
-                    "tool": r["tool"],
-                    "success": not r["result"].get("error"),
-                    "parallel": r.get("parallel", False)
+                    "tool": event.get("tool"),
+                    "success": event.get("success", False),
+                    "mode": event.get("mode", "sequential")
                 })
 
-            # 发送反思事件
-            if self.framework.reflection_history:
-                last_reflection = self.framework.reflection_history[-1]
+            elif evt == "reflection":
+                refl = event.get("data", {})
                 yield StreamEvent("reflection", {
-                    "tool": last_reflection["tool"],
-                    "success": last_reflection["success"],
-                    "analysis": last_reflection["analysis"],
-                    "suggestions": last_reflection["suggestions"]
+                    "success": refl.get("success", False),
+                    "level": refl.get("level", "surface"),
+                    "analysis": refl.get("analysis", ""),
+                    "suggestions": refl.get("suggestions", []),
+                    "action": refl.get("action", "continue")
                 })
 
-            # 循环检测
-            if self.framework._detect_loop():
+            elif evt == "format_error":
+                yield StreamEvent("progress", {
+                    "iteration": event.get("iteration", 0),
+                    "message": "格式纠错中，重新生成..."
+                })
+
+            elif evt == "done":
+                final_response = event.get("final_response", "")
+                tool_calls_log = event.get("tool_calls", tool_calls_log)
+                yield StreamEvent("complete", {
+                    "response": final_response,
+                    "iterations": event["iterations"],
+                    "tool_calls": tool_calls_log,
+                    "duration": time.time() - runtime_context.get("start_time", time.time())
+                })
+                break
+
+            elif evt == "interrupted":
+                reason = event.get("reason", "")
+                tool_calls_log = event.get("tool_calls", tool_calls_log)
+                yield StreamEvent("error", {
+                    "type": "interrupted",
+                    "reason": reason,
+                    "iterations": event["iterations"]
+                })
+                yield StreamEvent("complete", {
+                    "response": f"⚠️ 任务中断: {reason}",
+                    "iterations": event["iterations"],
+                    "tool_calls": tool_calls_log,
+                    "duration": time.time() - runtime_context.get("start_time", time.time()),
+                    "interrupted": True
+                })
+                break
+
+            elif evt == "loop_detected":
+                tool_calls_log = event.get("tool_calls", tool_calls_log)
                 yield StreamEvent("error", {
                     "type": "loop_detected",
                     "message": "检测到循环，建议重新规划任务",
-                    "iteration": iteration + 1
+                    "iteration": event.get("iterations", 0)
+                })
+                yield StreamEvent("complete", {
+                    "response": "⚠️ 检测到循环。建议：1.换用其他工具 2.重新分析问题 3.调整参数",
+                    "iterations": event.get("iterations", 0),
+                    "tool_calls": tool_calls_log,
+                    "duration": time.time() - runtime_context.get("start_time", time.time()),
+                    "loop_detected": True
                 })
                 break
 
-            # 回注结果
-            messages.append({"role": "assistant", "content": response})
-            messages.append({"role": "user", "content": self.framework._format_results(results)})
+            elif evt == "llm_error":
+                resp = event.get("fallback") or f"❌ 模型调用失败: {event.get('error', '')}"
+                tool_calls_log = event.get("tool_calls", tool_calls_log)
+                yield StreamEvent("error", {
+                    "type": "model_error",
+                    "message": event.get("error", ""),
+                    "iteration": event.get("iterations", 0)
+                })
+                yield StreamEvent("complete", {
+                    "response": resp,
+                    "iterations": event.get("iterations", 0),
+                    "tool_calls": tool_calls_log,
+                    "duration": time.time() - runtime_context.get("start_time", time.time()),
+                    "error": event.get("error")
+                })
+                break
 
-        # 保存记忆
-        if self.framework.memory:
-            self.framework.memory.save_to_disk()
+            elif evt == "max_iter":
+                final_response = event.get("final_response", "⚠️ 达到最大迭代次数")
+                tool_calls_log = event.get("tool_calls", tool_calls_log)
+                yield StreamEvent("complete", {
+                    "response": final_response,
+                    "iterations": event["iterations"],
+                    "tool_calls": tool_calls_log,
+                    "duration": time.time() - runtime_context.get("start_time", time.time()),
+                    "max_iter_reached": True
+                })
+                break
 
-        # 发送最终完成事件
-        yield StreamEvent("complete", {
-            "response": last_response,
-            "iterations": iteration + 1,
-            "tool_calls": tool_calls_log,
-            "duration": time.time() - runtime_context["start_time"]
-        })
+        # 持久化记忆
+        if fw.memory:
+            fw.memory.save_to_disk()
 
     def run_stream_sse(
-        self,
-        user_input: str,
-        history: Optional[List[Dict]] = None,
-        runtime_context: Optional[Dict[str, Any]] = None,
+            self,
+            user_input: str,
+            history: Optional[List[Dict]] = None,
+            runtime_context: Optional[Dict[str, Any]] = None,
+            temperature: float = 0.7,
+            top_p: float = 0.9,
+            max_tokens: int = 8192,
     ) -> Generator[str, None, None]:
-        """流式运行 - 返回 SSE 格式"""
-        for event in self.run_stream(user_input, history, runtime_context):
+        """直接输出 SSE 字符串，供 Flask/FastAPI 的 StreamingResponse 使用。"""
+        for event in self.run_stream(user_input, history, runtime_context, temperature, top_p, max_tokens):
             yield event.to_sse()
 
 
-def create_streaming_wrapper(framework):
-    """创建流式包装器"""
+def create_streaming_wrapper(framework) -> StreamingFramework:
     return StreamingFramework(framework, enable_sse=True)

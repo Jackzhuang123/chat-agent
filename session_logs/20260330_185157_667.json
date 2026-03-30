@@ -1,0 +1,70 @@
+{
+  "session_id": "20260330_185157_667",
+  "created_at": "2026-03-30T18:51:57.667977",
+  "start_time": "2026-03-30T18:51:57.667980",
+  "end_time": "2026-03-30T18:52:01.480347",
+  "status": "active",
+  "messages": [
+    {
+      "timestamp": "2026-03-30T18:52:01.480149",
+      "user_message": "你好",
+      "bot_response": "你好！有什么可以帮助你的吗？",
+      "execution_time": 3.811734914779663,
+      "tokens_used": 59,
+      "model": "glm-4-flash",
+      "model_calls": [
+        {
+          "call_index": 1,
+          "timestamp": "2026-03-30T18:52:01.480060",
+          "prompt": "[{'role': 'system', 'content': '你是一个智能助手。'}, {'role': 'user', 'content': '<runtime_mode name=\"chat\">\\n当前是纯对话模式：直接回答用户问题，不主动规划工具调用。\\n请按该模式约束完成任务。\\n</runtime_mode>'}, {'role': 'user', 'content': '你好'}]",
+          "response": "你好！有什么可以帮助你的吗？",
+          "execution_time": 0.9771420955657959,
+          "tokens_input": 50,
+          "tokens_output": 9,
+          "tokens_total": 59,
+          "parameters": {
+            "temperature": 0.8,
+            "top_p": 0.9
+          },
+          "model": "glm-4-flash"
+        }
+      ],
+      "runtime_context": {
+        "run_mode": "chat",
+        "plan_mode": false,
+        "uploaded_files": [],
+        "selected_skills": [],
+        "intent_reasons": [
+          "LLM: 用户发送了问候语，通常用于闲聊或情感交流 | 规则: 匹配1个模式"
+        ]
+      },
+      "execution_log": [
+        {
+          "iteration": -1,
+          "type": "intent_analysis",
+          "run_mode": "chat",
+          "skill_ids": [],
+          "reasons": [
+            "LLM: 用户发送了问候语，通常用于闲聊或情感交流 | 规则: 匹配1个模式"
+          ],
+          "timestamp": "2026-03-30T10:52:00Z"
+        },
+        {
+          "iteration": 0,
+          "type": "model_response",
+          "content": "你好！有什么可以帮助你的吗？",
+          "run_mode": "chat",
+          "plan_mode": false,
+          "timestamp": "2026-03-30T10:52:01Z"
+        }
+      ]
+    }
+  ],
+  "calls": [],
+  "statistics": {
+    "total_messages": 1,
+    "total_tokens_used": 59,
+    "total_duration": 3.811734914779663,
+    "total_calls": 1
+  }
+}

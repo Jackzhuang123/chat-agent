@@ -1,209 +1,358 @@
 # -*- coding: utf-8 -*-
-"""先进 Agent 框架 - ReAct + 反思 + 并行执行 + 持久化记忆 + 语义压缩"""
+"""先进 Agent 框架 - ReAct + 反思 + 并行执行 + 持久化记忆 + 语义压缩
+架构说明：
+  QwenAgentFramework._run_iter()  —— 单次推理迭代核心（生成器）
+  QwenAgentFramework.run()        —— 阻塞式入口，消费 _run_iter
+  StreamingFramework              —— 流式入口，消费 _run_iter，发送 SSE 事件
+  AdaptiveToolLearner             —— 工具序列学习，首轮推荐 + 序列转移矩阵
+  DeepReflectionEngine            —— 失败反思 + 成功模式记录，双向同步 ToolLearner
+  MultiAgentOrchestrator          —— plan 模式封装，复用 QwenAgentFramework 的 ReAct 循环
+"""
 
 import json
-import pickle
 import time
-from collections import defaultdict
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
 
-from .agent_middlewares import AgentMiddleware
 from .agent_tools import ToolExecutor, ToolParser
-from .tool_learner import ToolLearner
+from .tool_learner import AdaptiveToolLearner
+from .vector_memory import VectorMemory, LocalEmbeddingProvider
+
+# ---------------------------------------------------------------------------
+# 只读工具集合（可并发执行的工具名称，内联在框架中，无需独立 Executor 类）
+# ---------------------------------------------------------------------------
+# list_dir 不加入并行集合：
+# 1. list_dir 在 LLM 输出中常与 read_file 一起出现，并行会使双方同时失败产生连锁错误
+# 2. list_dir 通常只用于探路，不是真正的数据读取，单独调用即可
+READ_ONLY_TOOLS: Set[str] = {"read_file"}
 
 
-class SessionMemory:
-    """会话记忆 + 工具使用统计 + 持久化"""
-
-    def __init__(self, memory_dir: str = ".agent_memory"):
-        self.memory_dir = Path(memory_dir)
-        self.memory_dir.mkdir(exist_ok=True)
-        self.current_session = {}
-        self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # 工具使用统计
-        self.tool_stats = defaultdict(lambda: {"success": 0, "failed": 0, "avg_time": 0})
-
-        # 跨会话记忆文件
-        self.memory_file = self.memory_dir / "session_memory.pkl"
-        self._load_from_disk()
-
-    def _load_from_disk(self):
-        """从磁盘加载历史记忆"""
-        if self.memory_file.exists():
-            try:
-                with open(self.memory_file, 'rb') as f:
-                    data = pickle.load(f)
-                    self.tool_stats = data.get("tool_stats", self.tool_stats)
-                    # 加载最近3次会话的关键信息
-                    self.current_session = data.get("recent_context", {})
-            except Exception:
-                pass
-
-    def save_to_disk(self):
-        """保存记忆到磁盘"""
-        try:
-            data = {
-                "tool_stats": dict(self.tool_stats),
-                "recent_context": self.current_session,
-                "last_update": time.time()
-            }
-            with open(self.memory_file, 'wb') as f:
-                pickle.dump(data, f)
-        except Exception:
-            pass
-
-    def add_context(self, key: str, value: Any):
-        """添加上下文"""
-        self.current_session[key] = {"value": value, "timestamp": time.time()}
-
-    def get_context(self, key: str) -> Optional[Any]:
-        """获取上下文"""
-        return self.current_session[key]["value"] if key in self.current_session else None
-
-    def update_tool_stats(self, tool_name: str, success: bool, exec_time: float):
-        """更新工具统计"""
-        # defaultdict 自动创建，但需要先访问才能触发
-        if tool_name not in self.tool_stats:
-            self.tool_stats[tool_name] = {"success": 0, "failed": 0, "avg_time": 0}
-
-        stats = self.tool_stats[tool_name]
-        if success:
-            stats["success"] += 1
-        else:
-            stats["failed"] += 1
-
-        # 更新平均时间
-        total = stats["success"] + stats["failed"]
-        stats["avg_time"] = (stats["avg_time"] * (total - 1) + exec_time) / total
-
-    def get_tool_recommendation(self, task_type: str) -> List[str]:
-        """基于历史推荐工具"""
-        # 按成功率排序
-        ranked = sorted(
-            self.tool_stats.items(),
-            key=lambda x: x[1]["success"] / max(1, x[1]["success"] + x[1]["failed"]),
-            reverse=True
-        )
-        return [tool for tool, _ in ranked[:3]]
-
-    def extract_key_info(self, messages: List[Dict]) -> Dict:
-        """提取关键信息"""
-        info = {"user_requests": [], "files_touched": [], "errors": []}
-
-        for msg in messages[-10:]:
-            content = msg.get("content", "")
-            if msg.get("role") == "user" and len(content) < 100:
-                info["user_requests"].append(content)
-
-            if "path" in content:
-                import re
-                files = re.findall(r'"path":\s*"([^"]+)"', content)
-                info["files_touched"].extend(files)
-
-            if "❌" in content or "Error" in content:
-                info["errors"].append(content[:100])
-
-        info["files_touched"] = list(set(info["files_touched"]))[-5:]
-        info["user_requests"] = info["user_requests"][-3:]
-        info["errors"] = info["errors"][-2:]
-
-        return info
-
-    def build_context_summary(self, messages: List[Dict]) -> str:
-        """构建上下文摘要"""
-        info = self.extract_key_info(messages)
-        parts = []
-        if info["user_requests"]:
-            parts.append(f"请求: {', '.join(info['user_requests'])}")
-        if info["files_touched"]:
-            parts.append(f"文件: {', '.join(info['files_touched'])}")
-        if info["errors"]:
-            parts.append(f"错误: {len(info['errors'])}个")
-        return " | ".join(parts) if parts else "无关键信息"
-
-    def compute_message_importance(self, messages: List[Dict]) -> List[float]:
-        """计算消息重要性（简化版语义评分）"""
-        scores = []
-        keywords = ["error", "failed", "success", "file", "path", "tool", "result"]
-
-        for msg in messages:
-            content = msg.get("content", "").lower()
-            # 基于关键词密度计算重要性
-            score = sum(1 for kw in keywords if kw in content)
-            # 用户消息权重更高
-            if msg.get("role") == "user":
-                score *= 1.5
-            # 工具结果权重更高
-            if "✅" in content or "❌" in content:
-                score *= 1.3
-            scores.append(score)
-
-        return scores
+def register_read_only_tool(tool_name: str) -> None:
+    """全局注册只读工具，允许在并行路径中并发执行。"""
+    READ_ONLY_TOOLS.add(tool_name)
 
 
-class ReflectionEngine:
-    """反思引擎 - ReAct 模式"""
+# ---------------------------------------------------------------------------
+# 兼容占位：原 EnhancedParallelExecutor / ParallelConfig
+# 并行逻辑已内联到 QwenAgentFramework._execute_tools_parallel()
+# 保留这两个名称以防外部代码仍在引用
+# ---------------------------------------------------------------------------
+@dataclass
+class ParallelConfig:
+    max_workers: int = 4
 
-    @staticmethod
-    def reflect_on_result(tool_name: str, result: Dict, expected: str = None) -> Dict:
-        """反思工具执行结果"""
-        reflection = {
-            "success": not result.get("error"),
-            "analysis": "",
-            "suggestions": []
+    # noinspection PyUnusedLocal
+    def get_optimal_workers(self, task_count: int) -> int:
+        return min(task_count, self.max_workers)
+
+
+class EnhancedParallelExecutor:
+    """兼容占位——并行逻辑已内联到框架，此类仅保留供旧引用不报错。"""
+
+    READ_ONLY_TOOLS: Set[str] = READ_ONLY_TOOLS  # 指向模块级集合
+
+    def __init__(self, *args, **kwargs):
+        self.stats = {"total": 0, "parallel": 0, "failed": 0}
+
+    def register_read_only_tool(self, tool_name: str):
+        READ_ONLY_TOOLS.add(tool_name)
+
+    def is_read_only(self, tool_name: str) -> bool:
+        return tool_name in READ_ONLY_TOOLS
+
+
+
+class DeepReflectionEngine:
+    """深度反思引擎 —— 失败分析 + 成功模式学习 + 双向同步 AdaptiveToolLearner
+
+    新增能力：
+      • reflect_on_success()  —— 成功时记录高效工具序列，注入 ToolLearner 转移矩阵
+      • attach_tool_learner() —— 绑定外部 ToolLearner，启用双向数据同步
+    """
+
+    FAILURE_PATTERNS = {
+        "file_not_found": {
+            "patterns": [r"not found", r"不存在", r"找不到", r"No such file"],
+            "category": "parameter_error",
+            "fixes": ["使用绝对路径", "先list_dir确认", "检查文件名拼写"]
+        },
+        "permission_denied": {
+            "patterns": [r"permission denied", r"权限不足"],
+            "category": "tool_error",
+            "fixes": ["检查文件权限", "更换工作目录"]
+        },
+        "syntax_error": {
+            "patterns": [r"syntax error", r"invalid syntax", r"语法错误"],
+            "category": "parameter_error",
+            "fixes": ["检查JSON格式", "验证参数类型"]
+        },
+        "timeout": {
+            "patterns": [r"timeout", r"timed out", r"超时"],
+            "category": "execution_error",
+            "fixes": ["增加超时时间", "拆分任务", "优化命令"]
         }
+    }
 
-        if result.get("error"):
-            error = result["error"]
+    def __init__(self):
+        self.reflection_history: List[Dict] = []
+        self.failure_memory: Dict[str, List] = {}
+        # 成功模式：记录高效工具序列（序列 -> 出现次数 + 平均耗时）
+        self.success_patterns: Dict[str, Dict] = {}
+        # 绑定的 ToolLearner（可选），用于双向同步
+        self._tool_learner: Optional["AdaptiveToolLearner"] = None
 
-            # 错误分类
-            if "not found" in error.lower():
-                reflection["analysis"] = "文件/路径不存在"
-                reflection["suggestions"] = [
-                    "使用 list_dir 确认路径",
-                    "检查文件名拼写",
-                    "使用相对路径"
-                ]
-            elif "permission" in error.lower():
-                reflection["analysis"] = "权限不足"
-                reflection["suggestions"] = ["检查文件权限", "使用其他路径"]
-            elif "syntax" in error.lower() or "invalid" in error.lower():
-                reflection["analysis"] = "命令语法错误"
-                reflection["suggestions"] = ["检查参数格式", "参考工具文档"]
-            else:
-                reflection["analysis"] = "未知错误"
-                reflection["suggestions"] = ["换用其他工具", "调整策略"]
+    def attach_tool_learner(self, learner: "AdaptiveToolLearner") -> None:
+        """绑定 AdaptiveToolLearner，启用反思引擎 ↔ 工具学习器双向同步。"""
+        self._tool_learner = learner
+
+    # ------------------------------------------------------------------
+    # 失败反思（原有逻辑，保持接口不变）
+    # ------------------------------------------------------------------
+    def reflect_on_result(self, tool_name: str, result: Dict, context: Dict = None) -> Dict:
+        context = context or {}
+        error = result.get("error")
+        if not error:
+            # 成功路径：记录高效模式
+            self._record_success(tool_name, context)
+            return {
+                "success": True,
+                "level": "surface",
+                "analysis": "执行成功",
+                "suggestions": [],
+                "action": "continue"
+            }
+        error_analysis = self._analyze_error(error, tool_name, context)
+        is_repeated = self._is_repeated_failure(error_analysis["category"], tool_name)
+        recent_tools = context.get("recent_tools", [])
+        is_loop = self._detect_loop(recent_tools)
+
+        if is_loop:
+            level = "meta"
+            action = "break_loop"
+            suggestions = ["强制切换策略", "更换工具类型", "请求用户澄清"]
+        elif is_repeated:
+            level = "strategic"
+            action = "escalate"
+            suggestions = [
+                f"重复错误！停止使用{tool_name}",
+                f"尝试: {error_analysis['fixes'][0] if error_analysis['fixes'] else '替代方案'}",
+                "如仍失败则上报BLOCKED"
+            ]
         else:
-            reflection["analysis"] = "执行成功"
+            level = "operational"
+            action = "retry_with_fix"
+            suggestions = error_analysis["fixes"][:2]
 
+        reflection = {
+            "success": False,
+            "level": level,
+            "category": error_analysis["category"],
+            "root_cause": error_analysis["root_cause"],
+            "analysis": error_analysis["description"],
+            "suggestions": suggestions,
+            "action": action,
+            "is_repeated": is_repeated,
+            "is_loop": is_loop,
+            "confidence": 0.9 if is_repeated else 0.7
+        }
+        self.reflection_history.append({
+            "timestamp": datetime.now().isoformat(),
+            "tool": tool_name,
+            "success": False,
+            "error": error[:100],
+            "reflection": reflection
+        })
+        cat = error_analysis["category"]
+        if cat not in self.failure_memory:
+            self.failure_memory[cat] = []
+        self.failure_memory[cat].append({
+            "tool": tool_name,
+            "error": error,
+            "timestamp": datetime.now().isoformat()
+        })
+        # 同步失败信息到 ToolLearner
+        if self._tool_learner:
+            self._tool_learner.record_usage(
+                task_type=context.get("task", "general"),
+                tool_name=tool_name,
+                success=False,
+                execution_time=result.get("_execution_time", 0),
+                context=context,
+                previous_tool=recent_tools[-1] if recent_tools else None,
+                error_message=error[:200]
+            )
         return reflection
 
-    @staticmethod
-    def should_continue(history: List[Dict], max_failed: int = 3) -> Tuple[bool, str]:
-        """判断是否应该继续"""
-        if len(history) < max_failed:
+    # ------------------------------------------------------------------
+    # 成功模式学习（新增）
+    # ------------------------------------------------------------------
+    def _record_success(self, tool_name: str, context: Dict) -> None:
+        """记录成功执行，更新高效工具序列并同步到 ToolLearner。"""
+        recent_tools: List[str] = context.get("recent_tools", [])
+        exec_time: float = context.get("_execution_time", 0)
+        task_type: str = context.get("task", "general")
+
+        self.reflection_history.append({
+            "timestamp": datetime.now().isoformat(),
+            "tool": tool_name,
+            "success": True,
+            "reflection": {"level": "surface", "analysis": "执行成功", "action": "continue"}
+        })
+
+        # 记录序列 key：前驱工具 -> 当前工具
+        if recent_tools:
+            prev = recent_tools[-1]
+            seq_key = f"{prev}->{tool_name}"
+            if seq_key not in self.success_patterns:
+                self.success_patterns[seq_key] = {"count": 0, "avg_time": 0.0, "task_types": []}
+            pat = self.success_patterns[seq_key]
+            pat["count"] += 1
+            pat["avg_time"] = (pat["avg_time"] * (pat["count"] - 1) + exec_time) / pat["count"]
+            if task_type not in pat["task_types"]:
+                pat["task_types"].append(task_type)
+
+        # 同步到 ToolLearner（转移矩阵 + 统计）
+        if self._tool_learner:
+            self._tool_learner.record_usage(
+                task_type=task_type,
+                tool_name=tool_name,
+                success=True,
+                execution_time=exec_time,
+                context=context,
+                previous_tool=recent_tools[-1] if recent_tools else None,
+            )
+
+    def get_efficient_sequences(self, top_k: int = 5) -> List[Dict]:
+        """返回最常见的高效工具序列，供注入 prompt 使用。"""
+        sorted_patterns = sorted(
+            self.success_patterns.items(),
+            key=lambda x: x[1]["count"],
+            reverse=True
+        )
+        return [
+            {"sequence": k, "count": v["count"], "avg_time": v["avg_time"]}
+            for k, v in sorted_patterns[:top_k]
+        ]
+
+    # ------------------------------------------------------------------
+    # 内部工具方法（保持原接口）
+    # ------------------------------------------------------------------
+    def _analyze_error(self, error: str, tool_name: str, context: Dict) -> Dict:
+        import re
+        error_lower = error.lower()
+        for error_type, info in self.FAILURE_PATTERNS.items():
+            for pattern in info["patterns"]:
+                if re.search(pattern, error_lower, re.I):
+                    return {
+                        "category": info["category"],
+                        "type": error_type,
+                        "description": f"{error_type}: {error[:100]}",
+                        "root_cause": info["category"],
+                        "fixes": info["fixes"],
+                        "confidence": 0.85
+                    }
+        return {
+            "category": "unknown_error",
+            "type": "unknown",
+            "description": f"未知错误: {error[:100]}",
+            "root_cause": "需要进一步分析",
+            "fixes": ["记录错误详情", "尝试替代工具", "简化任务"],
+            "confidence": 0.3
+        }
+
+    def _is_repeated_failure(self, category: str, tool_name: str) -> bool:
+        failures = self.failure_memory.get(category, [])
+        recent = [
+            f for f in failures
+            if f["tool"] == tool_name
+            and (datetime.now() - datetime.fromisoformat(f["timestamp"])).seconds < 300
+        ]
+        return len(recent) > 0
+
+    def _detect_loop(self, recent_tools: List[str]) -> bool:
+        if len(recent_tools) < 4:
+            return False
+        last_4 = recent_tools[-4:]
+        return len(set(last_4)) <= 2 and last_4[0] == last_4[2]
+
+    def should_continue(self, history: List[Dict], max_failed: int = 3) -> Tuple[bool, str]:
+        """判断是否继续执行。
+
+        修复要点（v2）：
+          1. strategic 级别需要连续 3 次（而非 2 次）才中断，容忍偶发性路径错误
+          2. 成功记录（success=True）不计入失败，避免"部分成功"被误判
+          3. 只统计 reflection_history 中的失败项，而非所有 history 条目
+          4. 提供更宽松的阈值，对多步骤复杂任务更友好
+        """
+        # 仅统计真实失败的反思记录（成功不计入）
+        failed_history = [
+            h for h in history
+            if isinstance(h, dict) and not h.get("success", True)
+        ]
+        if len(failed_history) < max_failed:
             return True, ""
 
-        recent = history[-max_failed:]
-        all_failed = all(not h.get("success", True) for h in recent)
+        recent_failed = failed_history[-max_failed:]
 
-        if all_failed:
-            return False, "连续失败，建议重新规划任务"
+        # strategic 级别需要连续 3 次才中断（原来是 2 次，过于激进）
+        strategic_count = sum(
+            1 for h in recent_failed
+            if isinstance(h, dict) and (
+                h.get("level") == "strategic" or
+                (isinstance(h.get("reflection"), dict) and h["reflection"].get("level") == "strategic")
+            )
+        )
+        if strategic_count >= max_failed:
+            return False, "连续战略级失败，建议重新规划或人工介入"
+
+        # meta 级别（检测到循环）立即中断
+        meta_count = sum(
+            1 for h in recent_failed
+            if isinstance(h, dict) and (
+                h.get("level") == "meta" or
+                (isinstance(h.get("reflection"), dict) and h["reflection"].get("level") == "meta")
+            )
+        )
+        if meta_count >= 2:
+            return False, "检测到工具调用循环，建议更换策略"
+
+        # 连续失败且类别相同（死循环同一错误）
+        categories = [
+            h.get("category") or
+            (h.get("reflection") or {}).get("category", "unknown")
+            for h in recent_failed
+        ]
+        if len(set(categories)) == 1 and categories[0] != "unknown":
+            return False, f"连续 {len(recent_failed)} 次相同错误({categories[0]})，建议更换策略"
 
         return True, ""
 
+    def get_reflection_summary(self) -> str:
+        if not self.reflection_history:
+            return "暂无反思记录"
+        recent = self.reflection_history[-5:]
+        lines = ["## 近期反思记录"]
+        for r in recent:
+            refl = r.get("reflection", {})
+            level_icon = {"surface": "📝", "operational": "🔧", "strategic": "🎯", "meta": "🧠"}.get(
+                refl.get("level", "surface"), "•"
+            )
+            icon = "✅" if r.get("success") else "❌"
+            lines.append(f"{icon}{level_icon} {r['tool']}: {refl.get('analysis', '')[:50]}...")
+        efficient = self.get_efficient_sequences(3)
+        if efficient:
+            lines.append("## 高效序列（Top-3）")
+            for seq in efficient:
+                lines.append(f"  {seq['sequence']} ×{seq['count']}次 avg {seq['avg_time']:.1f}s")
+        return "\n".join(lines)
+
 
 class OutputValidator:
-    """输出验证器 - 确保稳定性"""
-
     @staticmethod
     def validate_tool_call(tool_name: str, args: Dict) -> Tuple[bool, str]:
-        """验证工具调用"""
-        # 必需参数检查
         required_params = {
             "read_file": ["path"],
             "write_file": ["path", "content"],
@@ -211,44 +360,41 @@ class OutputValidator:
             "list_dir": [],
             "bash": ["command"]
         }
-
         if tool_name not in required_params:
             return False, f"未知工具: {tool_name}"
-
         missing = [p for p in required_params[tool_name] if p not in args]
         if missing:
             return False, f"缺少参数: {', '.join(missing)}"
-
-        # 参数类型检查
-        for key, value in args.items():
-            if not isinstance(value, str):
-                return False, f"参数 {key} 必须是字符串"
-
+        # 允许非字符串值（数字、布尔等），自动 str 转换，不拒绝调用
+        for key, value in list(args.items()):
+            if not isinstance(value, (str, type(None))):
+                args[key] = str(value)
         return True, ""
 
     @staticmethod
     def sanitize_output(output: str, max_length: int = 100000) -> str:
-        """清理输出"""
         if len(output) > max_length:
             return f"{output[:max_length]}...\n[输出过长，已截断。共 {len(output)} 字符]"
         return output
 
 
 class QwenAgentFramework:
-    """先进 Agent 框架 - ReAct + 反思 + 并行执行 + 持久化 + 语义压缩"""
+    """增强Agent框架 - 集成所有改进"""
 
     def __init__(
-        self,
-        model_forward_fn: Callable,
-        work_dir: Optional[str] = None,
-        enable_bash: bool = False,
-        max_iterations: int = 50,
-        middlewares: Optional[List[AgentMiddleware]] = None,
-        enable_memory: bool = True,
-        enable_reflection: bool = True,
-        enable_parallel: bool = True,
-        tools_in_system_prompt: bool = True,
-        default_runtime_context: Optional[Dict] = None,
+            self,
+            model_forward_fn: Callable,
+            work_dir: Optional[str] = None,
+            enable_bash: bool = False,
+            max_iterations: int = 50,
+            middlewares: Optional[List] = None,
+            enable_memory: bool = True,
+            enable_reflection: bool = True,
+            enable_parallel: bool = True,
+            enable_tool_learning: bool = True,
+            tools_in_system_prompt: bool = True,
+            default_runtime_context: Optional[Dict] = None,
+            parallel_config: Optional[ParallelConfig] = None,
     ):
         self.model_forward_fn = model_forward_fn
         self.tool_executor = ToolExecutor(work_dir=work_dir, enable_bash=enable_bash)
@@ -260,39 +406,35 @@ class QwenAgentFramework:
         self.default_runtime_context = default_runtime_context or {}
 
         # 核心组件
-        self.memory = SessionMemory() if enable_memory else None
-        self.reflection = ReflectionEngine() if enable_reflection else None
-        self.validator = OutputValidator()
-        # 工具学习器（持久化工具成功率，跨轮推荐）
-        self.tool_learner = ToolLearner() if enable_memory else None
+        if enable_memory:
+            self.vector_memory = VectorMemory(embedding_provider=LocalEmbeddingProvider())
+            self.memory = self.vector_memory  # 兼容
+        else:
+            self.vector_memory = None
+            self.memory = None
 
-        # 执行历史
+        self.reflection = DeepReflectionEngine() if enable_reflection else None
+        self.tool_learner = AdaptiveToolLearner() if enable_tool_learning else None
+        # 兼容占位（不再持有真实 Executor，仅供外部代码引用 .stats 时不报错）
+        self.parallel_executor = EnhancedParallelExecutor()
+
+        # 双向绑定：反思引擎 ↔ 工具学习器
+        if self.reflection and self.tool_learner:
+            self.reflection.attach_tool_learner(self.tool_learner)
+
+        self.validator = OutputValidator()
         self.tool_history = []
         self.reflection_history = []
-        # 已读文件集合：记录本轮会话中 read_file 成功读过的路径，防止 LLM 重复读取
-        self.read_files_cache: Dict[str, str] = {}  # path -> 读取时间戳
-
-        # 任务上下文
-        self.task_context = {
-            "current_task": None,
-            "completed_steps": [],
-            "failed_attempts": [],
-        }
-
+        self.read_files_cache: Dict[str, str] = {}
+        self.task_context = {"current_task": None, "completed_steps": [], "failed_attempts": []}
         self.system_prompt = self._build_system_prompt()
+        self._current_tool_chain_id: Optional[str] = None
 
     def _build_system_prompt(self) -> str:
-        """构建系统提示 - ReAct 模式"""
-        # bash优先，用于批量扫描任务
-        if self.tool_executor.enable_bash:
-            tools = ["bash", "read_file", "write_file", "edit_file", "list_dir"]
-        else:
-            tools = ["read_file", "write_file", "edit_file", "list_dir"]
-
-        tools_desc = "\n".join(f"- {t}" for t in tools)
-
-        # 注入当前工作目录的绝对路径，供 LLM 构造正确的文件路径
         work_dir_abs = str(self.tool_executor.work_dir.resolve())
+        tools = ["bash", "read_file", "write_file", "edit_file", "list_dir"] if self.tool_executor.enable_bash else [
+            "read_file", "write_file", "edit_file", "list_dir"]
+        tools_desc = "\n".join(f"- {t}" for t in tools)
 
         return f"""你是智能助手，使用 ReAct (Reasoning + Acting) 模式工作。
 
@@ -309,7 +451,7 @@ class QwenAgentFramework:
 
 工具调用格式（严格遵守，每次只调用一个工具）：
 bash
-{{"command": "shell命令，如 grep -rn '^class \\\\|^def ' core/"}}
+{{"command": "shell命令，如 grep -Ern '^class |^def ' core/"}}
 
 read_file
 {{"path": "相对或绝对路径"}}
@@ -342,549 +484,884 @@ ReAct 流程：
 文件操作策略（务必遵守）：
 - 【禁止】一次性读完所有文件再统一写出——这会超出迭代限制
 - 【正确】读一个文件 → 立即写/修改它 → 再读下一个（流水线方式）
+- 【写前读规则】：若需要将扫描/读取结果写入文件，必须先执行 bash/read_file 获取结果，
+  在 Observation 中看到实际内容后，再调用 write_file 写入真实数据，禁止在未获得读取结果时就写文件
+- 【禁止伪造内容】：write_file 的 content 字段必须是 Observation 中出现的实际文本，
+  严禁使用：bash['stdout']、变量引用、"...省略..."、"# (更多内容)"等占位符代替真实内容
 - 【write_file 模式选择】：
   * 新建文件或完全重写：用 overwrite（默认）
   * 向现有文件末尾追加内容（如整理文档时逐步追加）：必须用 append
   * 禁止用 overwrite 反复覆盖同一文件（会丢失前一次写入的内容）
+  * 禁止对同一文件多次 append 写入相同内容（会产生重复）
 - 【read_file 去重】：Observation 中已显示"已读过"的文件不要重复 read_file，直接使用上次结果
+
+知识问答策略（混合任务时）：
+- 任务中若包含纯知识问答子任务（如"列出十首歌"、"解释概念"），直接在回复中给出答案
+- 不要将知识问答的答案主动写入文件，除非用户明确要求保存到文件
+- 每次只调用一个工具，不要在同一轮中规划多个工具调用并一次性全部输出
 
 输出要求：
 - 简洁明确，先思考再调用工具
 - 遇到错误分析原因并调整策略"""
 
     def _detect_parallel_tools(self, tool_calls: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
-        """检测可并行执行的工具"""
+        """将 tool_calls 分为可并行的只读工具和必须串行的写操作工具。
+
+        「写前读」规则：
+        - 若同一批调用中**既有读操作（bash/read_file）又有写操作（write_file/edit_file）**，
+          则所有工具均退为串行，且读操作排在写操作前面。
+          这防止模型在未获得读取结果的情况下就写入文件（产生空壳/伪造内容）。
+        - 没有写操作时，只读工具才能并行。
+        """
         if not self.enable_parallel or len(tool_calls) <= 1:
             return [], tool_calls
 
-        # 只读工具可并行
-        parallel_tools = []
-        sequential_tools = []
+        _write_tools = {"write_file", "edit_file"}
+        _read_tools = {"read_file", "bash"}
 
+        has_write = any(tc["name"] in _write_tools for tc in tool_calls)
+        has_read = any(tc["name"] in _read_tools for tc in tool_calls)
+
+        # 「写前读」：同批次混有读写操作 → 全部串行，读操作置前
+        if has_write and has_read:
+            reads_first = [tc for tc in tool_calls if tc["name"] in _read_tools]
+            others = [tc for tc in tool_calls if tc["name"] not in _read_tools]
+            return [], reads_first + others
+
+        parallel, sequential = [], []
         for tc in tool_calls:
-            tool_name = tc["name"]
-            if tool_name in ["read_file", "list_dir"]:
-                parallel_tools.append(tc)
+            if tc["name"] in READ_ONLY_TOOLS:
+                parallel.append(tc)
             else:
-                sequential_tools.append(tc)
+                sequential.append(tc)
+        return parallel, sequential
 
-        return parallel_tools, sequential_tools
+    def _execute_tools_parallel(self, tool_calls: List[Dict], runtime_context: Dict = None) -> List[Dict]:
+        """并行执行只读工具，每个线程仍经过完整中间件 + 反思 + 记忆管道。"""
+        if not tool_calls:
+            return []
+        n_workers = min(len(tool_calls), 4)
+        results: List[Optional[Dict]] = [None] * len(tool_calls)
 
-    def _execute_tools_parallel(self, tool_calls: List[Dict]) -> List[Dict]:
-        """并行执行工具"""
-        results = []
+        def _run(idx: int, tc: Dict):
+            result = self._execute_single_tool(tc["name"], tc["args"], runtime_context or {})
+            return idx, {"index": idx, "tool": tc["name"], "result": result, "parallel": True}
 
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = {}
-            for tc in tool_calls:
-                future = executor.submit(
-                    self._execute_single_tool,
-                    tc["name"],
-                    tc["args"]
-                )
-                futures[future] = tc
-
+        with ThreadPoolExecutor(max_workers=n_workers) as executor:
+            futures = {executor.submit(_run, i, tc): i for i, tc in enumerate(tool_calls)}
             for future in as_completed(futures):
-                tc = futures[future]
                 try:
-                    result = future.result()
-                    results.append({
-                        "tool": tc["name"],
-                        "result": result,
-                        "parallel": True
-                    })
+                    idx, res = future.result()
+                    results[idx] = res
                 except Exception as e:
-                    results.append({
-                        "tool": tc["name"],
+                    idx = futures[future]
+                    results[idx] = {
+                        "index": idx,
+                        "tool": tool_calls[idx]["name"],
                         "result": {"error": str(e)},
                         "parallel": True
-                    })
+                    }
+        return results  # type: ignore[return-value]
 
-        return results
+    def _execute_single_tool(self, tool_name: str, tool_args: Dict, context: Dict = None) -> Dict:
+        """执行单个工具，经过：参数验证 → 前置中间件 → 执行 → 后置中间件 → 反思 → 记忆。"""
+        runtime_context = context or {}
 
-    def _execute_single_tool(self, tool_name: str, tool_args: Dict) -> Dict:
-        """执行单个工具"""
-        # 验证工具调用
+        # ── 已读文件拦截：对 read_file 工具，若路径已在 read_files_cache 中，
+        # 直接返回提示，不重复读取。防止模型因看到截断提示而陷入反复读同一文件的循环。
+        # 同时对相对路径 / 绝对路径做 basename 归一化匹配，防止路径写法不同绕过缓存。
+        if tool_name == "read_file":
+            import os as _os
+            path = tool_args.get("path", "")
+            _basename = _os.path.basename(path) if path else ""
+            _cached_basenames = {_os.path.basename(k): k for k in self.read_files_cache}
+            _exact_hit = path and path in self.read_files_cache
+            _basename_hit = _basename and _basename in _cached_basenames
+            if _exact_hit or _basename_hit:
+                _matched_path = path if _exact_hit else _cached_basenames[_basename]
+                return {
+                    "output": (
+                        f"⚠️ [系统拦截] 文件 {_matched_path} 已在本轮会话中读取过（见上方 Observation）。"
+                        f"\n请勿重复 read_file 读取同一文件。"
+                        f"\n请直接基于已获取的文件内容完成分析和回答，无需任何工具调用。"
+                    ),
+                    "_exec_timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                    "_tool_name": tool_name,
+                    "_reflection": None,
+                    "_execution_time": 0.0,
+                    "_cached": True,
+                }
+
+        for mw in self.middlewares:
+            tool_name, tool_args = mw.process_before_tool(tool_name, tool_args, runtime_context)
+
         valid, error_msg = self.validator.validate_tool_call(tool_name, tool_args)
         if not valid:
-            return {"error": f"参数验证失败: {error_msg}"}
+            result: Dict = {"error": f"参数验证失败: {error_msg}"}
+            for mw in self.middlewares:
+                result_str = json.dumps(result)
+                result_str = mw.process_after_tool(tool_name, tool_args, result_str, runtime_context)
+                try:
+                    result = json.loads(result_str)
+                except Exception:
+                    result = {"error": result_str}
+            return result
 
-        # 执行工具
         start_time = time.time()
         exec_timestamp = datetime.utcnow().isoformat(timespec="seconds") + "Z"
         result_str = self.tool_executor.execute_tool(tool_name, tool_args)
         exec_time = time.time() - start_time
 
-        result = {"output": result_str} if not result_str.startswith("Error:") else {"error": result_str}
+        for mw in self.middlewares:
+            result_str = mw.process_after_tool(tool_name, tool_args, result_str, runtime_context)
 
-        # 智能重试
-        if result.get("error"):
-            fixed_args = self._try_fix(tool_name, tool_args, result["error"])
+        try:
+            result_obj = json.loads(result_str)
+            is_success = not result_obj.get("error")
+        except Exception:
+            is_success = not result_str.startswith("Error:")
+            result_obj = {"output": result_str} if is_success else {"error": result_str}
+
+        if not is_success:
+            fixed_args = self._try_fix(tool_name, tool_args, result_str)
             if fixed_args:
                 result_str = self.tool_executor.execute_tool(tool_name, fixed_args)
-                result = {"output": result_str} if not result_str.startswith("Error:") else {"error": result_str}
-                tool_args = fixed_args
+                exec_time = time.time() - start_time
+                try:
+                    result_obj = json.loads(result_str)
+                    is_success = not result_obj.get("error")
+                except Exception:
+                    is_success = not result_str.startswith("Error:")
 
-        # 反思
+        # 反思引擎（成功/失败均触发，内部分别调用 _record_success 或记录失败）
+        reflection_result = None
         if self.reflection:
-            reflection = self.reflection.reflect_on_result(tool_name, result)
-            self.reflection_history.append({
-                "tool": tool_name,
-                "success": reflection["success"],
-                "analysis": reflection["analysis"],
-                "suggestions": reflection["suggestions"]
-            })
-
-        # 更新统计
-        if self.memory:
-            self.memory.update_tool_stats(tool_name, not result.get("error"), exec_time)
-
-        # 工具学习器：记录本次调用结果，供下次推荐
-        if self.tool_learner:
-            task_types = self.tool_learner.classify_task(
-                self.task_context.get("current_task") or ""
+            reflection_context = {
+                "recent_tools": [h.get("tool") for h in self.tool_history[-5:]],
+                "task": self.task_context.get("current_task", "general"),
+                "_execution_time": exec_time,
+            }
+            reflection_result = self.reflection.reflect_on_result(
+                tool_name, result_obj, context=reflection_context
             )
-            task_type = task_types[0] if task_types else "通用"
-            self.tool_learner.record_usage(task_type, tool_name, not result.get("error"))
-            self.tool_learner.save_to_disk()
+            self.reflection_history.append(reflection_result)
 
-        # 记录历史
+        # 注意：ToolLearner 的 record_usage 已通过 DeepReflectionEngine 的双向同步调用，
+        # 此处不再重复调用，避免重复计数。
+
+        if self.vector_memory and self._current_tool_chain_id:
+            self.vector_memory.add(
+                content=f"Tool: {tool_name}, Args: {tool_args}, Success: {is_success}",
+                metadata={"type": "tool_execution", "tool": tool_name, "success": is_success},
+                importance=0.8 if not is_success else 0.5,
+                tool_chain_id=self._current_tool_chain_id
+            )
+
+        if self.memory and hasattr(self.memory, "update_tool_stats"):
+            self.memory.update_tool_stats(tool_name, is_success, exec_time)
+
         self.tool_history.append({
             "tool": tool_name,
             "args": json.dumps(tool_args, sort_keys=True),
-            "success": not result.get("error"),
+            "success": is_success,
+            "reflection": reflection_result
         })
 
-        # 更新任务上下文
-        if not result.get("error"):
+        if is_success:
             self.task_context["completed_steps"].append(f"{tool_name}({list(tool_args.keys())})")
-            # 记录已成功读过的文件路径，供 _format_results 添加去重提示
             if tool_name == "read_file" and tool_args.get("path"):
                 self.read_files_cache[tool_args["path"]] = exec_timestamp
         else:
             self.task_context["failed_attempts"].append(tool_name)
 
-        # 清理输出
-        if result.get("output"):
-            result["output"] = self.validator.sanitize_output(result["output"])
+        final_result: Dict = {
+            "output": result_str if is_success else None,
+            "error": result_obj.get("error") if not is_success else None,
+            "_exec_timestamp": exec_timestamp,
+            "_tool_name": tool_name,
+            "_reflection": reflection_result,
+            "_execution_time": exec_time,
+        }
+        if final_result.get("output"):
+            final_result["output"] = self.validator.sanitize_output(final_result["output"])
+        return final_result
 
-        # 附加真实执行时间戳和工具名，供调用方构建 execution_log
-        result["_exec_timestamp"] = exec_timestamp
-        result["_tool_name"] = tool_name
+    # ------------------------------------------------------------------
+    # 核心生成器：_run_iter
+    # ------------------------------------------------------------------
+    def _run_iter(
+            self,
+            messages: List[Dict],
+            user_input: str,
+            runtime_context: Dict,
+            temperature: float = 0.7,
+            top_p: float = 0.9,
+            max_tokens: int = 8192,
+    ) -> Generator[Dict, None, None]:
+        """单轮推理迭代生成器。
+        每次 yield 一个事件 dict，消费者（run / StreamingFramework）据此驱动逻辑。
 
-        return result
-
-    def run(
-        self,
-        user_input: str,
-        history: Optional[List[Dict]] = None,
-        runtime_context: Optional[Dict[str, Any]] = None,
-        temperature: float = 0.7,
-        top_p: float = 0.9,
-        max_tokens: int = 8192,
-    ) -> Dict[str, Any]:
-        """主循环 - ReAct 模式 + 并行执行
-
-        Args:
-            user_input: 用户输入
-            history: 历史消息列表
-            runtime_context: 运行时上下文
-            temperature/top_p/max_tokens: 生成参数，透传给 model_forward_fn
+        事件类型（event 字段）：
+          progress      —— 迭代开始
+          thought       —— LLM 思考（content 字段）
+          tool_call     —— 工具即将执行
+          tool_result   —— 工具执行完成（result 字段）
+          reflection    —— 反思摘要
+          format_error  —— 格式纠错，需 continue 外循环
+          loop_detected —— 检测到循环，需终止
+          interrupted   —— 反思引擎要求中断
+          done          —— 任务完成（final_response 字段）
+          max_iter      —— 达到最大迭代次数
+          llm_error     —— 模型调用失败
         """
-        messages = self._build_messages(user_input, history)
-        runtime_context = runtime_context or {}
-        runtime_context["start_time"] = time.time()
-
-        if self.memory:
-            self.memory.add_context("current_task", user_input)
-
-        tool_calls_log = []
+        tool_calls_log: List[Dict] = []
         last_response = ""
 
         for iteration in range(self.max_iterations):
-            # 检查是否应该继续
+            runtime_context["iteration"] = iteration
+            yield {"event": "progress", "iteration": iteration + 1, "max_iterations": self.max_iterations}
+
+            # 反思引擎：是否继续
             if self.reflection:
-                should_continue, reason = self.reflection.should_continue(self.reflection_history)
+                should_continue, reason = self.reflection.should_continue(self.reflection_history, max_failed=3)
                 if not should_continue:
-                    if self.memory:
-                        self.memory.save_to_disk()
-                    return {
-                        "response": f"⚠️ 任务中断: {reason}",
+                    yield {
+                        "event": "interrupted",
+                        "reason": reason,
                         "tool_calls": tool_calls_log,
                         "iterations": iteration + 1,
-                        "context": self._export_context(),
                     }
+                    return
 
-            # 上下文管理
+            # 上下文压缩 + 注入
             messages = self._compress_context_smart(messages)
             messages = self._inject_task_context(messages)
             messages = self._inject_reflection(messages)
 
-            # 中间件
+            # 工具推荐（首轮及后续，阈值降至 0.3）
+            if self.tool_learner:
+                recommendations = self.tool_learner.recommend_next_tools(
+                    user_input,
+                    [h["tool"] for h in self.tool_history],
+                    current_context={"iteration": iteration, "task": user_input}
+                )
+                # 首轮使用历史推荐（如有），后续降低阈值至 0.3
+                min_confidence = 0.5 if iteration == 0 else 0.3
+                if recommendations and recommendations[0]["confidence"] >= min_confidence:
+                    messages = self._inject_tool_recommendations(messages, recommendations)
+
+            # 高效序列提示（反思引擎积累的成功模式）
+            if self.reflection and iteration > 0:
+                messages = self._inject_efficient_sequences(messages)
+
+            # 中间件：before LLM
             for mw in self.middlewares:
                 if hasattr(mw, "process_before_llm"):
                     messages = mw.process_before_llm(messages, runtime_context)
 
-            # 调用模型（透传生成参数）
+            # LLM 调用
             try:
                 response = self.model_forward_fn(
-                    messages,
-                    self.system_prompt,
-                    temperature=temperature,
-                    top_p=top_p,
-                    max_tokens=max_tokens,
+                    messages, self.system_prompt,
+                    temperature=temperature, top_p=top_p, max_tokens=max_tokens
                 )
                 last_response = response
+                yield {"event": "thought", "iteration": iteration + 1, "content": response}
             except Exception as e:
-                if self.memory:
-                    self.memory.save_to_disk()
-                return {
-                    "response": f"❌ 模型调用失败: {e}",
+                fallback = None
+                for mw in self.middlewares:
+                    fb = mw.process_on_error(e, "llm_call", runtime_context)
+                    if fb is not None:
+                        fallback = fb
+                yield {
+                    "event": "llm_error",
+                    "error": str(e),
+                    "fallback": fallback,
                     "tool_calls": tool_calls_log,
                     "iterations": iteration + 1,
                 }
+                return
 
-            # 解析工具
+            # 中间件：after LLM
+            for mw in self.middlewares:
+                response = mw.process_after_llm(response, runtime_context)
+
+            if runtime_context.get("_needs_retry"):
+                runtime_context["_needs_retry"] = False
+                continue
+
+            # 解析工具调用
             tool_calls_raw = self.tool_parser.parse_tool_calls(response)
             tool_calls = [{"name": name, "args": args} for name, args in tool_calls_raw]
 
             if not tool_calls:
-                # 判断是"任务完成自然结束"还是"工具调用格式错误导致解析失败"
-                # 若响应中出现已知工具名但没解析到调用，说明是格式问题，给模型一次纠错机会
-                _tool_names = {"read_file", "write_file", "edit_file", "list_dir", "bash", "todo_write"}
-                _has_tool_mention = any(t in response for t in _tool_names)
-                # 响应包含终止信号：不含工具名，或者包含明确的完成/回答词
-                _finish_signals = ("完成", "已完成", "总结", "综上", "结论", "以上", "如下", "好的", "以下是")
-                _looks_finished = not _has_tool_mention or any(s in response[:80] for s in _finish_signals)
-
-                if _looks_finished:
-                    # 确实完成，正常退出
-                    if self.memory:
-                        self.memory.save_to_disk()
-                    return {
-                        "response": response,
+                if self._looks_finished(response, runtime_context):
+                    final_response = self._clean_react_tags(self._strip_trailing_tool_call(response))
+                    if self.vector_memory:
+                        self.vector_memory.add(
+                            content=f"Assistant: {final_response}",
+                            metadata={"role": "assistant", "type": "response"},
+                            importance=0.7,
+                            tool_chain_id=self._current_tool_chain_id
+                        )
+                    # 记录最终回复轮次（无工具调用），确保 execution_log 连续完整
+                    tool_calls_log.append({
+                        "iteration": iteration + 1,
+                        "tool": None,
+                        "type": "final_response",
+                        "success": True,
+                        "parallel": False,
+                        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    })
+                    yield {
+                        "event": "done",
+                        "final_response": final_response,
                         "tool_calls": tool_calls_log,
                         "iterations": iteration + 1,
-                        "context": self._export_context(),
                     }
+                    return
                 else:
-                    # 格式错误：工具名出现在响应里但未能解析
-                    # 注入纠错提示，让模型重新用正确格式输出工具调用
-                    _work_dir = str(self.tool_executor.work_dir.resolve())
-                    format_correction = (
-                        "⚠️ [系统提示] 未检测到有效的工具调用格式。\n"
-                        "❌ 错误格式示例（不要使用）：\n"
-                        '{"api": "read_file", "path": "xxx.py"}  ← 不支持 api 字段\n'
-                        '```json\n{"api": "read_file", ...}\n```  ← 不要用 api 字段\n\n'
-                        "✅ 正确格式（工具名单独一行，JSON 紧跟下一行，不要用代码块包裹）：\n"
-                        "read_file\n"
-                        f'{{\"path\": \"{_work_dir}/文件名.py\"}}\n\n'
-                        f"当前工作目录：{_work_dir}\n"
-                        "请使用绝对路径以确保文件能被正确找到。\n"
-                        "请直接重新输出工具调用，不要添加多余解释。"
-                    )
-                    messages.append({"role": "assistant", "content": response})
-                    messages.append({"role": "user", "content": format_correction})
-                    continue  # 继续下一次迭代，让模型重试
+                    messages = self._inject_format_correction(messages, response)
+                    yield {"event": "format_error", "iteration": iteration + 1}
+                    continue
 
-            # 检测可并行工具
+            # 执行工具调用
             parallel_tools, sequential_tools = self._detect_parallel_tools(tool_calls)
+            results: List[Dict] = []
 
-            # 执行工具
-            results = []
-
-            # 并行执行只读工具
             if parallel_tools:
-                results.extend(self._execute_tools_parallel(parallel_tools))
+                yield {"event": "tool_call", "mode": "parallel", "tools": [tc["name"] for tc in parallel_tools]}
+                parallel_results = self._execute_tools_parallel(parallel_tools, runtime_context)
+                results.extend(parallel_results)
+                for r in parallel_results:
+                    is_ok = not (r["result"].get("error") if isinstance(r["result"], dict) else False)
+                    yield {"event": "tool_result", "tool": r["tool"], "success": is_ok, "mode": "parallel", "result": r["result"]}
 
-            # 串行执行写入工具
             for tc in sequential_tools:
-                result = self._execute_single_tool(tc["name"], tc["args"])
-                results.append({"tool": tc["name"], "result": result, "parallel": False})
+                yield {"event": "tool_call", "mode": "sequential", "tool": tc["name"], "args": tc["args"]}
+                result = self._execute_single_tool(tc["name"], tc["args"], runtime_context)
+                results.append({"index": len(results), "tool": tc["name"], "result": result, "parallel": False})
+                is_ok = not bool(result.get("error"))
+                yield {"event": "tool_result", "tool": tc["name"], "success": is_ok, "mode": "sequential", "result": result}
 
-            # 记录日志（_exec_timestamp 由 _execute_single_tool 在真实执行时写入）
+            # 汇总 tool_calls_log
             for r in results:
                 tool_calls_log.append({
                     "iteration": iteration + 1,
                     "tool": r["tool"],
-                    "success": not r["result"].get("error"),
+                    "success": (not r["result"].get("error")) if isinstance(r["result"], dict) else True,
                     "parallel": r.get("parallel", False),
-                    "timestamp": r["result"].get("_exec_timestamp", ""),
+                    "timestamp": r["result"].get("_exec_timestamp", "") if isinstance(r["result"], dict) else "",
+                    "reflection": r["result"].get("_reflection") if isinstance(r["result"], dict) else None,
                 })
+
+            # 反思摘要事件
+            if self.reflection and self.reflection_history:
+                last_refl = self.reflection_history[-1]
+                if isinstance(last_refl, dict):
+                    yield {"event": "reflection", "data": last_refl}
 
             # 循环检测
             if self._detect_loop():
-                if self.memory:
-                    self.memory.save_to_disk()
-                return {
-                    "response": "⚠️ 检测到循环。\n💡 建议：\n1. 换用其他工具\n2. 重新分析问题\n3. 调整参数",
+                yield {
+                    "event": "loop_detected",
                     "tool_calls": tool_calls_log,
                     "iterations": iteration + 1,
-                    "loop_detected": True,
-                    "context": self._export_context(),
                 }
+                return
 
-            # 回注结果
             messages.append({"role": "assistant", "content": response})
             messages.append({"role": "user", "content": self._format_results(results)})
+
+        _max_iter_resp = self._strip_trailing_tool_call(last_response)
+        _max_iter_resp = self._clean_react_tags(_max_iter_resp) if _max_iter_resp else "⚠️ 达到最大迭代次数"
+        yield {
+            "event": "max_iter",
+            "final_response": _max_iter_resp,
+            "tool_calls": tool_calls_log,
+            "iterations": self.max_iterations,
+        }
+
+    def run(
+            self,
+            user_input: str,
+            history: Optional[List[Dict]] = None,
+            runtime_context: Optional[Dict] = None,
+            temperature: float = 0.7,
+            top_p: float = 0.9,
+            max_tokens: int = 8192,
+    ) -> Dict[str, Any]:
+        """阻塞式入口，消费 _run_iter 生成器直到终止事件，返回最终结果 dict。"""
+        self._current_tool_chain_id = f"chain_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+        messages = self._build_messages(user_input, history)
+        runtime_context = runtime_context or {}
+        runtime_context["start_time"] = time.time()
+        runtime_context["tool_chain_id"] = self._current_tool_chain_id
+
+        if self.memory:
+            if hasattr(self.memory, "add_context"):
+                self.memory.add_context("current_task", user_input)
+            if hasattr(self.memory, "add"):
+                self.memory.add(
+                    content=f"User: {user_input}",
+                    metadata={"role": "user", "type": "input"},
+                    importance=0.8,
+                    tool_chain_id=self._current_tool_chain_id
+                )
+
+        self.task_context["current_task"] = user_input
+
+        final_result: Optional[Dict] = None
+        for event in self._run_iter(messages, user_input, runtime_context, temperature, top_p, max_tokens):
+            evt = event.get("event")
+            if evt == "done":
+                final_result = self._build_result(
+                    response=event["final_response"],
+                    tool_calls=event["tool_calls"],
+                    iterations=event["iterations"],
+                    context=self._export_context()
+                )
+                break
+            elif evt == "interrupted":
+                final_result = self._build_result(
+                    response=f"⚠️ 任务中断: {event['reason']}",
+                    tool_calls=event["tool_calls"],
+                    iterations=event["iterations"],
+                    context=self._export_context(),
+                    interrupted=True
+                )
+                break
+            elif evt == "loop_detected":
+                # 检测到循环时，尝试从已读文件 / 已完成步骤中构建有意义的回复提示
+                _completed = self.task_context.get("completed_steps", [])
+                _read_paths = list(self.read_files_cache.keys())
+                if _read_paths:
+                    _loop_hint = (
+                        f"⚠️ 检测到工具调用循环（重复调用相同工具和参数）。\n"
+                        f"已读取的文件：{_read_paths}\n"
+                        f"请直接基于已获得的文件内容完成任务，无需继续调用工具。"
+                    )
+                else:
+                    _loop_hint = (
+                        f"⚠️ 检测到工具调用循环。已完成步骤：{_completed or '无'}。\n"
+                        f"请换用其他方式完成任务，或直接基于已知知识作答。"
+                    )
+                final_result = self._build_result(
+                    response=_loop_hint,
+                    tool_calls=event["tool_calls"],
+                    iterations=event["iterations"],
+                    context=self._export_context(),
+                    loop_detected=True
+                )
+                break
+            elif evt == "llm_error":
+                resp = event.get("fallback") or f"❌ 模型调用失败: {event['error']}"
+                final_result = self._build_result(
+                    response=resp,
+                    tool_calls=event["tool_calls"],
+                    iterations=event["iterations"],
+                    error=event["error"]
+                )
+                break
+            elif evt == "max_iter":
+                final_result = self._build_result(
+                    response=event["final_response"],
+                    tool_calls=event["tool_calls"],
+                    iterations=event["iterations"],
+                    context=self._export_context()
+                )
+                break
 
         if self.memory:
             self.memory.save_to_disk()
 
-        # 截断末尾残留的工具调用字符串，避免污染最终输出
-        clean_response = self._strip_trailing_tool_call(last_response) if last_response else ""
-        return {
-            "response": clean_response or "⚠️ 达到最大迭代次数，请尝试拆分任务或减少步骤",
-            "tool_calls": tool_calls_log,
-            "iterations": self.max_iterations,
-            "context": self._export_context(),
-        }
-
-    @staticmethod
-    def _strip_trailing_tool_call(text: str) -> str:
-        """截断响应末尾残留的工具调用字符串，只保留自然语言思考/推理部分。
-
-        处理以下两类残留：
-        1. 裸格式：工具名独占一行 + 下一行是 JSON
-               接下来我将读取文件。read_file
-               {"path": "core/xxx.py"}
-        2. 代码块格式：```json / ```plaintext 等包裹的工具参数块（LLM 没有正确触发工具）
-               **Action**: 将分析结果写入 Api.md
-               ```json
-               {"path": "Api.md", "content": "..."}
-               ```
-        """
-        import re
-
-        # ── 第一步：清除末尾的 ```lang ... ``` 代码块（可能含工具参数）──────────
-        # 反复清除，直到末尾不再有代码块为止（有时模型输出多个连续代码块）
-        code_block_pattern = re.compile(
-            r'\n?\s*```[^\n]*\n[\s\S]*?```\s*$',
-            re.DOTALL
+        return final_result or self._build_result(
+            response="⚠️ 未产生任何结果", tool_calls=[], iterations=0
         )
-        prev = None
-        result = text
-        while prev != result:
-            prev = result
-            m = code_block_pattern.search(result)
-            if m:
-                # 只有代码块内容看起来像工具参数（含 "path"/"command"/"content" 等键）才截断
-                block_inner = m.group(0)
-                _tool_param_hints = ('"path"', '"command"', '"content"', '"old_content"', '"new_content"')
-                if any(h in block_inner for h in _tool_param_hints):
-                    result = result[:m.start()].rstrip()
 
-        # ── 第二步：清除末尾裸格式「工具名\n{...}」片段 ──────────────────────
-        bare_pattern = r'\n?(read_file|write_file|edit_file|list_dir|bash|todo_write)\s*\n\s*\{[^}]*\}\s*$'
-        result = re.sub(bare_pattern, '', result, flags=re.DOTALL).rstrip()
+    def _looks_finished(self, response: str, runtime_context: Dict = None) -> bool:
+        """判断当前响应是否是任务最终完成的回答。
 
-        return result if result else text
-
-    def _build_messages(self, user_input: str, history: Optional[List[Dict]]) -> List[Dict]:
-        """构建消息"""
-        msgs = history[:] if history else []
-        msgs.append({"role": "user", "content": user_input})
-        return msgs
-
-    def _inject_task_context(self, messages: List[Dict]) -> List[Dict]:
-        """注入任务上下文：包含进度 + 原始目标锚定（防止目标漂移）"""
-        parts = []
-
-        # 锚定用户原始目标（始终注入，防止长对话中 LLM 忘记真正要做什么）
-        original_task = self.task_context.get("current_task")
-        if original_task:
-            parts.append(f"🎯 原始任务（始终牢记，不可偏离）：{original_task}")
-
-        # 进度信息
-        if self.task_context["completed_steps"]:
-            parts.append(
-                f"📋 进度: 已完成 {len(self.task_context['completed_steps'])} 步 - "
-                f"{', '.join(self.task_context['completed_steps'][-3:])}"
-            )
-
-        if not parts:
-            return messages
-
-        context_msg = {
-            "role": "system",
-            "content": "\n".join(parts)
-        }
-        return messages[:-1] + [context_msg] + messages[-1:]
-
-    def _inject_reflection(self, messages: List[Dict]) -> List[Dict]:
-        """注入反思信息"""
-        if not self.reflection_history:
-            return messages
-
-        recent_failures = [r for r in self.reflection_history[-3:] if not r["success"]]
-        if recent_failures:
-            suggestions = []
-            for rf in recent_failures:
-                suggestions.extend(rf["suggestions"])
-
-            reflection_msg = {
-                "role": "system",
-                "content": f"💡 反思: 最近{len(recent_failures)}次失败。建议: {', '.join(suggestions[:3])}"
-            }
-            return messages[:-1] + [reflection_msg] + messages[-1:]
-
-        return messages
-
-    def _detect_loop(self, max_same=3) -> bool:
-        """循环检测：多层次检测模型陷入无进展循环。
-
-        检测策略（按优先级）：
-        1. 连续 max_same 次相同工具+参数调用（无论成功失败） → 立即中断
-        2. 全局累计：同一工具+参数在整个会话中调用超过 5 次 → 中断（防止日志中出现的 87 次死循环）
-        3. 连续全部失败且相同调用 → 中断（原逻辑保留）
+        除原有「有无工具提及 + 完成词」逻辑外，增加「写文件意图守卫」：
+        - 若用户原始任务中要求写入文件（含「写入」「整理成文档」「保存」等），
+          但 completed_steps 中从未出现 write_file / edit_file，
+          则不判定为完成，强制模型继续执行写入操作。
         """
-        if not self.tool_history:
+        _tool_names = {"read_file", "write_file", "edit_file", "list_dir", "bash", "todo_write"}
+        _has_tool_mention = any(t in response for t in _tool_names)
+        _finish_signals = ("完成", "已完成", "总结", "综上", "结论", "以上", "如下", "好的", "以下是")
+        base_finished = not _has_tool_mention or any(s in response[:80] for s in _finish_signals)
+
+        if not base_finished:
             return False
 
-        # ── 检测1：连续 max_same 次相同调用（滑动窗口） ──────────────────
-        if len(self.tool_history) >= max_same:
-            recent = self.tool_history[-max_same:]
-            first = recent[0]
-            if all(h["tool"] == first["tool"] and h["args"] == first["args"] for h in recent):
-                return True
+        # 写文件意图守卫：检查任务是否要求写文件但从未执行
+        _write_intent_signals = ("写入", "整理成文档", "保存到", "写到", "写进", "生成文档",
+                                 "创建文件", "生成报告", "记录到", "输出到", "写出", "存储到")
+        current_task = self.task_context.get("current_task", "")
+        has_write_intent = any(sig in current_task for sig in _write_intent_signals)
 
-        # ── 检测2：全局累计相同调用超过阈值（防止极端死循环） ────────────
-        # 对整个历史中"相同 tool+args"出现次数进行统计，超过 5 次直接中断
-        _call_counts: Dict[str, int] = {}
-        for h in self.tool_history:
-            key = f"{h['tool']}|{h['args']}"
-            _call_counts[key] = _call_counts.get(key, 0) + 1
-        if any(cnt >= 5 for cnt in _call_counts.values()):
-            return True
+        if has_write_intent:
+            completed = self.task_context.get("completed_steps", [])
+            write_done = any(
+                step.startswith("write_file") or step.startswith("edit_file")
+                for step in completed
+            )
+            if not write_done:
+                # 任务要求写文件但从未执行，不判定为完成
+                return False
 
-        return False
+        return True
 
-    def _compress_context_smart(self, messages: List[Dict], limit=6000) -> List[Dict]:
-        """智能压缩 - 语义重要性"""
+    def _inject_format_correction(self, messages: List[Dict], response: str) -> List[Dict]:
+        _work_dir = str(self.tool_executor.work_dir.resolve())
+        format_correction = (
+            "⚠️ [系统提示] 未检测到有效的工具调用格式。\n"
+            "✅ 正确格式：\n"
+            "read_file\n"
+            f'{{"path": "{_work_dir}/文件名.py"}}\n\n'
+            "请直接重新输出工具调用，不要添加多余解释。"
+        )
+        messages.append({"role": "assistant", "content": response})
+        messages.append({"role": "user", "content": format_correction})
+        return messages
+
+    def _inject_tool_recommendations(self, messages: List[Dict], recommendations: List[Dict]) -> List[Dict]:
+        rec_text = "\n".join([
+            f"  - {r['tool']}: {r['confidence']:.0%} 置信度 ({r['reason']})"
+            for r in recommendations[:2]
+        ])
+        injection = {"role": "system", "content": f"💡 工具推荐（基于历史学习）：\n{rec_text}"}
+        return messages[:-1] + [injection] + messages[-1:]
+
+    def _inject_efficient_sequences(self, messages: List[Dict]) -> List[Dict]:
+        """将反思引擎积累的高效工具序列注入 prompt，引导 LLM 复用成功路径。"""
+        if not self.reflection:
+            return messages
+        seqs = self.reflection.get_efficient_sequences(top_k=3)
+        if not seqs:
+            return messages
+        seq_text = "；".join([f"{s['sequence']}（×{s['count']}次）" for s in seqs])
+        injection = {"role": "system", "content": f"📈 高效工具序列（历史最优路径）：{seq_text}"}
+        return messages[:-1] + [injection] + messages[-1:]
+
+    def _build_result(self, response: str, tool_calls: List[Dict], iterations: int, context: Dict = None, interrupted: bool = False, loop_detected: bool = False, error: str = None) -> Dict:
+        result = {"response": response, "tool_calls": tool_calls, "iterations": iterations, "context": context or self._export_context()}
+        if interrupted:
+            result["interrupted"] = True
+        if loop_detected:
+            result["loop_detected"] = True
+        if error:
+            result["error"] = error
+        if self.reflection and hasattr(self.reflection, 'get_reflection_summary'):
+            result["reflection_summary"] = self.reflection.get_reflection_summary()
+        if self.vector_memory and self._current_tool_chain_id:
+            result["tool_chain"] = self.vector_memory.get_tool_chain(self._current_tool_chain_id)
+        return result
+
+    def _compress_context_smart(self, messages: List[Dict], limit: int = 6000) -> List[Dict]:
         total_chars = sum(len(json.dumps(m)) for m in messages)
         if total_chars / 1.5 < limit * 0.75:
             return messages
-
         system = [m for m in messages if m.get("role") == "system"]
         user_assistant = [m for m in messages if m.get("role") in ("user", "assistant")]
 
-        # 保留最近6条
-        recent = user_assistant[-6:]
-        old = user_assistant[:-6] if len(user_assistant) > 6 else []
-
-        if not old:
-            return system + recent
-
-        # 计算重要性并保留top-K
-        if self.memory:
-            scores = self.memory.compute_message_importance(old)
-            # 按重要性排序，保留前3条
-            scored_msgs = list(zip(old, scores))
-            scored_msgs.sort(key=lambda x: x[1], reverse=True)
-            important_msgs = [msg for msg, _ in scored_msgs[:3]]
-
-            summary_text = self.memory.build_context_summary(old)
-            summary = {"role": "system", "content": f"📦 历史摘要: {summary_text}"}
-            return system + [summary] + important_msgs + recent
-
-        summary = {"role": "system", "content": f"📦 已压缩 {len(old)} 条"}
-        return system + [summary] + recent
-
-    def _try_fix(self, tool: str, args: Dict, error: str) -> Optional[Dict]:
-        """智能重试"""
-        if tool == "bash" and "grep" in args.get("command", ""):
-            cmd = args["command"]
-            if "\\(" in cmd and "\\\\(" not in cmd:
-                return {"command": cmd.replace("\\(", "(").replace("\\)", ")")}
-            if "\\class" in cmd or "\\def" in cmd:
-                return {"command": cmd.replace("\\class", "class").replace("\\def", "def")}
-
-        if tool in ["read_file", "edit_file"] and "not found" in error.lower():
-            path = args.get("path", "")
-            if path and not path.startswith("/") and not path.startswith("."):
-                return {"path": f"./{path}"}
-
-        return None
-
-    def _format_results(self, results: List[Dict]) -> str:
-        """格式化结果，并在头部注入已读文件清单，防止 LLM 重复读取"""
-        lines = []
-
-        # 已读文件提示：若本轮累计读过文件，在 Observation 顶部注入一次摘要
-        if self.read_files_cache:
-            already_read = list(self.read_files_cache.keys())
-            lines.append(
-                f"📌 [已读文件清单，无需重复 read_file]: {already_read}"
-            )
-
-        for r in results:
-            tool = r["tool"]
-            result = r["result"]
-            parallel_mark = " [并行]" if r.get("parallel") else ""
-
-            if result.get("error"):
-                lines.append(f"❌ {tool}{parallel_mark}: {result['error'][:200]}")
-
-                # 添加反思建议
-                if self.reflection_history:
-                    last_reflection = self.reflection_history[-1]
-                    if last_reflection["suggestions"]:
-                        lines.append(f"   💡 建议: {last_reflection['suggestions'][0]}")
+        tool_chain_msgs = []
+        other_msgs = []
+        for msg in user_assistant[:-6]:
+            content = msg.get("content", "")
+            if self._is_tool_related(content):
+                tool_chain_msgs.append(msg)
             else:
-                output = str(result.get("output", ""))
-                lines.append(f"✅ {tool}{parallel_mark}: {output}")
+                other_msgs.append(msg)
 
-        return "\n".join(lines)
+        recent = user_assistant[-6:]
+
+        if self.memory and hasattr(self.memory, 'build_context_summary'):
+            summary_text = self.memory.build_context_summary(other_msgs)
+            summary = {"role": "system", "content": f"📦 历史摘要: {summary_text}"}
+        else:
+            summary = {"role": "system", "content": f"📦 已压缩 {len(other_msgs)} 条"}
+
+        return system + [summary] + tool_chain_msgs[-5:] + recent
+
+    def _is_tool_related(self, content: str) -> bool:
+        indicators = ["✅", "❌", "read_file", "write_file", "edit_file", "list_dir", "bash", "Tool:"]
+        return any(i in content for i in indicators)
 
     def _export_context(self) -> Dict:
-        """导出上下文"""
         ctx = {
             "task": self.task_context["current_task"],
             "completed_steps": self.task_context["completed_steps"],
             "failed_attempts": self.task_context["failed_attempts"],
             "tool_stats": {
                 "total": len(self.tool_history),
-                "success": sum(1 for h in self.tool_history if h["success"]),
-                "failed": sum(1 for h in self.tool_history if not h["success"]),
-            }
+                "success": sum(1 for h in self.tool_history if h.get("success")),
+                "failed": sum(1 for h in self.tool_history if not h.get("success")),
+            },
+            "tool_chain_id": self._current_tool_chain_id
         }
-
-        if self.memory:
+        if self.memory and hasattr(self.memory, 'get_tool_recommendation'):
             ctx["tool_recommendations"] = self.memory.get_tool_recommendation("general")
-
+        if self.parallel_executor:
+            ctx["parallel_stats"] = self.parallel_executor.stats
         return ctx
 
-    # ------------------------------------------------------------------
-    # 高层接口：供 UI 层调用
-    # ------------------------------------------------------------------
+    def _inject_task_context(self, messages: List[Dict]) -> List[Dict]:
+        parts = []
+        if self.task_context.get("current_task"):
+            parts.append(f"🎯 原始任务：{self.task_context['current_task']}")
+        if self.task_context["completed_steps"]:
+            parts.append(f"📋 进度: 已完成 {len(self.task_context['completed_steps'])} 步 - {', '.join(self.task_context['completed_steps'][-3:])}")
+        if not parts:
+            return messages
+        context_msg = {"role": "system", "content": "\n".join(parts)}
+        return messages[:-1] + [context_msg] + messages[-1:]
 
-    def process_message(
-        self,
-        user_input: str,
-        chat_history=None,
-        system_prompt_override: str = "",
-        runtime_context: Optional[Dict] = None,
-        return_runtime_context: bool = False,
-        temperature: float = 0.7,
-        top_p: float = 0.9,
-        max_tokens: int = 8192,
-    ):
-        """同步工具模式入口：调用 ReAct 循环，返回 (response, execution_log, runtime_context)。
+    def _inject_reflection(self, messages: List[Dict]) -> List[Dict]:
+        if not self.reflection_history:
+            return messages
+        recent_strategic = [r for r in self.reflection_history[-3:] if isinstance(r, dict) and r.get("level") in ("strategic", "meta")]
+        if not recent_strategic:
+            return messages
+        suggestions = []
+        for r in recent_strategic:
+            suggestions.extend(r.get("suggestions", [])[:2])
+        reflection_msg = {"role": "system", "content": f"💡 反思提示: 最近{len(recent_strategic)}次深度反思。建议: {', '.join(suggestions[:3])}"}
+        return messages[:-1] + [reflection_msg] + messages[-1:]
 
-        Args:
-            user_input: 用户消息文本
-            chat_history: 历史对话（二维列表 [[user, bot], ...] 或 None）
-            system_prompt_override: 覆盖系统提示
-            runtime_context: 运行时上下文字典
-            return_runtime_context: 是否在返回值中包含 runtime_context
-            temperature/top_p/max_tokens: 生成参数（透传给 model_forward_fn）
-        Returns:
-            (response_str, execution_log_list, updated_runtime_context)
+    def _detect_loop(self, max_same: int = 3) -> bool:
+        if len(self.tool_history) < max_same:
+            return False
+        recent = self.tool_history[-max_same:]
+        first = recent[0]
+        if all(h["tool"] == first["tool"] and h["args"] == first["args"] for h in recent):
+            return True
+        _call_counts: Dict[str, int] = {}
+        for h in self.tool_history:
+            key = f"{h['tool']}|{h['args']}"
+            _call_counts[key] = _call_counts.get(key, 0) + 1
+        if any(cnt >= 5 for cnt in _call_counts.values()):
+            return True
+        if self.reflection and hasattr(self.reflection, '_detect_loop'):
+            recent_tools = [h["tool"] for h in self.tool_history[-5:]]
+            return self.reflection._detect_loop(recent_tools)
+        return False
+
+    # 单个工具输出注入上下文的最大字符数（约 ~1500 Token）
+    _TOOL_OUTPUT_MAX_CHARS: int = 6000
+
+    def _format_results(self, results: List[Dict]) -> str:
+        lines = []
+        if self.read_files_cache:
+            already_read = list(self.read_files_cache.keys())
+            lines.append(f"📌 [已读文件清单，无需重复 read_file]: {already_read}")
+        for r in results:
+            tool = r["tool"]
+            result = r["result"]
+            parallel_mark = " [并行]" if r.get("parallel") else ""
+            if isinstance(result, dict):
+                if result.get("error"):
+                    lines.append(f"❌ {tool}{parallel_mark}: {result['error'][:200]}")
+                    if result.get("_reflection"):
+                        refl = result["_reflection"]
+                        if refl.get("suggestions"):
+                            lines.append(f"   💡 建议: {refl['suggestions'][0]}")
+                else:
+                    output = str(result.get("output", ""))
+                    output = self._truncate_tool_output(tool, output)
+                    lines.append(f"✅ {tool}{parallel_mark}: {output}")
+                    if result.get("_execution_time"):
+                        lines.append(f"   ⏱️ 耗时: {result['_execution_time']:.2f}s")
+            else:
+                output = self._truncate_tool_output(tool, str(result))
+                lines.append(f"✅ {tool}{parallel_mark}: {output}")
+
+        # ── write_file/edit_file 成功时：提醒模型在最终回复里汇报完成 ──────────
+        # 若本轮结果包含成功的 write_file / edit_file，注入提示让模型在回复中明确汇报
+        # "任务X（写入文件）已完成"，防止最终 bot_response 漏掉文件写入的状态说明。
+        _write_success_tools = [
+            r for r in results
+            if r["tool"] in ("write_file", "edit_file")
+            and (isinstance(r["result"], dict) and not r["result"].get("error"))
+        ]
+        if _write_success_tools:
+            for _wt in _write_success_tools:
+                _path = ""
+                if isinstance(_wt["result"], dict):
+                    _path = _wt["result"].get("output", "") or _wt["result"].get("path", "")
+                lines.append(
+                    f"\n✅ [系统提醒] {_wt['tool']} 已成功写入文件（{_path}）。"
+                    "\n请在最终回复中明确告知用户该子任务已完成，例如："
+                    "\n「✅ 任务1已完成：已将扫描结果写入 API.md」"
+                )
+
+        # ── 未完成写文件任务提醒 ──────────────────────────────────────────────
+        # 若用户任务要求写文件，且最近执行的工具是读操作（bash/read_file），
+        # 但 completed_steps 中没有任何 write_file / edit_file，
+        # 在 Observation 末尾追加提醒，防止模型遗忘写入步骤。
+        #
+        # 【重要限制】：
+        # - 只有最近一步是 bash 或 read_file 时才追加提醒（即刚完成了读操作，下一步应该写）
+        # - 知识问答（无工具调用）不触发此提醒，避免把知识问答内容也写成文件
+        _write_intent_signals = ("写入", "整理成文档", "保存到", "写到", "写进", "生成文档",
+                                 "创建文件", "生成报告", "记录到", "输出到", "写出", "存储到")
+        current_task = self.task_context.get("current_task", "")
+        has_write_intent = any(sig in current_task for sig in _write_intent_signals)
+        if has_write_intent and results:
+            # 只在最近步骤包含 bash 时才提醒（bash 扫描结果通常需要写文件）
+            # 不对单纯的 read_file 触发此提醒，避免将任意文件内容误写入目标文件
+            last_tools_in_results = [r["tool"] for r in results]
+            last_was_read = "bash" in last_tools_in_results
+            if last_was_read:
+                completed = self.task_context.get("completed_steps", [])
+                write_done = any(
+                    step.startswith("write_file") or step.startswith("edit_file")
+                    for step in completed
+                )
+                if not write_done:
+                    lines.append(
+                        "\n⚠️ [系统提醒] 你的任务要求将扫描/读取结果写入文件，但目前尚未执行 write_file。"
+                        "\n【注意】只针对需要保存到文件的子任务（如扫描结果写入 API.md）。"
+                        "\n知识问答类子任务（如列举歌曲）请直接在回复中输出内容，不要写入文件。"
+                        "\n请立即调用 write_file，将上面工具返回的实际内容原封不动写入目标文件："
+                        "\nwrite_file\n{\"path\": \"目标文件.md\", \"content\": \"<完整复制上方 bash/read_file 的输出内容>\", \"mode\": \"overwrite\"}"
+                    )
+
+        return "\n".join(lines)
+
+    def _truncate_tool_output(self, tool_name: str, output: str) -> str:
+        """对工具输出进行智能截断，防止大文件内容撑爆上下文。
+
+        策略：
+        - read_file / bash 结果超过阈值时，保留头尾各 1/3，中间替换为截断提示
+        - write_file / edit_file 成功输出通常很短，直接透传
         """
-        runtime_context = dict(runtime_context or self.default_runtime_context)
+        max_chars = self._TOOL_OUTPUT_MAX_CHARS
+        if len(output) <= max_chars:
+            return output
 
-        # 将 chat_history 转换为 messages 格式
-        history_messages: List[Dict] = []
+        # 对于读文件和 bash，保留头尾以便 LLM 看到结构
+        if tool_name in ("read_file", "bash"):
+            head_chars = max_chars // 2
+            tail_chars = max_chars // 4
+            omitted = len(output) - head_chars - tail_chars
+            head = output[:head_chars]
+            tail = output[-tail_chars:]
+            return (
+                f"{head}\n"
+                f"... [📋 文件内容过长，已自动截取头部和尾部片段（省略中间 {omitted} 字符，共 {len(output)} 字符）"
+                f"。⚠️ 请勿再次 read_file 读取同一文件，当前内容已足够完成分析，请直接基于以上内容作答。] ...\n"
+                f"{tail}"
+            )
+
+        # 其他工具：直接截断并提示
+        return output[:max_chars] + f"\n... [⚠️ 输出已截断，共 {len(output)} 字符]"
+
+    def _strip_trailing_tool_call(self, text: str) -> str:
+        import re
+        code_block_pattern = re.compile(r'\n?\s*```[^\n]*\n[\s\S]*?```\s*$', re.DOTALL)
+        result = text
+        prev = None
+        while prev != result:
+            prev = result
+            m = code_block_pattern.search(result)
+            if m:
+                block_inner = m.group(0)
+                _tool_param_hints = ('"path"', '"command"', '"content"', '"old_content"', '"new_content"')
+                if any(h in block_inner for h in _tool_param_hints):
+                    result = result[:m.start()].rstrip()
+        bare_pattern = r'\n?(read_file|write_file|edit_file|list_dir|bash|todo_write)\s*\n\s*\{[^}]*\}\s*$'
+        result = re.sub(bare_pattern, '', result, flags=re.DOTALL).rstrip()
+        return result if result else text
+
+    @staticmethod
+    def _clean_react_tags(text: str) -> str:
+        """清理最终回复中残留的 ReAct 内部推理标签，使输出对用户友好。
+
+        处理场景：
+        1. 清理「Thought: ...」整行（内部推理，不呈现）
+        2. 清理「Action: None」「Action: bash」「Action: read_file」等所有 Action 行
+        3. 清理空的「Observation:」「Reflection:」行
+        4. 清理任务编号前缀 + 推理段落（如 "2. 给出...\n这是一个知识问答..."）
+        5. 合并多余空行
+
+        注意：仅在最终呈现给用户时调用，不影响框架内部的 response 处理。
+        """
+        import re
+
+        # ── 第一阶段：整体块级清理 ──────────────────────────────────────────────
+        # 清理模式：「数字. 任务描述\n推理说明\nAction: ...\n\n」这类完整推理段落
+        # 匹配：以「N. 」开头、接着若干推理行、以「Action: 」结尾的段落块
+        _task_block_re = re.compile(
+            r'^\d+\.\s+.+?\n(?:.*\n)*?Action\s*:\s*\S.*(?:\n|$)',
+            re.MULTILINE
+        )
+        text = _task_block_re.sub('', text)
+
+        # ── 第二阶段：逐行清理 ─────────────────────────────────────────────────
+        lines = text.split('\n')
+        cleaned = []
+
+        # Action: 任意内容（包括 None / bash / read_file 等）—— 整行丢弃
+        _action_re = re.compile(r'^Action\s*:', re.IGNORECASE)
+        # Observation: / Reflection: 空行 —— 丢弃
+        _empty_tag_re = re.compile(r'^(Observation|Reflection)\s*:\s*$', re.IGNORECASE)
+        # Thought: ... —— 去掉前缀，保留后面内容（若有）
+        _thought_re = re.compile(r'^Thought\s*:\s*', re.IGNORECASE)
+
+        for line in lines:
+            stripped = line.strip()
+            # 丢弃所有 Action: 行（无论其后跟着什么）
+            if _action_re.match(stripped):
+                continue
+            # 丢弃空的 Observation:/Reflection: 行
+            if _empty_tag_re.match(stripped):
+                continue
+            # Thought: 行：去掉前缀，保留后面的内容
+            m = _thought_re.match(stripped)
+            if m:
+                rest = stripped[m.end():].strip()
+                if rest:
+                    cleaned.append(rest)
+                continue
+            cleaned.append(line)
+
+        # ── 第三阶段：清理 "回答：" 等无意义引导语 ───────────────────────────
+        _answer_prefix_re = re.compile(r'^回答：\s*$')
+        cleaned = [line for line in cleaned if not _answer_prefix_re.match(line.strip())]
+
+        # ── 第四阶段：合并连续空行 ────────────────────────────────────────────
+        result_lines = []
+        prev_blank = False
+        for line in cleaned:
+            is_blank = not line.strip()
+            if is_blank and prev_blank:
+                continue
+            result_lines.append(line)
+            prev_blank = is_blank
+
+        return '\n'.join(result_lines).strip()
+
+    def _build_messages(self, user_input: str, history: Optional[List[Dict]]) -> List[Dict]:
+        msgs = history[:] if history else []
+        msgs.append({"role": "user", "content": user_input})
+        return msgs
+
+    def _try_fix(self, tool: str, args: Dict, error: str) -> Optional[Dict]:
+        if tool == "bash" and "grep" in args.get("command", ""):
+            cmd = args["command"]
+            if "\\(" in cmd and "\\\\(" not in cmd:
+                return {"command": cmd.replace("\\(", "(").replace("\\)", ")")}
+        if tool in ["read_file", "edit_file"] and "not found" in error.lower():
+            path = args.get("path", "")
+            if path and not path.startswith("/") and not path.startswith("."):
+                return {"path": f"./{path}"}
+        return None
+
+    def process_message(self, user_input: str, chat_history=None, system_prompt_override: str = "", runtime_context: Optional[Dict] = None, return_runtime_context: bool = False, temperature: float = 0.7, top_p: float = 0.9, max_tokens: int = 8192):
+        runtime_context = dict(runtime_context or self.default_runtime_context)
+        history_messages = []
         if chat_history:
             for pair in chat_history:
                 if isinstance(pair, (list, tuple)) and len(pair) == 2:
@@ -893,89 +1370,92 @@ ReAct 流程：
                         history_messages.append({"role": "user", "content": str(u)})
                     if a:
                         history_messages.append({"role": "assistant", "content": str(a)})
-
-        result = self.run(
-            user_input,
-            history=history_messages,
-            runtime_context=runtime_context,
-            temperature=temperature,
-            top_p=top_p,
-            max_tokens=max_tokens,
-        )
-
+        result = self.run(user_input, history=history_messages, runtime_context=runtime_context, temperature=temperature, top_p=top_p, max_tokens=max_tokens)
         response = result.get("response", "")
         tool_calls_log = result.get("tool_calls", [])
-
-        # 构建结构化执行日志（timestamp 来自 _execute_single_tool 的真实执行时刻）
         execution_log = []
         for tc in tool_calls_log:
-            execution_log.append({
+            entry_type = tc.get("type", "tool_call")
+            entry = {
                 "iteration": tc.get("iteration", 0),
-                "type": "tool_call",
-                "tool": tc.get("tool", ""),
+                "type": entry_type,
                 "success": tc.get("success", True),
                 "parallel": tc.get("parallel", False),
                 "timestamp": tc.get("timestamp", ""),
-            })
-
+            }
+            if entry_type == "final_response":
+                # 最终回复轮：无工具调用，不记录 tool 字段
+                pass
+            else:
+                entry["tool"] = tc.get("tool", "")
+            execution_log.append(entry)
         return response, execution_log, runtime_context
 
-    def process_message_direct_stream(
-        self,
-        messages: List[Dict],
-        system_prompt_override: str = "",
-        runtime_context: Optional[Dict] = None,
-        stream_forward_fn=None,
-        temperature: float = 0.7,
-        top_p: float = 0.9,
-        max_tokens: int = 8192,
-    ):
-        """流式对话模式入口：经过中间件链后调用流式生成，逐 token yield (chunk, meta)。
-
-        适用于 chat / skills 模式（不调用工具循环），直接流式输出模型响应。
-
-        Args:
-            messages: 完整的消息列表（含 system / history）
-            system_prompt_override: 覆盖系统提示（已包含在 messages 中时可不传）
-            runtime_context: 运行时上下文
-            stream_forward_fn: 流式生成函数 generator(messages, system_prompt, **kw)
-            temperature/top_p/max_tokens: 生成参数
-        Yields:
-            (accumulated_text, meta_dict) 元组
-        """
+    def process_message_direct_stream(self, messages: List[Dict], system_prompt_override: str = "", runtime_context: Optional[Dict] = None, stream_forward_fn=None, temperature: float = 0.7, top_p: float = 0.9, max_tokens: int = 8192):
         runtime_context = dict(runtime_context or self.default_runtime_context)
         processed = list(messages)
-
-        # 应用中间件 process_before_llm
         for mw in self.middlewares:
             if hasattr(mw, "process_before_llm"):
                 try:
                     processed = mw.process_before_llm(processed, runtime_context)
                 except Exception:
                     pass
-
-        # 决定使用哪个流式函数
         _stream_fn = stream_forward_fn if stream_forward_fn is not None else None
-
         if _stream_fn is not None:
-            # 使用外部流式函数：yield 累积文本
             accumulated = ""
-            for chunk in _stream_fn(
-                processed,
-                system_prompt=system_prompt_override,
-                temperature=temperature,
-                top_p=top_p,
-                max_tokens=max_tokens,
-            ):
-                accumulated = chunk  # chunk 是累积文本
+            for chunk in _stream_fn(processed, system_prompt=system_prompt_override, temperature=temperature, top_p=top_p, max_tokens=max_tokens):
+                accumulated = chunk
                 yield accumulated, {}
         else:
-            # 降级：同步调用 model_forward_fn，一次性返回全部文本
             try:
-                response = self.model_forward_fn(
-                    processed,
-                    system_prompt_override or self.system_prompt,
-                )
+                response = self.model_forward_fn(processed, system_prompt_override or self.system_prompt)
                 yield response, {}
             except Exception as e:
                 yield f"❌ 模型调用失败: {e}", {}
+
+def create_qwen_model_forward(qwen_agent, system_prompt_base: str = ""):
+    """
+    创建 Qwen 模型前向函数
+
+    Args:
+        qwen_agent: QwenAgent 实例
+        system_prompt_base: 基础系统提示词
+
+    Returns:
+        适配的前向函数
+    """
+
+    def forward(messages: List[Dict[str, str]], system_prompt: str = "", **kwargs) -> str:
+        # 合并系统提示词
+        combined_system_prompt = system_prompt_base
+        if system_prompt:
+            combined_system_prompt = f"{combined_system_prompt}\n\n{system_prompt}"
+
+        # 构建消息列表（仅在 system_prompt 非空时才插入 system 消息）
+        if combined_system_prompt and combined_system_prompt.strip():
+            full_messages = [{"role": "system", "content": combined_system_prompt}] + list(messages)
+        else:
+            full_messages = list(messages)
+
+        gen_kwargs = dict(
+            temperature=kwargs.get("temperature", 0.7),
+            top_p=kwargs.get("top_p", 0.9),
+            max_tokens=kwargs.get("max_tokens", 512),
+        )
+
+        # 兼容 GLMAgent（generate_stream_with_messages）和 QwenAgent（generate_stream_text）
+        response_text = ""
+        if hasattr(qwen_agent, "generate_stream_text"):
+            for token in qwen_agent.generate_stream_text(full_messages, **gen_kwargs):
+                response_text = token
+        elif hasattr(qwen_agent, "generate_stream_with_messages"):
+            for token in qwen_agent.generate_stream_with_messages(full_messages, **gen_kwargs):
+                response_text = token
+        else:
+            raise AttributeError(
+                f"{type(qwen_agent).__name__} 未实现 generate_stream_text 或 generate_stream_with_messages 方法"
+            )
+
+        return response_text
+
+    return forward

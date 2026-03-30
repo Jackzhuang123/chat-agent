@@ -1,470 +1,345 @@
-# -*- coding: utf-8 -*-
-"""模式路由器 - 自动识别用户意图并切换模式
-
-支持两级路由：
-1. 规则路由（快速）：正则 + 关键词匹配，适合明确意图
-2. LLM 路由（精确）：调用语言模型进行语义分析，适合模糊意图
-   - 规则路由置信度 < 阈值时，自动升级为 LLM 路由
-   - LLM 路由结果不会写入 session_log（由调用方控制）
-"""
+# mode_router.py - 精准意图识别
 
 import json
 import re
-from typing import Any, Callable, Dict, Optional, Tuple
+from dataclasses import dataclass
+from enum import Enum
+from typing import Dict, Any, List, Optional, Callable, Tuple
 
 
-class ModeRouter:
-    """
-    智能模式路由器 - 自动识别用户意图并推荐模式
+class IntentType(Enum):
+    CHAT = "chat"
+    TOOLS = "tools"
+    SKILLS = "skills"
+    HYBRID = "hybrid"
+    PLAN = "plan"
+    MULTI_AGENT = "multi_agent"
+    UNKNOWN = "unknown"
 
-    支持的模式：
-    - chat: 纯对话模式（闲聊、问答）
-    - tools: 工具模式（文件操作、代码分析、命令执行）
-    - skills: 技能模式（使用外部知识库）
-    - hybrid: 混合模式（技能 + 工具）
-    - plan: 计划模式（复杂任务分解）
-    - multi_agent: 多Agent模式（需要规划-执行-审查）
-    - streaming: 流式模式（实时展示进度）
-    """
 
-    def __init__(self, llm_forward_fn: Optional[Callable] = None, llm_confidence_threshold: float = 0.70):
-        """
-        Args:
-            llm_forward_fn: 可选的 LLM 调用函数，签名 fn(messages, system_prompt="") -> str。
-                            若提供，当规则路由置信度低于阈值时自动调用 LLM 进行语义分析。
-            llm_confidence_threshold: 规则路由置信度低于此值时触发 LLM 路由（默认 0.70）。
-        """
-        self.llm_forward_fn = llm_forward_fn
-        self.llm_confidence_threshold = llm_confidence_threshold
+@dataclass
+class IntentResult:
+    intent: IntentType
+    confidence: float
+    raw_confidence: float
+    calibrated_confidence: float
+    reasoning: str
+    router_type: str
+    alternatives: List[Tuple[IntentType, float]]
+    risk_level: str
+    suggested_params: Dict[str, Any]
 
-        # 模式识别规则
-        self.mode_patterns = {
-            "chat": {
-                "keywords": ["什么是", "为什么", "怎么样", "如何理解", "解释", "介绍", "聊天", "你好", "谢谢", "再见"],
-                "priority": 0.3,
-                "description": "纯对话模式 - 直接回答问题，不调用工具"
-            },
-            "tools": {
-                "keywords": [
-                    "读取", "写入", "修改", "删除", "列出", "扫描", "查找", "调用工具", "用工具", "使用工具",
-                    "执行", "运行", "命令", "grep", "find", "ls", "cat", "bash",
-                    "read", "write", "edit", "list", "search",
-                    "查看文件", "打开文件", "看看", "帮我看", "分析文件", "读文件", "写文件",
-                    "代码", "目录", "文件夹", ".py", ".js", ".java", ".md",
-                ],
-                "priority": 0.9,
-                "description": "工具模式 - 通过工具收集事实"
-            },
-            "skills": {
-                "keywords": [
-                    "技能", "知识库", "参考文档", "查阅", "学习",
-                    "pdf", "文档处理", "代码审查", "web测试"
-                ],
-                "priority": 0.75,
-                "description": "技能模式 - 使用外部知识库"
-            },
-            "hybrid": {
-                "keywords": [
-                    "结合", "同时", "一边", "既要", "也要"
-                ],
-                "priority": 0.8,
-                "description": "混合模式 - 技能 + 工具"
-            },
-            "plan": {
-                "keywords": [
-                    "分析", "重构", "优化", "设计", "实现", "开发",
-                    "生成", "创建项目", "搭建", "部署",
-                    "复杂", "多步骤", "整体", "全面"
-                ],
-                "priority": 0.7,
-                "description": "计划模式 - 分解复杂任务"
-            },
-            "multi_agent": {
-                "keywords": [
-                    "规划并执行", "分析并生成", "审查", "评估质量",
-                    "端到端", "完整流程", "全链路"
-                ],
-                "priority": 0.85,
-                "description": "多Agent模式 - 规划-执行-审查"
-            },
-            "streaming": {
-                "keywords": [
-                    "实时", "流式", "进度", "展示过程",
-                    "看到执行", "监控"
-                ],
-                "priority": 0.6,
-                "description": "流式模式 - 实时展示进度"
-            }
-        }
 
-        # 任务复杂度识别
-        self.complexity_patterns = {
-            "simple": {
-                "keywords": ["读取", "查看", "列出", "打开", "显示"],
-                "max_steps": 2
-            },
-            "medium": {
-                "keywords": ["修改", "编辑", "查找", "分析"],
-                "max_steps": 4
-            },
-            "complex": {
-                "keywords": ["重构", "优化", "设计", "实现", "生成"],
-                "max_steps": 10
-            }
-        }
+class ConfidenceCalibrator:
+    def __init__(self):
+        self.calibration_history: List[Tuple[float, bool]] = []
+        self.temperature = 1.0
 
-    # 文件/目录路径强信号正则（绝对路径、相对路径 ./xxx、Windows 盘符）
-    _PATH_PATTERN = re.compile(
-        r'(?:'
-        r'/[A-Za-z0-9_./-]+[A-Za-z0-9_.-]'   # Unix 绝对路径 /xxx/yyy
-        r'|(?:\./|\.\./)[\w./-]+'              # 相对路径 ./xxx 或 ../xxx
-        r'|[A-Z]:\\[\w\\.-]+'                  # Windows 盘符 C:\xxx
-        r')'
-    )
+    def calibrate(self, raw_confidence: float, router_type: str) -> float:
+        router_bias = {"rule": 0.05, "llm": -0.05, "ensemble": 0.0}.get(router_type, 0.0)
+        adjusted = raw_confidence / self.temperature
+        calibrated = adjusted + router_bias
+        return max(0.1, min(0.99, calibrated))
 
-    # LLM 意图路由的系统提示
-    _LLM_ROUTER_SYSTEM = """
-    你是一个意图路由专家。你的任务是分析用户的自然语言输入，判断其背后的真实意图。
-    请仔细分析，用户可能使用口语、省略或模糊的表达。
+    def update(self, predicted_conf: float, was_correct: bool):
+        self.calibration_history.append((predicted_conf, was_correct))
+        if len(self.calibration_history) >= 50:
+            self._update_temperature()
 
-    **模式定义：**
-    - chat: 闲聊、知识问答、情感交流。不需要操作文件或执行代码。
-    - tools: 需要读取/写入文件、列出目录、执行命令、分析现有代码、查看日志。
-    - plan: 需要设计架构、生成新项目、重构代码、解决复杂Bug。这通常涉及多步骤思考。
-    - skills: 需要查阅特定的内部知识库或文档。
+    def _update_temperature(self):
+        recent = self.calibration_history[-50:]
+        conf_buckets = {}
+        for conf, correct in recent:
+            bucket = round(conf * 10) / 10
+            if bucket not in conf_buckets:
+                conf_buckets[bucket] = []
+            conf_buckets[bucket].append(correct)
+        total_error = 0
+        for bucket, outcomes in conf_buckets.items():
+            avg_conf = bucket
+            avg_acc = sum(outcomes) / len(outcomes)
+            total_error += abs(avg_conf - avg_acc)
+        if total_error > 0.2:
+            self.temperature *= 1.1
+        elif total_error < 0.1:
+            self.temperature *= 0.95
+        self.calibration_history = []
 
-    **分析指南：**
-    1. 如果用户提到“看看”、“读读”、“文件”、“日志”、“代码”或包含路径（如 .py, /src），请路由到 `tools`。
-    2. 如果用户说“帮我写”、“设计一个”、“怎么实现”、“重构”，请路由到 `plan`。
-    3. 如果用户问“什么是”、“为什么”、“解释一下”，请路由到 `chat`。
 
-    **输出要求：**
-    严格返回 JSON，不要输出任何其他内容。
-    {
-        "mode": "tools",
-        "confidence": 0.9,
-        "reason": "用户要求查看文件内容"
-    }
-    """
+class ReliabilityAssessor:
+    def __init__(self):
+        self.uncertainty_patterns = [r"可能|也许|大概|应该", r"不确定|不清楚|不知道", r"could|might|maybe|possibly", r"unclear|ambiguous|confusing"]
+        self.contradiction_patterns = [r"但是|然而|不过|although|but|however"]
 
-    def detect_mode(self, user_input: str, context: Optional[Dict] = None) -> Dict[str, Any]:
-        """
-        检测用户意图并推荐模式（两级路由）
-
-        返回格式：
-        {
-            "recommended_mode": "tools",
-            "confidence": 0.85,
-            "alternatives": [{"mode": "plan", "confidence": 0.65}],
-            "complexity": "medium",
-            "reasoning": "检测到文件操作关键词，推荐工具模式",
-            "router": "rule" | "llm"
-        }
-        """
-        # 先用规则路由
-        rule_result = self._rule_based_detect(user_input, context)
-
-        # 若规则路由置信度足够高，直接返回
-        if rule_result["confidence"] >= self.llm_confidence_threshold:
-            rule_result["router"] = "rule"
-            return rule_result
-
-        # 规则路由置信度低 → 尝试 LLM 路由
-        if self.llm_forward_fn is not None:
-            llm_result = self._llm_based_detect(user_input, context)
-            if llm_result is not None:
-                # LLM 路由成功，合并字段
-                llm_result["router"] = "llm"
-                llm_result.setdefault("alternatives", rule_result.get("alternatives", []))
-                llm_result.setdefault("complexity", rule_result.get("complexity", "simple"))
-                return llm_result
-
-        # 兜底：返回规则路由结果
-        rule_result["router"] = "rule"
-        return rule_result
-
-    def _rule_based_detect(self, user_input: str, context: Optional[Dict] = None) -> Dict[str, Any]:
-        """纯规则路由（原有逻辑）"""
-        from .tool_enforcement_middleware import DirectCommandDetector
-
-        user_input_lower = user_input.lower()
-
-        # 0. 直接命令检测（最高优先级）
-        direct_cmd = DirectCommandDetector.detect(user_input)
-        if direct_cmd["is_direct_command"]:
-            return {
-                "recommended_mode": "tools",
-                "confidence": direct_cmd["confidence"],
-                "alternatives": [],
-                "complexity": "simple",
-                "reasoning": direct_cmd["reason"],
-                "suggested_tool": direct_cmd.get("tool_name")
-            }
-
-        # 1. 路径强信号先行判断：输入包含文件/目录路径时直接路由为 tools 模式
-        if self._PATH_PATTERN.search(user_input):
-            complexity = self._detect_complexity(user_input_lower)
-            return {
-                "recommended_mode": "tools",
-                "confidence": 0.92,
-                "alternatives": [],
-                "complexity": complexity,
-                "reasoning": "检测到文件/目录路径，直接路由为工具模式"
-            }
-
-        # 1. 计算各模式的匹配分数
-        mode_scores = []
-        for mode, pattern in self.mode_patterns.items():
-            keywords = pattern["keywords"]
-            priority = pattern["priority"]
-
-            match_count = sum(1 for kw in keywords if kw in user_input_lower)
-
-            if match_count > 0:
-                score = match_count * priority
-                mode_scores.append({
-                    "mode": mode,
-                    "confidence": min(score / 3.0, 1.0),
-                    "match_count": match_count,
-                    "description": pattern["description"]
-                })
-
-        # 2. 排序并选择最佳模式
-        mode_scores.sort(key=lambda x: x["confidence"], reverse=True)
-
-        if not mode_scores:
-            return {
-                "recommended_mode": "chat",
-                "confidence": 0.3,  # 降低默认置信度，更容易触发 LLM 路由
-                "alternatives": [],
-                "complexity": "simple",
-                "reasoning": "未检测到特定意图，默认对话模式"
-            }
-
-        best = mode_scores[0]
-        alternatives = mode_scores[1:3] if len(mode_scores) > 1 else []
-
-        # 3. 检测任务复杂度
-        complexity = self._detect_complexity(user_input_lower)
-
-        # 4. 自动升级模式
-        recommended_mode = best["mode"]
-        reasoning = f"检测到 {best['match_count']} 个关键词，推荐{best['description']}"
-
-        # 复杂任务自动启用计划模式
-        if complexity == "complex" and recommended_mode == "tools":
-            recommended_mode = "plan"
-            reasoning += "；任务复杂度高，自动启用计划模式"
-
-        # 多步骤任务自动启用多Agent
-        if "并" in user_input and best["confidence"] > 0.7:
-            recommended_mode = "multi_agent"
-            reasoning += "；检测到多步骤任务，推荐多Agent模式"
-
-        return {
-            "recommended_mode": recommended_mode,
-            "confidence": best["confidence"],
-            "alternatives": alternatives,
-            "complexity": complexity,
-            "reasoning": reasoning
-        }
-
-    def _llm_based_detect(self, user_input: str, context: Optional[Dict] = None) -> Optional[Dict[str, Any]]:
-        """
-        使用 LLM 进行语义意图分析。
-
-        调用轻量级 prompt，让模型输出 JSON 格式的路由结果。
-        若 LLM 调用失败或解析失败，返回 None（调用方降级到规则路由）。
-        """
-        # 构建对话历史（可选：注入最近的对话上下文）
-        messages = []
-        if context and context.get("history"):
-            history = context["history"]
-            # 只取最近 2 轮，避免上下文过长
-            for pair in history[-2:]:
-                if isinstance(pair, (list, tuple)) and len(pair) == 2:
-                    u, a = pair
-                    if u:
-                        messages.append({"role": "user", "content": str(u)})
-                    if a:
-                        messages.append({"role": "assistant", "content": str(a)[:100]})
-
-        messages.append({"role": "user", "content": f"用户输入：{user_input}\n\n请判断应使用哪种模式，输出 JSON："})
-
+    def assess(self, llm_response: str, intent_result: Dict) -> Dict[str, Any]:
+        risk_factors = []
+        score = 1.0
+        uncertainty_count = sum(1 for p in self.uncertainty_patterns if re.search(p, llm_response, re.I))
+        if uncertainty_count > 0:
+            score -= 0.1 * uncertainty_count
+            risk_factors.append(f"检测到{uncertainty_count}处不确定性表达")
+        contradiction_count = sum(1 for p in self.contradiction_patterns if re.search(p, llm_response, re.I))
+        if contradiction_count > 0:
+            score -= 0.15 * contradiction_count
+            risk_factors.append("检测到潜在矛盾")
+        conf = intent_result.get("confidence", 0.5)
+        if conf > 0.95 and uncertainty_count > 0:
+            score -= 0.2
+            risk_factors.append("高置信度与不确定性表达冲突")
         try:
-            raw = self.llm_forward_fn(messages, system_prompt=self._LLM_ROUTER_SYSTEM)
-            if not raw or not raw.strip():
-                return None
-
-            # 提取 JSON（模型可能在 JSON 前后输出额外文字）
-            # 这个正则能匹配包含换行、引号的复杂 JSON
-            json_match = re.search(r'\{[\s\S]*"mode"[^\}]*"reason"[^\}]*\}', raw, re.DOTALL)
-            if not json_match:
-                # 如果精确匹配失败，尝试找第一个 { ... } 包裹的内容
-                json_match = re.search(r'\{.*\}', raw, re.DOTALL)
-            if not json_match:
-                return None
-
-            data = json.loads(json_match.group())
-            llm_mode = data.get("mode", "").lower()
-            llm_conf = float(data.get("confidence", 0.7))
-            llm_reason = data.get("reason", "LLM 语义分析")
+            json_str = re.search(r'\{.*\}', llm_response, re.DOTALL)
+            if json_str:
+                data = json.loads(json_str.group())
+                required_keys = ["mode", "confidence", "reason"]
+                missing = [k for k in required_keys if k not in data]
+                if missing:
+                    score -= 0.1 * len(missing)
+                    risk_factors.append(f"缺少字段: {missing}")
+        except:
+            score -= 0.3
+            risk_factors.append("JSON解析失败")
+        recommendation = "proceed" if score > 0.8 else "verify" if score > 0.6 else "fallback"
+        return {"reliability_score": max(0, score), "risk_factors": risk_factors, "recommendation": recommendation}
 
 
-            # 校验 mode 合法性
-            valid_modes = {"chat", "tools", "skills", "plan", "hybrid", "multi_agent"}
-            if llm_mode not in valid_modes:
-                return None
-
-            complexity = self._detect_complexity(user_input.lower())
-            return {
-                "recommended_mode": llm_mode,
-                "confidence": min(llm_conf, 1.0),
-                "complexity": complexity,
-                "reasoning": f"[LLM] {llm_reason}",
-            }
-
-        except Exception:
-            return None
-
-    def set_llm_forward(self, llm_forward_fn: Callable) -> None:
-        """运行时注入 LLM 调用函数（延迟绑定，避免循环依赖）。"""
+class PreciseModeRouter:
+    def __init__(
+            self,
+            llm_forward_fn: Optional[Callable] = None,
+            confidence_threshold: float = 0.7,
+            enable_calibration: bool = True
+    ):
         self.llm_forward_fn = llm_forward_fn
-
-    def _detect_complexity(self, user_input_lower: str) -> str:
-        """检测任务复杂度"""
-        for complexity, pattern in self.complexity_patterns.items():
-            keywords = pattern["keywords"]
-            match_count = sum(1 for kw in keywords if kw in user_input_lower)
-            if match_count > 0:
-                return complexity
-
-        if len(user_input_lower) > 100:
-            return "complex"
-        elif len(user_input_lower) > 30:
-            return "medium"
-        else:
-            return "simple"
-
-    def auto_switch_mode(
-        self,
-        user_input: str,
-        current_mode: str = "chat",
-        context: Optional[Dict] = None
-    ) -> Tuple[str, str]:
-        """
-        自动切换模式
-
-        返回：(new_mode, reason)
-        """
-        detection = self.detect_mode(user_input, context)
-        recommended = detection["recommended_mode"]
-        confidence = detection["confidence"]
-
-        if confidence > 0.6 and recommended != current_mode:
-            return recommended, detection["reasoning"]
-
-        return current_mode, f"保持当前模式（推荐置信度: {confidence:.2f}）"
-
-    def suggest_parameters(self, mode: str, user_input: str) -> Dict[str, Any]:
-        """根据模式推荐参数"""
-        params = {
-            "run_mode": mode,
-            "plan_mode": False,
-            "enable_streaming": False,
-            "max_iterations": 50
+        self.threshold = confidence_threshold
+        self.calibrator = ConfidenceCalibrator() if enable_calibration else None
+        self.reliability_assessor = ReliabilityAssessor()
+        self.patterns = {
+            IntentType.CHAT: [
+                {"patterns": [r"什么是", r"为什么", r"怎么样", r"如何理解", r"解释", r"介绍", r"聊天", r"你好", r"谢谢", r"再见"], "weight": 1.0},
+            ],
+            IntentType.TOOLS: [
+                {"patterns": [r"读取", r"写入", r"修改", r"删除", r"列出", r"扫描", r"查找", r"调用工具", r"用工具", r"使用工具", r"执行", r"运行", r"命令", r"grep", r"find", r"ls", r"cat", r"bash", r"read", r"write", r"edit", r"list", r"search", r"查看文件", r"打开文件", r"看看", r"帮我看", r"分析文件", r"读文件", r"写文件", r"代码", r"目录", r"文件夹", r"\.py", r"\.js", r"\.java", r"\.md"], "weight": 1.0, "require_path": True},
+            ],
+            IntentType.PLAN: [
+                {"patterns": [r"分析", r"重构", r"优化", r"设计", r"实现", r"开发", r"生成", r"创建项目", r"搭建", r"部署", r"复杂", r"多步骤", r"整体", r"全面"], "weight": 1.0, "complexity_indicators": [r"整体", r"全面", r"所有"]},
+            ],
+            IntentType.SKILLS: [
+                {"patterns": [r"技能", r"知识库", r"参考文档", r"查阅", r"学习", r"pdf", r"文档处理", r"代码审查", r"web测试"], "weight": 1.0},
+            ],
+            IntentType.HYBRID: [
+                {"patterns": [r"结合", r"同时", r"一边", r"既要", r"也要"], "weight": 1.0},
+            ],
+            IntentType.MULTI_AGENT: [
+                {"patterns": [r"规划并执行", r"分析并生成", r"审查", r"评估质量", r"端到端", r"完整流程", r"全链路"], "weight": 1.0},
+            ],
         }
 
-        if mode == "plan":
-            params["plan_mode"] = True
-            params["max_iterations"] = 55
+    def route(self, user_input: str, context: Dict = None) -> IntentResult:
+        context = context or {}
+        rule_result = self._rule_route(user_input, context)
+        skill_result = self._skill_route(user_input, context)
+        path_signals = self._detect_path_signals(user_input)
 
-        if mode == "multi_agent":
-            params["use_multi_agent"] = True
-            params["max_iterations"] = 50
+        max_rule_conf = max(rule_result["confidence"], skill_result["confidence"])
 
-        if mode == "streaming":
-            params["enable_streaming"] = True
+        if path_signals["has_path"]:
+            return self._build_result(IntentType.TOOLS, 0.95, "rule", path_signals["reason"], alternatives=[])
 
-        if mode == "tools":
-            if "读取" in user_input or "查看" in user_input:
-                params["max_iterations"] = 50
-            else:
-                params["max_iterations"] = 50
+        if max_rule_conf >= self.threshold:
+            best = rule_result if rule_result["confidence"] > skill_result["confidence"] else skill_result
+            calibrated = self._calibrate(best["confidence"], "rule") if self.calibrator else best["confidence"]
+            return self._build_result(best["intent"], calibrated, "rule", best["reason"], alternatives=self._get_alternatives([rule_result, skill_result]))
 
-        return params
+        if self.llm_forward_fn:
+            llm_result = self._llm_route(user_input, context)
+            reliability = self.reliability_assessor.assess(llm_result.get("raw_response", ""), llm_result)
+            if reliability["recommendation"] == "fallback":
+                return self._build_result(rule_result["intent"], self._calibrate(rule_result["confidence"] * 0.9, "ensemble") if self.calibrator else rule_result["confidence"], "ensemble", f"LLM不可靠({reliability['reliability_score']:.2f})，回退规则: {rule_result['reason']}", alternatives=[(llm_result["intent"], llm_result["confidence"])], risk_level="high")
+            ensemble_conf = self._fuse_confidence(rule_result["confidence"], llm_result["confidence"], reliability["reliability_score"])
+            calibrated = self._calibrate(ensemble_conf, "ensemble") if self.calibrator else ensemble_conf
+            return self._build_result(llm_result["intent"], calibrated, "ensemble", f"LLM: {llm_result['reason']} | 规则: {rule_result['reason']}", alternatives=self._get_alternatives([rule_result, skill_result, llm_result]), risk_level="low" if reliability["reliability_score"] > 0.8 else "medium")
 
+        return self._build_result(rule_result["intent"], self._calibrate(rule_result["confidence"], "rule") if self.calibrator else rule_result["confidence"], "rule", rule_result["reason"], alternatives=[(skill_result["intent"], skill_result["confidence"])])
 
-class AutoModeMiddleware:
-    """
-    自动模式中间件 - 在执行前自动识别并设置模式
-    """
+    def _rule_route(self, user_input: str, context: Dict) -> Dict:
+        scores = {intent: 0.0 for intent in IntentType}
+        user_lower = user_input.lower()
+        for intent, patterns in self.patterns.items():
+            for pattern_def in patterns:
+                pattern_matches = sum(1 for p in pattern_def["patterns"] if re.search(p, user_lower, re.I))
+                if "negative_patterns" in pattern_def:
+                    neg_matches = sum(1 for p in pattern_def["negative_patterns"] if re.search(p, user_lower, re.I))
+                    if neg_matches > 0:
+                        continue
+                if pattern_def.get("require_path"):
+                    if not self._has_file_path(user_input):
+                        pattern_matches *= 0.5
+                if "complexity_indicators" in pattern_def:
+                    complex_matches = sum(1 for c in pattern_def["complexity_indicators"] if re.search(c, user_lower, re.I))
+                    pattern_matches += complex_matches * 0.5
+                scores[intent] += pattern_matches * pattern_def.get("weight", 1.0)
+        best_intent = max(scores, key=scores.get)
+        best_score = scores[best_intent]
+        total_score = sum(scores.values()) or 1
+        confidence = min(best_score / 3, 0.95)
+        return {"intent": best_intent, "confidence": confidence, "reason": f"匹配{self._count_matches(best_intent, user_lower)}个模式", "all_scores": scores}
 
-    def __init__(self, router: Optional[ModeRouter] = None):
-        self.router = router or ModeRouter()
+    def _skill_route(self, user_input: str, context: Dict) -> Dict:
+        available_skills = context.get("available_skills", [])
+        if not available_skills:
+            return {"intent": IntentType.CHAT, "confidence": 0.3, "reason": "无可用技能"}
+        user_lower = user_input.lower()
+        matched_skills = []
+        for skill in available_skills:
+            skill_tags = skill.get("tags", [])
+            skill_name = skill.get("name", "").lower()
+            match_score = 0
+            for tag in skill_tags:
+                if tag.lower() in user_lower:
+                    match_score += 2
+            if skill_name in user_lower:
+                match_score += 3
+            if match_score > 0:
+                matched_skills.append((skill, match_score))
+        if matched_skills:
+            matched_skills.sort(key=lambda x: x[1], reverse=True)
+            best_match = matched_skills[0]
+            if best_match[1] >= 3:
+                return {"intent": IntentType.SKILLS, "confidence": min(best_match[1] / 5, 0.9), "reason": f"匹配技能: {best_match[0]['name']}", "matched_skills": [s[0]["id"] for s in matched_skills[:3]]}
+        return {"intent": IntentType.CHAT, "confidence": 0.4, "reason": "无技能匹配"}
 
-    def process_before_run(
-        self,
-        user_input: str,
-        runtime_context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """在运行前处理"""
-        if runtime_context.get("run_mode"):
-            return runtime_context
+    def _llm_route(self, user_input: str, context: Dict) -> Dict:
+        system_prompt = """你是意图识别专家。分析用户输入，判断意图类型。
 
-        detection = self.router.detect_mode(user_input, runtime_context)
+可选意图:
+- chat: 闲聊、知识问答、情感交流
+- tools: 文件操作、命令执行、代码分析
+- skills: 使用特定技能知识库
+- plan: 复杂任务规划、多步骤执行
+- hybrid: 结合多种模式
 
-        runtime_context["run_mode"] = detection["recommended_mode"]
-        runtime_context["mode_detection"] = detection
+输出JSON格式:
+{
+    "mode": "tools",
+    "confidence": 0.85,
+    "reason": "用户要求读取文件",
+    "key_indicators": ["读取", "文件"],
+    "uncertainty": []
+}"""
+        messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": f"分析意图: {user_input}"}]
+        try:
+            response = self.llm_forward_fn(messages, system_prompt="")
+            json_match = re.search(r'\{[\s\S]*?\}', response)
+            if not json_match:
+                raise ValueError("无JSON输出")
+            result = json.loads(json_match.group())
+            intent_map = {"chat": IntentType.CHAT, "tools": IntentType.TOOLS, "skills": IntentType.SKILLS, "plan": IntentType.PLAN, "hybrid": IntentType.HYBRID}
+            return {
+                "intent": intent_map.get(result.get("mode", "chat"), IntentType.CHAT),
+                "confidence": result.get("confidence", 0.5),
+                "reason": result.get("reason", "LLM分析"),
+                "raw_response": response,
+                "indicators": result.get("key_indicators", []),
+                "uncertainty": result.get("uncertainty", [])
+            }
+        except Exception as e:
+            return {"intent": IntentType.CHAT, "confidence": 0.3, "reason": f"LLM路由失败: {e}", "raw_response": "", "error": str(e)}
 
-        suggested_params = self.router.suggest_parameters(
-            detection["recommended_mode"],
-            user_input
-        )
-        runtime_context.update(suggested_params)
-
-        return runtime_context
-
-
-def create_auto_mode_framework(framework_class, model_forward_fn, **kwargs):
-    """
-    创建自动模式框架
-
-    使用示例：
-    framework = create_auto_mode_framework(
-        QwenAgentFramework,
-        model_forward_fn=model_forward,
-        enable_parallel=True
+    # 文件操作动词（中英文），路径信号必须配合这些动词才能强制 TOOLS 模式
+    _FILE_ACTION_VERBS = (
+        "读取", "写入", "修改", "删除", "扫描", "查找", "列出", "创建", "编辑",
+        "阅读", "查看", "打开", "分析", "生成", "写", "改",
+        "read", "write", "edit", "list", "scan", "find", "create", "delete", "open",
+        "grep", "bash", "run", "execute",
     )
 
-    result = framework.run("读取core/agent_framework.py")
-    # 自动检测为 tools 模式
-    """
-    from functools import wraps
+    def _detect_path_signals(self, user_input: str) -> Dict:
+        """检测用户输入中的文件路径信号。
 
-    router = ModeRouter()
-    auto_middleware = AutoModeMiddleware(router)
+        改进：仅当输入中**同时存在文件操作动词**时才判定为 TOOLS 模式，
+        避免纯知识问答中出现路径关键词（如文件名作为举例）时被误判。
+        """
+        path_patterns = [
+            r'[\'"]?([a-zA-Z]:\\[^\'"]+)[\'"]?',
+            r'[\'"]?(/[^\'"]+)[\'"]?',
+            r'[\'"]?(\./[^\'"]+)[\'"]?',
+            r'[\'"]?(\w+\.(py|js|md|txt|json|yaml|yml|sh|toml|cfg|ini))[\'"]?',
+        ]
+        matches = []
+        for pattern in path_patterns:
+            for match in re.finditer(pattern, user_input):
+                matches.append(match.group(1))
 
-    framework = framework_class(model_forward_fn=model_forward_fn, **kwargs)
+        if not matches:
+            return {"has_path": False}
 
-    original_run = framework.run
+        # 必须同时检测到文件操作动词，才能确定是工具任务
+        user_lower = user_input.lower()
+        has_action_verb = any(verb in user_lower for verb in self._FILE_ACTION_VERBS)
+        if has_action_verb:
+            return {"has_path": True, "paths": matches, "reason": f"检测到路径: {', '.join(matches[:2])}"}
 
-    @wraps(original_run)
-    def auto_run(user_input: str, history=None, runtime_context=None):
-        if runtime_context is None:
-            runtime_context = {}
+        # 有路径但没有操作动词——可能只是作为背景提及，降级为普通规则判断
+        return {"has_path": False, "paths": matches, "reason": "路径存在但无操作动词，不强制 TOOLS 模式"}
 
-        runtime_context = auto_middleware.process_before_run(user_input, runtime_context)
+    def _has_file_path(self, text: str) -> bool:
+        return bool(re.search(r'[./\\]\w+\.\w+', text))
 
-        if runtime_context.get("mode_detection"):
-            detection = runtime_context["mode_detection"]
-            print(f"🔍 自动检测模式: {detection['recommended_mode']} "
-                  f"(置信度: {detection['confidence']:.2f}) [{detection.get('router', 'rule')}]")
-            print(f"💡 原因: {detection['reasoning']}")
+    def _count_matches(self, intent: IntentType, text: str) -> int:
+        patterns = self.patterns.get(intent, [])
+        count = 0
+        for p in patterns:
+            for pattern in p["patterns"]:
+                if re.search(pattern, text, re.I):
+                    count += 1
+        return count
 
-        return original_run(user_input, history, runtime_context)
+    def _fuse_confidence(self, rule_conf: float, llm_conf: float, reliability: float, weights: List[float] = None) -> float:
+        weights = weights or [0.4, 0.6]
+        llm_weight = weights[1] * reliability
+        rule_weight = weights[0]
+        total = rule_weight + llm_weight
+        normalized_weights = [rule_weight / total, llm_weight / total]
+        fused = normalized_weights[0] * rule_conf + normalized_weights[1] * llm_conf
+        uncertainty = abs(rule_conf - llm_conf)
+        penalty = uncertainty * 0.1
+        return min(fused - penalty, 0.99)
 
-    framework.run = auto_run
-    framework.router = router
+    def _calibrate(self, raw_conf: float, router_type: str) -> float:
+        if self.calibrator:
+            return self.calibrator.calibrate(raw_conf, router_type)
+        return raw_conf
 
-    return framework
+    def _get_alternatives(self, results: List[Dict]) -> List[Tuple[IntentType, float]]:
+        alternatives = []
+        seen = set()
+        for r in results:
+            intent = r["intent"]
+            if intent not in seen:
+                alternatives.append((intent, r["confidence"]))
+                seen.add(intent)
+        alternatives.sort(key=lambda x: x[1], reverse=True)
+        return alternatives[1:3] if len(alternatives) > 1 else []
+
+    def _build_result(self, intent: IntentType, confidence: float, router_type: str, reasoning: str, alternatives: List[Tuple[IntentType, float]], risk_level: str = "low") -> IntentResult:
+        suggested_params = self._suggest_params(intent)
+        return IntentResult(
+            intent=intent,
+            confidence=confidence,
+            raw_confidence=confidence,
+            calibrated_confidence=confidence,
+            reasoning=reasoning,
+            router_type=router_type,
+            alternatives=alternatives,
+            risk_level=risk_level,
+            suggested_params=suggested_params
+        )
+
+    def _suggest_params(self, intent: IntentType) -> Dict[str, Any]:
+        params = {
+            IntentType.CHAT: {"temperature": 0.8, "max_tokens": 1024, "tools_enabled": False},
+            IntentType.TOOLS: {"temperature": 0.3, "max_tokens": 2048, "tools_enabled": True, "plan_mode": False},
+            IntentType.PLAN: {"temperature": 0.4, "max_tokens": 4096, "tools_enabled": True, "plan_mode": True, "max_iterations": 50},
+            IntentType.SKILLS: {"temperature": 0.5, "max_tokens": 2048, "tools_enabled": True, "skill_mode": True},
+        }
+        return params.get(intent, params[IntentType.CHAT])
