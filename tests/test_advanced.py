@@ -154,7 +154,7 @@ def test_streaming():
         print(f"[{event.event_type}] {event.data}")
 
         # 只收集前10个事件（避免输出过多）
-        if len(events) >= 10:
+        if len(events) >= 50:
             break
 
     print(f"\n总事件数: {len(events)}")

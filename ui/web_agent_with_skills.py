@@ -61,6 +61,7 @@ from session_logger import get_logger
 
 try:
     import PyPDF2
+
     HAS_PYPDF = True
 except ImportError:
     HAS_PYPDF = False
@@ -1047,9 +1048,9 @@ def create_ui_with_skills():
                     gr.Markdown("#### 🚀 模型引擎")
 
                     # 初始引擎状态
-                    _init_engine_value = "⚡ GLM-4-Flash（免费API）" if _GLM_AUTO_ENABLED else "🏠 本地 Qwen2.5-0.5B"
+                    _init_engine_value = "⚡ GLM-4-Flash" if _GLM_AUTO_ENABLED else "🏠 本地 Qwen2.5-0.5B"
                     model_engine = gr.Radio(
-                        choices=["🏠 本地 Qwen2.5-0.5B", "⚡ GLM-4-Flash（免费API）"],
+                        choices=["🏠 本地 Qwen2.5-0.5B", "⚡ GLM-4-Flash"],
                         value=_init_engine_value,
                         label=None,
                         show_label=False,
