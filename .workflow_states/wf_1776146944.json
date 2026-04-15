@@ -1,0 +1,31 @@
+{
+  "workflow_id": "wf_1776146944",
+  "status": "failed",
+  "created_at": "2026-04-14T14:09:04.014807",
+  "updated_at": "2026-04-14T14:09:20.028188",
+  "current_stage": "init",
+  "stages": {
+    "init": {
+      "status": "failed",
+      "started_at": "2026-04-14T14:09:04.015611",
+      "completed_at": null,
+      "error": "'staticmethod' object is not callable"
+    }
+  },
+  "artifacts": {},
+  "user_input": "我问过的所有问题总结一下",
+  "runtime_context": {
+    "run_mode": "plan",
+    "plan_mode": false,
+    "uploaded_files": [],
+    "selected_skills": [],
+    "intent_reasons": [
+      "LLM: 用户请求对之前的问题进行总结，涉及回顾和整理的过程，这通常涉及到复杂任务规划或多步骤执行。 | 规则: 匹配0个模式"
+    ],
+    "start_time": 1776146944.016182,
+    "tool_chain_id": "chain_1776146944_f9f456",
+    "iteration": 3
+  },
+  "pending_interaction_stage": null,
+  "pending_interaction_config": null
+}

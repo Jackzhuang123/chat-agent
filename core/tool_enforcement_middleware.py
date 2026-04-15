@@ -60,7 +60,7 @@ class ToolEnforcementMiddleware(AgentMiddleware):
         has_knowledge_content = any(m in response for m in knowledge_markers)
         return (has_list or has_knowledge_content) and is_substantial
 
-    def process_before_llm(self, messages: List[Dict], context: Dict) -> List[Dict]:
+    async def process_before_llm(self, messages: List[Dict], context: Dict) -> List[Dict]:
         """在 LLM 调用前注入强制工具调用提示（仅在重试时注入，且跳过知识问答场景）。"""
         run_mode = context.get("run_mode", "chat")
         if run_mode != "tools":
@@ -82,22 +82,20 @@ class ToolEnforcementMiddleware(AgentMiddleware):
             enforcement_msg = {
                 "role": "system",
                 "content": (
-                    "⚠️ 重要提醒：对于需要操作文件/目录的任务，必须使用工具，不能直接回答。\n\n"
-                    "【正确示例】\n"
-                    "用户: 读取 core/agent_tools.py\n"
-                    "助手: read_file\n"
-                    '{"path": "core/agent_tools.py"}\n\n'
-                    "用户: 扫描 core 目录\n"
-                    "助手: bash\n"
-                    '{"command": "grep -Ern \'^class |^def \' core/"}\n\n'
-                    "【注意】如果当前子任务是知识问答（无需文件操作），可以直接回答。\n"
-                    "请严格按照【工具名 + JSON参数】的格式输出工具调用。"
+                     "⚠️ 重要提醒：必须使用工具！\n\n"
+        "【唯一有效格式】\n"
+        "execute_python\n"
+        "{\"code\": \"print('hello')\"}\n\n"
+        "read_file\n"
+        "{\"path\": \"core/agent_tools.py\"}\n\n"
+        "⛔ 绝对禁止：execute_python -c \"...\" 或 read_file(\"...\") 或任何命令行/函数调用格式！\n"
+        "如果输出非标准格式，系统将无法识别，任务会失败。"
                 )
             }
             messages.insert(0, enforcement_msg)
         return messages
 
-    def process_after_llm(self, response: str, context: Dict) -> str:
+    async def process_after_llm(self, response: str, context: Dict) -> str:
         """检查模型输出是否包含工具调用。
 
         注意：优先使用 ToolParser 的完整解析逻辑（含容错），仅在确实没有任何

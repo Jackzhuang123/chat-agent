@@ -6,23 +6,24 @@ import json
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+from core.monitor_logger import get_monitor_logger
 
 
 class AgentMiddleware(ABC):
     @abstractmethod
-    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+    async def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
         pass
 
-    def process_after_llm(self, response: str, context: Dict[str, Any]) -> str:
+    async def process_after_llm(self, response: str, context: Dict[str, Any]) -> str:
         return response
 
-    def process_before_tool(self, tool_name: str, tool_args: Dict[str, Any], context: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    async def process_before_tool(self, tool_name: str, tool_args: Dict[str, Any], context: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         return tool_name, tool_args
 
-    def process_after_tool(self, tool_name: str, tool_args: Dict[str, Any], result: str, context: Dict[str, Any]) -> str:
+    async def process_after_tool(self, tool_name: str, tool_args: Dict[str, Any], result: str, context: Dict[str, Any]) -> str:
         return result
 
-    def process_on_error(self, error: Exception, phase: str, context: Dict[str, Any]) -> Optional[str]:
+    async def process_on_error(self, error: Exception, phase: str, context: Dict[str, Any]) -> Optional[str]:
         return None
 
 
@@ -30,7 +31,7 @@ def _inject_context_before_last_user(messages: List[Dict[str, str]], context_mes
     updated = list(messages)
     for idx in range(len(updated) - 1, -1, -1):
         if updated[idx].get("role") == "user":
-            updated.insert(idx, context_message)
+            updated.insert(idx, context_message) # 前面插入信息
             return updated
     updated.append(context_message)
     return updated
@@ -45,7 +46,7 @@ class _OnceInjectMiddleware(AgentMiddleware):
     def _build_message(self, messages: List[Dict[str, str]], runtime_context: Dict[str, Any]) -> Optional[Dict[str, str]]:
         raise NotImplementedError
 
-    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+    async def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
         if context.get(self._inject_flag):
             return messages
         if not self._should_inject(context.get("iteration", 0), context):
@@ -65,7 +66,7 @@ class RuntimeModeMiddleware(AgentMiddleware):
         "hybrid": "当前是混合模式：先利用技能制定方法，再通过工具执行和验证。",
     }
 
-    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+    async def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
         if context.get("_runtime_mode_injected"):
             return messages
         run_mode = str(context.get("run_mode", "chat")).lower()
@@ -96,7 +97,7 @@ class PlanModeMiddleware(AgentMiddleware):
         "</plan_mode>"
     )
 
-    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+    async def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
         if not context.get("plan_mode"):
             return messages
         if context.get("_plan_mode_injected"):
@@ -109,7 +110,7 @@ class PlanModeMiddleware(AgentMiddleware):
 
 
 class SkillsContextMiddleware(AgentMiddleware):
-    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+    async def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
         if context.get("_skills_context_injected"):
             return messages
         skill_contexts = context.get("skill_contexts") or []
@@ -146,7 +147,7 @@ class UploadedFilesMiddleware(AgentMiddleware):
             return f"{size_kb:.1f} KB"
         return f"{size_kb / 1024:.1f} MB"
 
-    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+    async def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
         if context.get("_uploaded_files_injected"):
             return messages
         uploaded_files = context.get("uploaded_files") or []
@@ -180,11 +181,12 @@ class ToolResultGuardMiddleware(AgentMiddleware):
     def __init__(self):
         # key: 文件路径, value: set of content hash（追踪已 append 过的内容）
         self._append_history: Dict[str, set] = {}
+        self.monitor = get_monitor_logger()
 
-    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+    async def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
         return messages
 
-    def process_before_tool(self, tool_name: str, tool_input: Dict[str, Any], context: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    async def process_before_tool(self, tool_name: str, tool_input: Dict[str, Any], context: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         """拦截重复 append 写入。"""
         if tool_name != "write_file":
             return tool_name, tool_input
@@ -200,6 +202,7 @@ class ToolResultGuardMiddleware(AgentMiddleware):
             if content_hash in self._append_history[path]:
                 # 将工具名替换为 _noop 占位，并在结果中返回警告
                 # 实际上通过修改 tool_input 注入一个空内容来跳过写入
+                self.monitor.info(f"拦截重复 append 写入: {path} (内容哈希已存在)")
                 tool_input = dict(tool_input)
                 tool_input["_duplicate_append_blocked"] = True
                 tool_input["content"] = ""  # 空内容写入，实际无副作用
@@ -211,11 +214,12 @@ class ToolResultGuardMiddleware(AgentMiddleware):
 
         return tool_name, tool_input
 
-    def process_after_tool(self, tool_name: str, tool_input: Dict[str, Any], tool_result: str, context: Dict[str, Any]) -> str:
+    async def process_after_tool(self, tool_name: str, tool_input: Dict[str, Any], tool_result: str, context: Dict[str, Any]) -> str:
         timestamp = datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
         # 拦截了重复 append 的情况：返回友好提示而非空写入结果
         if tool_name == "write_file" and tool_input.get("_duplicate_append_blocked"):
+            self.monitor.debug(f"返回重复 append 拦截提示: {tool_input.get('path')}")
             return json.dumps({
                 "success": True,
                 "tool": tool_name,
@@ -244,7 +248,7 @@ class ConversationSummaryMiddleware(AgentMiddleware):
         self.keep_recent_pairs = keep_recent_pairs
         self.model_forward_fn = model_forward_fn
 
-    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+    async def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
         pairs = []
         pending_user = None
         for msg in messages:
@@ -360,7 +364,7 @@ class AskUserQuestionMiddleware(AgentMiddleware):
         "</ask_user_question_format>"
     )
 
-    def process_after_llm(self, response: str, context: Dict[str, Any]) -> str:
+    async def process_after_llm(self, response: str, context: Dict[str, Any]) -> str:
         if context.get("_ask_format_injected"):
             return response
         text = (response or "").strip()
@@ -369,7 +373,7 @@ class AskUserQuestionMiddleware(AgentMiddleware):
             context["_pending_ask_format_injection"] = True
         return response
 
-    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+    async def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
         if not context.get("_pending_ask_format_injection"):
             return messages
         if context.get("_ask_format_injected"):
@@ -404,7 +408,7 @@ class CompletionStatusMiddleware(AgentMiddleware):
     )
     BLOCKED_SIGNALS = ["无法继续", "无法完成", "遇到问题", "权限不足", "文件不存在", "找不到", "缺少", "无法访问", "失败了", "错误", "异常", "cannot", "failed", "error", "blocked", "unable to", "不确定", "不清楚", "需要更多"]
 
-    def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+    async def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
         if context.get("_completion_status_injected"):
             return messages
         if context.get("iteration", 0) == 0:
@@ -413,7 +417,7 @@ class CompletionStatusMiddleware(AgentMiddleware):
             return _inject_context_before_last_user(messages, status_message)
         return messages
 
-    def process_after_llm(self, response: str, context: Dict[str, Any]) -> str:
+    async def process_after_llm(self, response: str, context: Dict[str, Any]) -> str:
         text = (response or "").lower()
         if any(signal in text for signal in self.BLOCKED_SIGNALS):
             count = context.get("_blocked_attempt_count", 0) + 1

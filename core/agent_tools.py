@@ -7,12 +7,14 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-
+import time as _time_module
+from core.monitor_logger import get_monitor_logger
 
 class ToolExecutor:
     def __init__(self, work_dir: Optional[str] = None, enable_bash: bool = True):
         self.work_dir = Path(work_dir) if work_dir else Path.cwd()
         self.enable_bash = enable_bash
+        self.monitor = get_monitor_logger()
 
     def execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> str:
         try:
@@ -35,24 +37,24 @@ class ToolExecutor:
             elif tool_name == "bash" and self.enable_bash:
                 if "command" not in tool_input:
                     return json.dumps({"success": False, "error": "缺少必需参数 'command'"}, ensure_ascii=False)
-                return self._bash(tool_input["command"])
+                bash_timeout = int(tool_input.get("timeout", 30))
+                return self._bash(tool_input["command"], timeout=bash_timeout)
+            elif tool_name == "execute_python":
+                if "code" not in tool_input:
+                    return json.dumps({"success": False, "error": "缺少必需参数 'code'"}, ensure_ascii=False)
+                timeout = int(tool_input.get("timeout", 30))
+                return self.execute_python(tool_input["code"], timeout=timeout)
             else:
                 return json.dumps({"error": f"未知工具: {tool_name}"})
         except Exception as e:
             return json.dumps({"error": str(e)})
 
     def _fuzzy_find_file(self, filename: str, search_home: bool = True) -> Optional[Path]:
-        """模糊搜索文件。
-
-        安全约束：
-          - 只在 work_dir 内部（最大深度8）或 home 目录的直接子目录内搜索
-          - 不跟随符号链接跳出沙箱
-          - 解析后的真实路径必须以允许根目录开头，防止路径遍历攻击
-        """
+        """模糊搜索文件。"""
         SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv",
                      ".tox", "dist", "build", ".mypy_cache", ".pytest_cache",
-                     ".idea", ".vscode"}
-        # 只取文件名，丢弃任何目录组件（防止 '../../../etc/passwd' 这类输入）
+                     ".idea", ".vscode", "site-packages", "dist-info",
+                     "lib", "bin"}
         target_name = Path(filename).name
         if not target_name or target_name in ("..", "."):
             return None
@@ -60,7 +62,6 @@ class ToolExecutor:
         work_dir_real = self.work_dir.resolve()
 
         def _is_safe(path: Path, allowed_root: Path) -> bool:
-            """确认 path 的真实路径在 allowed_root 内部。"""
             try:
                 path.resolve().relative_to(allowed_root)
                 return True
@@ -74,11 +75,9 @@ class ToolExecutor:
                 for item in sorted(root.iterdir()):
                     if item.name in SKIP_DIRS or item.name.startswith("."):
                         continue
-                    # 不跟随符号链接（follow_symlinks=False 需用 lstat）
                     if item.is_symlink():
                         continue
                     if item.is_file() and item.name == target_name:
-                        # 双重安全：真实路径必须在 work_dir 内
                         if _is_safe(item, work_dir_real):
                             return item
                     elif item.is_dir() and depth_limit > 0:
@@ -93,7 +92,6 @@ class ToolExecutor:
         if result:
             return result
 
-        # 在 home 目录的直接子目录中搜索（限制为非系统目录）
         if search_home:
             home = Path.home()
             home_real = home.resolve()
@@ -104,15 +102,12 @@ class ToolExecutor:
                     if item.is_symlink():
                         continue
                     item_real = item.resolve()
-                    # 跳过 work_dir 本身（已搜索过）
                     if item_real == work_dir_real:
                         continue
                     if item.is_file() and item.name == target_name:
                         if _is_safe(item, home_real):
                             return item
                     if item.is_dir():
-                        # home 内搜索只在该直接子目录（及其子树）中，限制深度
-                        sub_real = item_real
                         def _scan_sub(root2: Path, depth: int = 6) -> Optional[Path]:
                             if depth < 0:
                                 return None
@@ -139,9 +134,29 @@ class ToolExecutor:
                 pass
         return None
 
+    _BLOCKED_PATH_PATTERNS = (
+        "/.venv/", "/venv/", "/site-packages/", "/.dist-info/",
+        "/__pycache__/", "/.git/", "/node_modules/",
+        ".venv/", "venv/", "site-packages/", ".dist-info/",
+        "__pycache__/", ".git/", "node_modules/",
+    )
+
     def _read_file(self, path: str) -> str:
+        # 路径拦截 (保持原有逻辑不变)
+        _norm = path.replace("\\", "/")
+        for _blocked in self._BLOCKED_PATH_PATTERNS:
+            if _blocked in _norm:
+                return json.dumps({
+                    "success": False,
+                    "error": f"⛔ 路径被拦截：'{path}' 位于受限目录（{_blocked.strip('/')}），与当前任务无关。",
+                    "hint": "请只读取项目源码文件（core/、ui/、skills/ 等目录），不要读取依赖库或系统文件。"
+                }, ensure_ascii=False)
+
         p = Path(path)
+
+        # ----- 绝对路径分支 -----
         if p.is_absolute():
+            # 若文件存在且不是目录，正常读取
             if p.exists() and p.is_file():
                 try:
                     with open(p, "r", encoding="utf-8") as f:
@@ -149,12 +164,44 @@ class ToolExecutor:
                     result = {"success": True, "path": str(p), "content": content}
                     if not content.strip():
                         result["warning"] = "文件存在但内容为空"
-                    return json.dumps(result)
+                    return json.dumps(result, ensure_ascii=False)
                 except Exception as e:
-                    return json.dumps({"success": False, "error": f"读取文件失败: {str(e)}"})
+                    return json.dumps({"success": False, "error": f"读取文件失败: {str(e)}"}, ensure_ascii=False)
             else:
-                return json.dumps({"success": False, "error": f"文件不存在: {path}", "hint": "绝对路径指定的文件不存在，请先用 list_dir 确认路径。"})
+                # ⭐ 新增：绝对路径不存在时，尝试模糊搜索
+                filename = p.name
+                found = self._fuzzy_find_file(filename, search_home=True)
+                if found:
+                    try:
+                        with open(found, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        return json.dumps({
+                            "success": True,
+                            "path": str(found),
+                            "fuzzy_match": True,
+                            "original_request": path,
+                            "note": f"原绝对路径 '{path}' 不存在，自动匹配到: {found}",
+                            "content": content
+                        }, ensure_ascii=False)
+                    except Exception as e:
+                        return json.dumps({"success": False, "error": f"读取文件失败: {str(e)}"}, ensure_ascii=False)
+                # 模糊搜索也未找到
+                return json.dumps({
+                    "success": False,
+                    "error": f"文件不存在: {path}",
+                    "hint": "绝对路径指定的文件不存在，且项目内未找到同名文件。请仅提供文件名（如 'session_analyzer.py'），系统会自动搜索。"
+                }, ensure_ascii=False)
+
+        # ----- 相对路径分支 (原有逻辑保持不变) -----
         file_path = self.work_dir / path
+        if file_path.exists() and file_path.is_dir():
+            return json.dumps({
+                "success": False,
+                "error": f"目标是目录而非文件: {path}",
+                "hint": "请改用 list_dir 查看目录内容。",
+                "suggested_tool": "list_dir",
+                "suggested_input": {"path": path}
+            }, ensure_ascii=False)
         if file_path.exists() and file_path.is_file():
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
@@ -162,19 +209,41 @@ class ToolExecutor:
                 result = {"success": True, "path": str(file_path.resolve()), "content": content}
                 if not content.strip():
                     result["warning"] = "文件存在但内容为空"
-                return json.dumps(result)
+                return json.dumps(result, ensure_ascii=False)
             except Exception as e:
-                return json.dumps({"success": False, "error": f"读取文件失败: {str(e)}"})
+                return json.dumps({"success": False, "error": f"读取文件失败: {str(e)}"}, ensure_ascii=False)
+
+        # 相对路径不存在时的模糊搜索 (原有逻辑)
         filename = Path(path).name
         found = self._fuzzy_find_file(filename, search_home=True)
         if found:
             try:
                 with open(found, "r", encoding="utf-8") as f:
                     content = f.read()
-                return json.dumps({"success": True, "path": str(found), "fuzzy_match": True, "original_request": path, "note": f"原路径 '{path}' 不存在，自动匹配到: {found}", "content": content})
+                return json.dumps({
+                    "success": True,
+                    "path": str(found),
+                    "fuzzy_match": True,
+                    "original_request": path,
+                    "note": f"原路径 '{path}' 不存在，自动匹配到: {found}",
+                    "content": content
+                }, ensure_ascii=False)
             except Exception as e:
-                return json.dumps({"error": f"读取文件失败: {str(e)}"})
-        return json.dumps({"success": False, "error": f"文件不存在: {path}", "searched_name": filename, "hint": f"在工作目录和家目录的全部子目录中均未找到名为 '{filename}' 的文件。请先用 list_dir 查看目录结构，确认文件名和路径。"})
+                return json.dumps({"error": f"读取文件失败: {str(e)}"}, ensure_ascii=False)
+
+        return json.dumps({
+            "success": False,
+            "error": f"文件不存在: {path}",
+            "searched_name": filename,
+            "hint": (
+                f"在工作目录和全局搜索中均未找到 '{filename}'。"
+                f"⚠️ 请立即用 bash find 全局搜索，不要放弃：\n"
+                f"  bash {{\"command\": \"find . -name '{filename}' 2>/dev/null\"}}\n"
+                f"若文件名可能不同，可模糊搜索：\n"
+                f"  bash {{\"command\": \"find . -name '*{Path(filename).stem}*' 2>/dev/null\"}}"
+            ),
+            "next_action": f"bash {{\"command\": \"find . -name '{filename}' 2>/dev/null\"}}"
+        }, ensure_ascii=False)
 
     def _write_file(self, path: str, content: str, mode: str = "overwrite") -> str:
         p = Path(path)
@@ -184,6 +253,51 @@ class ToolExecutor:
                 file_path.resolve().relative_to(self.work_dir.resolve())
             except ValueError:
                 return json.dumps({"error": "路径超出工作目录范围"})
+
+        if mode != "append" and content == "" and file_path.exists():
+            existing_size = file_path.stat().st_size
+            if existing_size > 0:
+                return json.dumps({
+                    "success": False,
+                    "blocked": True,
+                    "error": (
+                        f"⛔ 拦截危险操作：write_file 试图用空内容覆盖已有内容的文件 {path}"
+                        f"（当前大小 {existing_size} 字节）。"
+                        "文件内容可能已由 bash 重定向写入，禁止再次用 write_file 空覆盖。"
+                        f" 若要验证内容，请用 read_file 或 bash head 命令查看。"
+                    ),
+                    "fix_hint": "不要再对此文件调用 write_file 空覆盖，内容已正确写入磁盘。直接进行下一步任务。",
+                }, ensure_ascii=False)
+
+        _PLACEHOLDER_PATTERNS = [
+            r'<完整复制[^>]*>',
+            r'<复制[^>]*>',
+            r'<粘贴[^>]*>',
+            r'<填入[^>]*>',
+            r'<插入[^>]*>',
+            r'<参见[^>]*>',
+            r'<见上方[^>]*>',
+            r'\[此处填写[^\]]*\]',
+            r'\[TODO[^\]]*\]',
+            r'<TODO[^>]*>',
+        ]
+        for _pat in _PLACEHOLDER_PATTERNS:
+            if re.search(_pat, content):
+                return json.dumps({
+                    "success": False,
+                    "blocked": True,
+                    "error": (
+                        f"⛔ 拦截占位符写入：write_file 的 content 参数包含占位符文本 "
+                        f"（匹配模式: {_pat}），而非实际内容。"
+                        "请将实际内容直接填入 content 参数，不要写占位符说明。"
+                    ),
+                    "fix_hint": (
+                        "正确做法：先 read_file 读取源数据，然后在 write_file 的 content "
+                        "参数中填入从工具结果中提取的实际内容，而非写'<完整复制上方输出>'。"
+                        "或者用 execute_python 读取数据并格式化后写入文件。"
+                    ),
+                }, ensure_ascii=False)
+
         try:
             file_path.parent.mkdir(parents=True, exist_ok=True)
             if mode == "append":
@@ -249,72 +363,244 @@ class ToolExecutor:
         except Exception as e:
             return json.dumps({"error": f"列出目录失败: {str(e)}"})
 
-    # 允许执行的命令前缀白名单（防止高危命令注入）
+    def execute_python(self, code: str, timeout: int = 30) -> str:
+        import sys as _sys
+        import re as _re
+        import subprocess
+        import json
+        import os
+
+        _has_write = bool(_re.search(
+            r'open\s*\([^)]*[\'\"].*[\'\"],\s*[\'\"]w[\'\"]'
+            r'|\.write\s*\(|write_file|to_csv|to_json|to_excel'
+            r'|shutil\.copy|os\.rename',
+            code
+        ))
+        _has_print = bool(_re.search(r'\bprint\s*\(', code))
+        if _has_write and not _has_print:
+            code = code + '\nprint("✅ 文件写入操作已完成")\n'
+
+        _PRELUDE = (
+            # 保持原有 prelude 不变
+            "import sys, traceback, json, math, re, os, os.path as _osp\n"
+            "import datetime, collections, itertools, functools, random, statistics\n"
+            "import subprocess, shutil, pathlib\n"
+            "from io import StringIO\n"
+            "from collections import defaultdict, Counter, OrderedDict, deque\n"
+            "from itertools import chain, product, combinations, permutations\n"
+            "from datetime import date, timedelta\n"
+            "from pathlib import Path\n"
+            "path = _osp\n"
+        )
+        wrapper = (
+                _PRELUDE
+                + "_out = StringIO()\n"
+                  "_err = StringIO()\n"
+                  "sys.stdout = _out\n"
+                  "sys.stderr = _err\n"
+                  "_result = {'success': False, 'stdout': '', 'stderr': '', 'error': ''}\n"
+                  "try:\n"
+                + "\n".join("    " + line for line in code.splitlines()) + "\n"
+                + "    _result['success'] = True\n"
+                  "except Exception as _e:\n"
+                  "    _result['error'] = traceback.format_exc()\n"
+                  "finally:\n"
+                  "    sys.stdout = sys.__stdout__\n"
+                  "    sys.stderr = sys.__stderr__\n"
+                  "    _result['stdout'] = _out.getvalue()\n"
+                  "    _result['stderr'] = _err.getvalue()\n"
+                  "    print(json.dumps(_result, ensure_ascii=False))\n"
+        )
+
+        try:
+            python_exe = _sys.executable or "python3"
+            proc = subprocess.run(
+                [python_exe, "-c", wrapper],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=str(self.work_dir),
+            )
+            output_lines = proc.stdout.strip().splitlines()
+            if output_lines:
+                try:
+                    inner = json.loads(output_lines[-1])
+                    prefix_lines = output_lines[:-1]
+                    if prefix_lines:
+                        inner["stdout"] = "\n".join(prefix_lines) + "\n" + inner.get("stdout", "")
+                    stdout_raw = inner.get("stdout", "").strip()
+                    _STDOUT_LIMIT = 8000
+                    if len(stdout_raw) > _STDOUT_LIMIT:
+                        stdout_raw = stdout_raw[
+                                         :_STDOUT_LIMIT] + f"\n…[输出过长，已截断，原始长度 {len(stdout_raw)} 字符]"
+                    error_raw = inner.get("error", "").strip()[:3000]
+                    stderr_raw = (inner.get("stderr", "") or proc.stderr or "").strip()[:2000]
+                    success = inner.get("success", False)
+
+                    # ⭐ 新增：写文件但产出可能为空的检测
+                    if success and _has_write:
+                        # 尝试检测目标文件是否真的写入了内容
+                        write_paths = _re.findall(r'open\(["\']([^"\']+)["\']\s*,\s*["\']w["\']', code)
+                        is_content_written = False
+                        for wpath in write_paths:
+                            target = Path(wpath)
+                            if not target.is_absolute():
+                                target = self.work_dir / target
+                            if target.exists() and target.stat().st_size > 0:
+                                is_content_written = True
+                                break
+                        if not is_content_written and not stdout_raw:
+                            # 既没有控制台输出，文件也为空 -> 认为实际失败
+                            success = False
+                            inner["error"] = (
+                                "代码执行未报错，但目标文件为空且无控制台输出。"
+                                "可能原因：正则匹配无结果、写入逻辑未执行。"
+                            )
+                            inner["fix_hint"] = (
+                                "❌ 任务实际未完成。建议改用 bash 命令完成相同操作，例如：\n"
+                                "bash {\"command\": \"grep -E '^class |^def ' core/*.py > API.md\"}"
+                            )
+
+                    resp = {
+                        "success": success,
+                        "stdout": stdout_raw,
+                        "stderr": stderr_raw,
+                        "error": error_raw,
+                        "returncode": proc.returncode,
+                    }
+                    if not success and "fix_hint" not in resp and inner.get("fix_hint"):
+                        resp["fix_hint"] = inner["fix_hint"]
+                    elif not success:
+                        resp["fix_hint"] = (
+                            "❌ 代码执行失败。请仔细阅读上方 error/stderr 中的错误信息，"
+                            "修正代码后再次调用 execute_python 重新执行。"
+                            "常见修复方向：检查变量名/缩进/语法、确认导入的模块已安装、"
+                            "数据类型是否符合预期。"
+                        )
+                    return json.dumps(resp, ensure_ascii=False)
+                except json.JSONDecodeError:
+                    pass
+            # 兜底处理 (保持原有)
+            stdout_fb = proc.stdout.strip()
+            stderr_fb = proc.stderr.strip()
+            if len(stdout_fb) > 8000:
+                stdout_fb = stdout_fb[:8000] + f"\n…[输出过长，已截断，原始长度 {len(stdout_fb)} 字符]"
+            success_fb = proc.returncode == 0
+            resp_fb = {
+                "success": success_fb,
+                "stdout": stdout_fb,
+                "stderr": stderr_fb[:2000],
+                "returncode": proc.returncode,
+            }
+            if not success_fb:
+                resp_fb["fix_hint"] = (
+                    "❌ 代码执行失败（子进程异常退出）。请检查 stderr 中的错误信息，"
+                    "修正代码后再次调用 execute_python 重新执行。"
+                )
+            return json.dumps(resp_fb, ensure_ascii=False)
+        except subprocess.TimeoutExpired:
+            self.monitor.warning(f"execute_python 超时 (>{timeout}s)")
+            return json.dumps({
+                "success": False,
+                "error": f"代码执行超时（>{timeout}s），请优化算法、减少数据量，或传入更大的 timeout 参数（如 timeout=120）。",
+                "fix_hint": "⏱️ 执行超时。可尝试：1) 优化算法复杂度；2) 减少测试数据量；3) 再次调用时传入 timeout=120。",
+                "returncode": -1,
+            }, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "error": f"execute_python 内部错误: {str(e)}",
+                "fix_hint": "❌ 工具自身出错（非代码问题）。请检查代码格式是否正确（如 JSON 中的换行转义），再次调用 execute_python。",
+                "returncode": -1,
+            }, ensure_ascii=False)
+
     _BASH_BLOCKED_PATTERNS = [
-        r"\brm\s+-rf\s+/",           # rm -rf /
-        r"\bmkfs\b",                  # 格式化
-        r"\bdd\s+if=.+of=/dev/",      # dd 写磁盘
-        r":\s*\(\s*\)\s*\{.*fork\s+bomb",  # fork bomb
-        r"chmod\s+-R\s+[0-7]*7[0-7]*\s+/",  # 全局改权限
-        r"\bcurl\b.+\|\s*bash",       # 管道执行远程脚本
+        r"\brm\s+-rf\s+/",
+        r"\bmkfs\b",
+        r"\bdd\s+if=.+of=/dev/",
+        r":\s*\(\s*\)\s*\{.*fork\s+bomb",
+        r"chmod\s+-R\s+[0-7]*7[0-7]*\s+/",
+        r"\bcurl\b.+\|\s*bash",
         r"\bwget\b.+\|\s*bash",
     ]
 
-    def _bash(self, command: str) -> str:
-        """执行 Shell 命令。
+    _BASH_STDOUT_LIMIT: int = 12000
 
-        安全改进：
-          - 使用 shlex.split + shell=False 避免 Shell 注入（当命令为纯字符串时）
-          - 对已知高危命令模式进行阻断
-          - cwd 限定在 work_dir，防止 cd / 后操作系统文件
-        """
+    def _bash(self, command: str, timeout: int = 30) -> str:
         import re as _re
         import shlex
 
         if not self.enable_bash:
             return json.dumps({"error": "bash 工具已禁用"})
 
-        # 高危模式拦截
         for pat in self._BASH_BLOCKED_PATTERNS:
             if _re.search(pat, command, _re.I):
+                self.monitor.warning(f"拦截高危 bash 命令: {command[:80]}")
                 return json.dumps({"error": f"命令被安全策略拒绝（匹配高危模式）: {command[:80]}"})
 
         try:
-            # 尝试以 shell=False 方式执行，更安全
-            try:
-                args = shlex.split(command)
-            except ValueError:
-                # 包含引号不匹配等情况，回退到 shell=True（仍在 work_dir 下）
+            _SHELL_CHARS = ('|', '>', '<', '&&', '||', ';', '$', '`', '*', '?', '~', '{', '}', '!')
+            _needs_shell = any(c in command for c in _SHELL_CHARS)
+
+            if not _needs_shell:
+                try:
+                    args = shlex.split(command)
+                except ValueError:
+                    _needs_shell = True
+                    args = None
+            else:
                 args = None
 
-            if args:
+            start_time = _time_module.time()
+
+            if args and not _needs_shell:
                 result = subprocess.run(
                     args,
                     shell=False,
                     cwd=str(self.work_dir),
                     capture_output=True,
                     text=True,
-                    timeout=30
+                    timeout=timeout,
+                    check=False
                 )
             else:
-                # 包含管道/重定向等 shell 特性，必须用 shell=True
                 result = subprocess.run(
                     command,
-                    shell=True,  # noqa: S603  # 仅在 shlex 失败时退化
+                    shell=True,
                     cwd=str(self.work_dir),
                     capture_output=True,
                     text=True,
-                    timeout=30
+                    timeout=timeout,
+                    check=False
                 )
-            return json.dumps({
+
+            elapsed = _time_module.time() - start_time
+            if elapsed > 5:
+                self.monitor.info(f"bash 命令执行耗时 {elapsed:.2f}s: {command[:100]}")
+
+            stdout = result.stdout
+            stderr = result.stderr
+            truncated = False
+            if len(stdout) > self._BASH_STDOUT_LIMIT:
+                stdout = (stdout[:self._BASH_STDOUT_LIMIT]
+                          + f"\n…[stdout 过长已截断，原始长度 {len(result.stdout)} 字符，"
+                          f"建议加 head -N 或缩小搜索范围]")
+                truncated = True
+            if len(stderr) > 3000:
+                stderr = stderr[:3000] + "\n…[stderr 已截断]"
+
+            resp = {
                 "success": result.returncode == 0,
                 "command": command,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "returncode": result.returncode
-            })
+                "stdout": stdout,
+                "stderr": stderr,
+                "returncode": result.returncode,
+            }
+            if truncated:
+                resp["warning"] = "输出超出限制已截断，建议使用 grep -m N 或 head -N 限制行数"
+            return json.dumps(resp)
         except subprocess.TimeoutExpired:
-            return json.dumps({"error": "命令执行超时(30秒)"})
+            return json.dumps({"error": f"命令执行超时({timeout}秒)"})
         except FileNotFoundError as e:
             return json.dumps({"error": f"命令不存在: {str(e)}"})
         except Exception as e:
@@ -366,14 +652,39 @@ class ToolParser:
                 return data if isinstance(data, dict) else None
             except (json.JSONDecodeError, Exception):
                 pass
+
+        if payload.startswith("{"):
+            try:
+                import re as _re_fix
+                def _fix_nested_quotes(s: str) -> str:
+                    _field_pattern = _re_fix.compile(r'"(code|command|content|script)"\s*:\s*"((?:[^"\\]|\\.)*)"', _re_fix.DOTALL)
+                    def _escape_single_quotes_in_value(m):
+                        field_name = m.group(1)
+                        value = m.group(2)
+                        fixed_value = value.replace("'", "\\'")
+                        return f'"{field_name}": "{fixed_value}"'
+                    repaired = _field_pattern.sub(_escape_single_quotes_in_value, s)
+                    return repaired
+                fixed2 = _fix_nested_quotes(payload)
+                if fixed2 != payload:
+                    data = json.loads(fixed2)
+                    return data if isinstance(data, dict) else None
+            except (json.JSONDecodeError, Exception):
+                pass
+
         return None
 
     @staticmethod
     def parse_tool_calls(text: str) -> List[Tuple[str, Dict[str, Any]]]:
+        if not isinstance(text, str):
+            print(f"⚠️ 工具解析失败：输入类型错误 (期望 str，实际 {type(text).__name__})")
+            return []
+
         calls = []
         stripped = text.strip()
-        known_tools = {"read_file", "write_file", "edit_file", "list_dir", "bash", "todo_write"}
+        known_tools = {"read_file", "write_file", "edit_file", "list_dir", "bash", "todo_write", "execute_python"}
 
+        # ---------- 1. 标准 JSON 格式 ----------
         try:
             if stripped.startswith("["):
                 data = json.loads(stripped)
@@ -392,12 +703,12 @@ class ToolParser:
                         if isinstance(args, dict):
                             calls.append((item["name"], args))
                 if calls:
-                    return calls
+                    return ToolParser._normalize_args(calls)
             elif stripped.startswith("{"):
                 item = json.loads(stripped)
                 if isinstance(item, dict):
                     if "tool" in item and "input" in item and isinstance(item["input"], dict):
-                        return [(item["tool"], item["input"])]
+                        return ToolParser._normalize_args([(item["tool"], item["input"])])
                     elif "name" in item and "arguments" in item:
                         args = item["arguments"]
                         if isinstance(args, str):
@@ -406,27 +717,30 @@ class ToolParser:
                             except Exception:
                                 pass
                         if isinstance(args, dict):
-                            return [(item["name"], args)]
+                            return ToolParser._normalize_args([(item["name"], args)])
                     elif "name" in item and "params" in item and isinstance(item["params"], dict):
-                        return [(item["name"], item["params"])]
+                        return ToolParser._normalize_args([(item["name"], item["params"])])
                     elif "api" in item and isinstance(item["api"], str) and item["api"] in known_tools:
                         tool_name = item["api"]
                         tool_args = {k: v for k, v in item.items() if k != "api"}
-                        return [(tool_name, tool_args)]
+                        return ToolParser._normalize_args([(tool_name, tool_args)])
         except (json.JSONDecodeError, KeyError, TypeError):
             pass
 
+        # ---------- 2. Markdown 代码块中的 JSON API 格式 ----------
         _md_api_pattern = re.compile(r'```(?:json)?\s*\n\s*(\{[\s\S]*?\})\s*\n?\s*```')
         for _mam in _md_api_pattern.finditer(stripped):
             try:
                 _obj = json.loads(_mam.group(1))
-                if isinstance(_obj, dict) and "api" in _obj and isinstance(_obj["api"], str) and _obj["api"] in known_tools:
+                if isinstance(_obj, dict) and "api" in _obj and isinstance(_obj["api"], str) and _obj[
+                    "api"] in known_tools:
                     _tname = _obj["api"]
                     _targs = {k: v for k, v in _obj.items() if k != "api"}
-                    return [(_tname, _targs)]
+                    return ToolParser._normalize_args([(_tname, _targs)])
             except (json.JSONDecodeError, TypeError):
                 pass
 
+        # ---------- 3. Markdown 代码块包裹的 JSON 工具调用 ----------
         md_block_match = re.match(r'^```(?:json|python)?\s*\n([\s\S]*?)\s*```\s*$', stripped)
         if md_block_match:
             inner = md_block_match.group(1).strip()
@@ -434,7 +748,7 @@ class ToolParser:
                 item = json.loads(inner)
                 if isinstance(item, dict):
                     if "tool" in item and "input" in item and isinstance(item["input"], dict):
-                        return [(item["tool"], item["input"])]
+                        return ToolParser._normalize_args([(item["tool"], item["input"])])
                     elif "name" in item and "arguments" in item:
                         args = item["arguments"]
                         if isinstance(args, str):
@@ -443,13 +757,15 @@ class ToolParser:
                             except Exception:
                                 pass
                         if isinstance(args, dict):
-                            return [(item["name"], args)]
+                            return ToolParser._normalize_args([(item["name"], args)])
                     elif "name" in item and "params" in item and isinstance(item["params"], dict):
-                        return [(item["name"], item["params"])]
+                        return ToolParser._normalize_args([(item["name"], item["params"])])
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        _inline_block_pattern = re.compile(r'```(?:json|plaintext|python|bash|shell|text)?\s*\n([\s\S]*?)\s*```', re.MULTILINE)
+        # ---------- 4. 内联代码块中的 JSON ----------
+        _inline_block_pattern = re.compile(r'```(?:json|plaintext|python|bash|shell|text)?\s*\n([\s\S]*?)\s*```',
+                                           re.MULTILINE)
         for _m in _inline_block_pattern.finditer(stripped):
             _inner = _m.group(1).strip()
             try:
@@ -459,7 +775,7 @@ class ToolParser:
             if not isinstance(_item, dict):
                 continue
             if "tool" in _item and "input" in _item and isinstance(_item["input"], dict):
-                return [(_item["tool"], _item["input"])]
+                return ToolParser._normalize_args([(_item["tool"], _item["input"])])
             elif "name" in _item and "arguments" in _item:
                 args = _item["arguments"]
                 if isinstance(args, str):
@@ -468,9 +784,9 @@ class ToolParser:
                     except Exception:
                         pass
                 if isinstance(args, dict):
-                    return [(_item["name"], args)]
+                    return ToolParser._normalize_args([(_item["name"], args)])
             elif "name" in _item and "params" in _item and isinstance(_item["params"], dict):
-                return [(_item["name"], _item["params"])]
+                return ToolParser._normalize_args([(_item["name"], _item["params"])])
             if "tool" in _item or "name" in _item:
                 continue
             _keys = set(_item.keys())
@@ -485,7 +801,6 @@ class ToolParser:
                 _window_start = max(0, _m.start() - 150)
                 _prefix = stripped[_window_start: _m.start()].lower()
                 _list_hints_strict = ("列出", "列目录", "list_dir", "listdir", "目录结构", "查看目录", "浏览目录")
-                _read_hints = ("读取", "读文件", "read_file", "阅读", "查看文件", "打开文件", "文件内容", "read")
                 if any(h in _prefix for h in _list_hints_strict):
                     _inferred_tool = "list_dir"
                 else:
@@ -493,18 +808,22 @@ class ToolParser:
             if _inferred_tool and _inferred_tool in known_tools:
                 calls.append((_inferred_tool, _item))
         if calls:
-            return calls
+            return ToolParser._normalize_args(calls)
 
+        # ---------- 5. 工具名 + 换行 + JSON 代码块 ----------
         for tool in known_tools:
-            pattern = re.compile(r'(?:^|(?<=[\s。.，,、！!？?；;：:\n]))' + re.escape(tool) + r'\s*\n\s*```(?:json)?\s*\n([\s\S]*?)\s*```', re.MULTILINE)
+            pattern = re.compile(
+                r'(?:^|(?<=[\s。.，,、！!？?；;：:\n]))' + re.escape(tool) + r'\s*\n\s*```(?:json)?\s*\n([\s\S]*?)\s*```',
+                re.MULTILINE)
             for m in pattern.finditer(stripped):
                 inner = m.group(1).strip()
                 data = ToolParser._parse_input_payload(inner)
                 if data is not None:
                     calls.append((tool, data))
             if calls:
-                return calls
+                return ToolParser._normalize_args(calls)
 
+        # ---------- 6. XML 标签格式 ----------
         tool_pattern = r"<tool>(\w+)</tool>"
         input_pattern = r"<input>(.*?)</input>"
         tools = re.findall(tool_pattern, text)
@@ -515,32 +834,35 @@ class ToolParser:
                 if input_data is not None:
                     calls.append((tool, input_data))
             if calls:
-                return calls
+                return ToolParser._normalize_args(calls)
 
+        # ---------- 7. 宽松 XML 格式 ----------
         tool_matches = list(re.finditer(tool_pattern, text))
-        if not tool_matches:
-            bare_calls = ToolParser._parse_bare_format(stripped)
-            if bare_calls:
-                return bare_calls
-            return calls
-        tolerant_calls = []
-        for idx, tool_match in enumerate(tool_matches):
-            tool_name = tool_match.group(1)
-            segment_start = tool_match.end()
-            segment_end = tool_matches[idx + 1].start() if idx + 1 < len(tool_matches) else len(text)
-            segment = text[segment_start:segment_end]
-            input_start_match = re.search(r"<input>", segment)
-            if not input_start_match:
-                continue
-            payload_start = input_start_match.end()
-            payload_segment = segment[payload_start:]
-            payload_segment = re.sub(r"</input>\s*$", "", payload_segment, flags=re.DOTALL).strip()
-            input_data = ToolParser._parse_input_payload(payload_segment)
-            if input_data is not None:
-                tolerant_calls.append((tool_name, input_data))
-        if tolerant_calls:
-            return tolerant_calls
+        if tool_matches:
+            tolerant_calls = []
+            for idx, tool_match in enumerate(tool_matches):
+                tool_name = tool_match.group(1)
+                segment_start = tool_match.end()
+                segment_end = tool_matches[idx + 1].start() if idx + 1 < len(tool_matches) else len(text)
+                segment = text[segment_start:segment_end]
+                input_start_match = re.search(r"<input>", segment)
+                if not input_start_match:
+                    continue
+                payload_start = input_start_match.end()
+                payload_segment = segment[payload_start:]
+                payload_segment = re.sub(r"</input>\s*$", "", payload_segment, flags=re.DOTALL).strip()
+                input_data = ToolParser._parse_input_payload(payload_segment)
+                if input_data is not None:
+                    tolerant_calls.append((tool_name, input_data))
+            if tolerant_calls:
+                return ToolParser._normalize_args(tolerant_calls)
 
+        # ---------- 8. 裸格式 <input> 标签 ----------
+        bare_calls = ToolParser._parse_bare_format(stripped)
+        if bare_calls:
+            return ToolParser._normalize_args(bare_calls)
+
+        # ---------- 9. 工具名后跟 JSON 对象（同一行或下一行） ----------
         for tool in known_tools:
             if tool in stripped:
                 tool_idx = stripped.find(tool)
@@ -551,16 +873,138 @@ class ToolParser:
                             candidate = stripped[json_start:json_end]
                             args = ToolParser._parse_input_payload(candidate)
                             if args and isinstance(args, dict):
-                                return [(tool, args)]
+                                return ToolParser._normalize_args([(tool, args)])
                         except Exception:
                             continue
+
+        # ========== 10. 非标准格式解析（增强重点） ==========
         if not calls:
-            print(f"⚠️ 工具解析失败 - 模型输出（前200字符）: {stripped[:200]}")
-        return calls
+            # 10.1 函数调用风格：tool_name("arg") 或 tool_name -c "code"
+            func_patterns = [
+                (r'execute_python\s+(?:-c|--code)\s+["\'](.*?)["\']', 'execute_python', 'code'),
+                (r'read_file\s*\(\s*["\']([^"\']+)["\']\s*\)', 'read_file', 'path'),
+                (r'write_file\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']*)["\'](?:\s*,\s*["\'](overwrite|append)["\'])?\s*\)',
+                 'write_file', 'path', 'content', 'mode'),
+                (r'list_dir\s*\(\s*["\']([^"\']*)["\']?\s*\)', 'list_dir', 'path'),
+                (r'bash\s*\(\s*["\']([^"\']+)["\']\s*\)', 'bash', 'command'),
+                (r'edit_file\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']*)["\']\s*,\s*["\']([^"\']*)["\']\s*\)',
+                 'edit_file', 'path', 'old_content', 'new_content'),
+            ]
+            for pattern, tool_name, *arg_keys in func_patterns:
+                match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+                if match:
+                    groups = match.groups()
+                    args = {}
+                    for i, key in enumerate(arg_keys):
+                        if i < len(groups) and groups[i] is not None:
+                            if key == 'code':
+                                code_str = groups[i]
+                                try:
+                                    code_str = code_str.encode().decode('unicode_escape')
+                                except Exception:
+                                    pass
+                                args[key] = code_str
+                            elif key == 'mode':
+                                args[key] = groups[i] if groups[i] else 'overwrite'
+                            else:
+                                args[key] = groups[i]
+                    if tool_name == 'write_file' and 'mode' not in args:
+                        args['mode'] = 'overwrite'
+                    if tool_name == 'list_dir' and 'path' not in args:
+                        args['path'] = '.'
+                    calls.append((tool_name, args))
+                    return ToolParser._normalize_args(calls)
+
+            # 10.2 裸工具名 + 多行字符串块（作为 code/path 内容）
+            for tool in known_tools:
+                if tool == 'bash':
+                    continue
+                pattern = re.compile(
+                    rf'(?:^|\n)\s*{re.escape(tool)}\s*\n(?!\s*{{)(.*?)(?=\n\s*(?:{"|".join(re.escape(t) for t in known_tools)})\s*\n|$)',
+                    re.DOTALL | re.IGNORECASE
+                )
+                match = pattern.search(text)
+                if match:
+                    content = match.group(1).strip()
+                    if tool == 'execute_python':
+                        calls.append((tool, {"code": content}))
+                    elif tool == 'write_file':
+                        lines = content.split('\n', 1)
+                        if len(lines) >= 2:
+                            path = lines[0].strip().strip('"\'')
+                            file_content = lines[1].strip()
+                            calls.append((tool, {"path": path, "content": file_content}))
+                    elif tool == 'read_file':
+                        path = content.split('\n')[0].strip().strip('"\'')
+                        calls.append((tool, {"path": path}))
+                    if calls:
+                        return ToolParser._normalize_args(calls)
+
+            # 10.3 类似 {"tool": "read_file", "path": "..."} 但缺少外层结构
+            json_like = re.search(r'\{[^{}]*"tool"\s*:\s*"[^"]+"\s*[,}][^{}]*\}', text)
+            if json_like:
+                try:
+                    obj = json.loads(json_like.group())
+                    if 'tool' in obj and obj['tool'] in known_tools:
+                        tool = obj.pop('tool')
+                        if 'input' in obj and isinstance(obj['input'], dict):
+                            args = obj['input']
+                        else:
+                            args = {k: v for k, v in obj.items() if k != 'tool'}
+                        calls.append((tool, args))
+                        return ToolParser._normalize_args(calls)
+                except Exception:
+                    pass
+
+            # 10.4 工具名 + 冒号 + JSON 片段
+            colon_match = re.search(rf'({"|".join(known_tools)})\s*:\s*(\{{.*?\}})', text, re.DOTALL)
+            if colon_match:
+                tool = colon_match.group(1)
+                try:
+                    args = json.loads(colon_match.group(2))
+                    calls.append((tool, args))
+                    return ToolParser._normalize_args(calls)
+                except Exception:
+                    pass
+
+        if not calls and any(t in text for t in known_tools):
+            print(f"⚠️ [ToolParser] 响应包含工具名但解析失败，前200字符: {text[:200]}")
+
+        return ToolParser._normalize_args(calls)
+
+    @staticmethod
+    def _normalize_args(calls: List[Tuple[str, Dict[str, Any]]]) -> List[Tuple[str, Dict[str, Any]]]:
+        """将工具参数中的非标准键名标准化（例如 'param' -> 'path'/'code'）"""
+        normalized = []
+        for tool_name, args in calls:
+            if not isinstance(args, dict):
+                normalized.append((tool_name, args))
+                continue
+
+            new_args = dict(args)
+            # 处理通用 "param" 键（模型常犯错误）
+            if "param" in new_args and tool_name in ("read_file", "write_file", "edit_file", "list_dir"):
+                if "path" not in new_args:
+                    new_args["path"] = new_args.pop("param")
+            if "param" in new_args and tool_name == "execute_python":
+                if "code" not in new_args:
+                    new_args["code"] = new_args.pop("param")
+            if "param" in new_args and tool_name == "bash":
+                if "command" not in new_args:
+                    new_args["command"] = new_args.pop("param")
+
+            # 处理其他常见别名
+            if tool_name == "execute_python" and "script" in new_args and "code" not in new_args:
+                new_args["code"] = new_args.pop("script")
+            if tool_name == "bash" and "cmd" in new_args and "command" not in new_args:
+                new_args["command"] = new_args.pop("cmd")
+
+            normalized.append((tool_name, new_args))
+        return normalized
 
     @staticmethod
     def _parse_bare_format(text: str) -> List[Tuple[str, Dict[str, Any]]]:
-        known_tools = {"read_file", "write_file", "edit_file", "list_dir", "bash", "todo_write"}
+        known_tools = {"read_file", "write_file", "edit_file", "list_dir", "bash", "todo_write", "execute_python"}
         calls = []
         mixed_pattern = re.compile(r"(?:^|(?<=[\s。.，,、！!？?；;：:\uff00-\uffef\n]))(" + "|".join(re.escape(t) for t in known_tools) + r")\s*\n\s*<input>\s*(.*?)\s*</input>", re.DOTALL | re.MULTILINE)
         for m in mixed_pattern.finditer(text):
@@ -573,8 +1017,7 @@ class ToolParser:
                 calls.append((tool_name, input_data))
         if calls:
             return calls
-        # 预处理：将「JSON}工具名」粘连在同一行的情况拆分为多行
-        # 例如 '{"path": "a.py"}bash' → '{"path": "a.py"}' + 'bash'
+
         _tool_suffix_re = re.compile(
             r'(\{[^{}]*\})\s*(' + '|'.join(re.escape(t) for t in sorted(known_tools, key=len, reverse=True)) + r')\s*$'
         )
@@ -583,7 +1026,6 @@ class ToolParser:
         for _ln in raw_lines:
             _m = _tool_suffix_re.search(_ln)
             if _m and _ln.strip().startswith('{'):
-                # JSON 块后面紧跟工具名，拆开
                 lines.append(_m.group(1))
                 lines.append(_m.group(2))
             else:

@@ -1,803 +1,823 @@
-# QwenAgentFramework 项目完整理解文档
+# QwenAgentFramework 技术文档
 
-> 版本: 1.0  
-> 作者: AI Assistant  
-> 日期: 2026-03-28
-
-## 目录
-1. [项目概述](#1-项目概述)
-2. [核心架构设计](#2-核心架构设计)
-3. [模块详解](#3-模块详解)
-4. [执行流程分析](#4-执行流程分析)
-5. [关键技术点](#5-关键技术点)
-6. [设计哲学](#6-设计哲学)
-7. [附录: 核心类图](#附录-核心类图)
+## 智能体系统的架构、算法与数据流全解析
 
 ---
 
-## 1. 项目概述
+## 1. 系统总览：智能体的"数字城市"
 
-### 1.1 项目定位
-**QwenAgentFramework** 是一个专为 **Qwen2.5-0.5B** 本地模型设计的智能Agent框架，采用 **ReAct (Reasoning + Acting)** 模式，实现了完整的工具调用、技能系统、多Agent协作和意图路由能力。
+### 1.1 生动比喻
 
-### 1.2 核心特性矩阵
-| 特性 | 实现方式 | 创新点 |
-| :--- | :--- | :--- |
-| **ReAct 循环** | Thought -> Action -> Observation -> Reflection | 支持并行工具执行 |
-| **工具系统** | bash/read_file/write_file/edit_file/list_dir | 智能重试 + 模糊路径搜索 |
-| **技能系统** | 渐进式披露 (元数据->详细内容->资源) | 作为工具结果注入，保留缓存 |
-| **意图路由** | 双层路由：规则路由 + LLM语义路由 | 自动模式切换 |
-| **多Agent协作** | Planner + Executor + Reviewer | 任务拆解与质量审查 |
-| **持久化记忆** | SessionMemory + VectorMemory | 跨会话工具统计 |
-| **流式输出** | SSE实时展示执行进度 | 事件驱动架构 |
+想象这是一个**高度自治的数字城市**：
 
-### 1.3 项目结构
+- **ModeRouter** = 城市快递分拣中心（决定包裹去居民区还是工业区）
+- **QwenAgentFramework** = 城市执行中心（ReAct 循环 = 指挥大厅）
+- **VectorMemory** = 魔法图书馆（按语义而非字母排序书籍）
+- **ToolLearner** = 老工匠的笔记本（记录最佳工作流程）
+- **DeepReflection** = 质量控制局（故障诊断与策略调整）
+- **Skills** = 专业学院（PDF处理学院、代码审查学院等）
+
+### 1.2 架构拓扑图
+
 ```
-core/
-├── __init__.py                 # 模块入口，导出所有公共API
-├── agent_framework.py          # 核心框架：QwenAgentFramework
-├── agent_middlewares.py        # 13个中间件 + 基类
-├── agent_tools.py              # 工具执行器 + 解析器 + 注册表
-├── agent_skills.py             # 技能管理器 + 注入器
-├── mode_router.py              # 双层意图路由器
-├── multi_agent.py              # 多Agent协调器
-├── streaming_framework.py      # 流式输出框架
-├── tool_learner.py             # 工具学习系统
-├── tool_enforcement_middleware.py  # 工具强制调用中间件
-├── vector_memory.py            # 向量记忆系统
-├── prompts.py                  # 系统提示词模板
-└── web_agent_with_skills.py    # Gradio Web UI
-```
-
----
-
-## 2. 核心架构设计
-
-### 2.1 ReAct 模式实现
-```mermaid
-flowchart LR
-    A[Thought 思考] --> B[Action 行动]
-    B --> C[Observation 观察]
-    C --> D[Reflection 反思]
-    D --> A
-```
-
-**核心代码实现** (`agent_framework.py:run` 方法):
-```python
-def run(self, user_input, history=None, runtime_context=None):
-    messages = self._build_messages(user_input, history)
-    
-    for iteration in range(self.max_iterations):
-        # 1. Thought: 调用模型生成思考
-        response = self.model_forward_fn(messages, self.system_prompt)
-        
-        # 2. Action: 解析并执行工具
-        tool_calls = self.tool_parser.parse_tool_calls(response)
-        results = self._execute_tools(tool_calls)
-        
-        # 3. Observation: 格式化结果
-        observation = self._format_results(results)
-        
-        # 4. Reflection: 反思引擎分析
-        if self.reflection:
-            reflection = self.reflection.reflect_on_result(tool_name, result)
-```
-
-### 2.2 中间件链设计 (Middleware Chain)
-借鉴 **DeerFlow** 的中间件设计模式，实现 **AOP (面向切面编程)** 风格的上下文注入。
-
-```mermaid
-flowchart LR
-    subgraph 请求流程
-        A[User Input] --> B[Middleware1<br/>(RuntimeMode)]
-        B --> C[Middleware2<br/>(PlanMode)]
-        C --> D[LLM]
-    end
-    subgraph 响应流程
-        D --> E[Middleware4<br/>(Summary)]
-        E --> F[Middleware3<br/>(ToolGuard)]
-        F --> G[User Output]
-    end
-```
-
-**核心中间件列表**:
-| 中间件 | 职责 | 执行时机 | 设计亮点 |
-| :--- | :--- | :--- | :--- |
-| `RuntimeModeMiddleware` | 注入运行模式提示 | before_model | 支持chat/tools/skills/hybrid |
-| `PlanModeMiddleware` | 注入计划模式约束 | before_model | 工具模式下调整提示策略 |
-| `SkillsContextMiddleware` | 注入技能上下文 | before_model | 渐进式披露 |
-| `UploadedFilesMiddleware` | 注入上传文件元数据 | before_model | 支持PDF处理 |
-| `ToolResultGuardMiddleware` | 标准化工具结果 | after_tool_call | 统一JSON结构 |
-| `TodoContextMiddleware` | 任务状态追踪 | before_model | 上下文丢失检测 |
-| `ConversationSummaryMiddleware` | 对话压缩 | before_model | LLM语义摘要+规则摘要 |
-| `CompletenessMiddleware` | 完整性原则 | before_model | gstack Boil the Lake哲学 |
-| `AskUserQuestionMiddleware` | 结构化提问格式 | after_model | Re-ground/Simplify/Recommend/Options |
-| `CompletionStatusMiddleware` | 完成状态协议 | before_model | DONE/BLOCKED/NEEDS_CONTEXT |
-| `SearchBeforeBuildingMiddleware` | 搜索优先原则 | before_model | 三层知识体系 |
-| `RepoOwnershipMiddleware` | 仓库所有权模式 | before_model | solo/collaborative/unknown |
-
-### 2.3 双层意图路由系统
-```mermaid
-flowchart TD
-    A[用户输入] --> B[规则路由<br/>(快速:正则+关键词匹配)]
-    B --> C{置信度 >= 0.70?}
-    C -->|Yes| D[返回匹配结果]
-    C -->|No| E[LLM语义路由<br/>(精确:语义理解)]
-    E --> D
-```
-
-**模式映射关系**:
-| 检测模式 | 映射运行模式 | 触发条件 |
-| :--- | :--- | :--- |
-| `chat` | chat | 闲聊、知识问答 |
-| `tools` | tools | 文件操作、命令执行 |
-| `skills` | skills | 使用外部知识库 |
-| `hybrid` | hybrid | 技能+工具结合 |
-| `plan` | tools + plan_mode=True | 复杂任务拆解 |
-| `multi_agent` | multi_agent | 规划-执行-审查 |
-| `streaming` | tools + streaming | 实时进度展示 |
-
----
-
-## 3. 模块详解
-
-### 3.1 agent_framework.py - 核心引擎
-
-#### 3.1.1 SessionMemory - 持久化会话记忆
-```python
-class SessionMemory:
-    """会话记忆 + 工具使用统计 + 持久化"""
-    
-    def __init__(self, memory_dir: str = ".agent_memory"):
-        self.tool_stats = defaultdict(lambda: {"success": 0, "failed": 0, "avg_time": 0})
-        self.memory_file = self.memory_dir / "session_memory.pkl"
-        self._load_from_disk()  # 启动时恢复
-        
-    def update_tool_stats(self, tool_name: str, success: bool, exec_time: float):
-        """更新工具成功率统计，用于后续推荐"""
-        
-    def get_tool_recommendation(self, task_type: str) -> List[str]:
-        """基于历史推荐工具：按成功率排序"""
-```
-
-**设计亮点**:
-- 使用 **pickle** 持久化，支持复杂Python对象
-- 工具成功率统计实现 **反馈学习**
-- 跨会话记忆保留最近3次会话的关键信息
-
-#### 3.1.2 ReflectionEngine - 反思引擎
-```python
-class ReflectionEngine:
-    """ReAct 模式的反思组件"""
-    
-    @staticmethod
-    def reflect_on_result(tool_name: str, result: Dict, expected: str = None) -> Dict:
-        """
-        反思工具执行结果，返回:
-        - success: 是否成功
-        - analysis: 错误分类分析
-        - suggestions: 改进建议列表
-        """
-        
-    @staticmethod
-    def should_continue(history: List[Dict], max_failed: int = 3) -> Tuple[bool, str]:
-        """判断是否应该继续（连续失败检测）"""
-```
-
-**错误分类策略**:
-| 错误类型 | 检测关键词 | 建议策略 |
-| :--- | :--- | :--- |
-| 文件不存在 | "not found" | 使用list_dir确认路径 |
-| 权限不足 | "permission" | 检查文件权限 |
-| 语法错误 | "syntax", "invalid" | 检查参数格式 |
-| 未知错误 | 其他 | 换用其他工具 |
-
-#### 3.1.3 智能上下文压缩
-```python
-def _compress_context_smart(self, messages: List[Dict], limit=6000) -> List[Dict]:
-    """智能压缩 - 基于语义重要性保留关键消息"""
-    
-    # 1. 计算消息重要性（关键词密度 + 角色权重）
-    scores = self.memory.compute_message_importance(messages)
-    
-    # 2. 保留最近6条完整消息
-    recent = user_assistant[-6:]
-    
-    # 3. 旧消息按重要性排序，保留top-3
-    important_msgs = [msg for msg, _ in scored_msgs[:3]]
-    
-    # 4. 生成历史摘要
-    summary_text = self.memory.build_context_summary(old)
-```
-
-**重要性计算算法**:
-```python
-def compute_message_importance(self, messages: List[Dict]) -> List[float]:
-    keywords = ["error", "failed", "success", "file", "path", "tool", "result"]
-    
-    for msg in messages:
-        content = msg.get("content", "").lower()
-        # 基于关键词密度
-        score = sum(1 for kw in keywords if kw in content)
-        # 用户消息权重更高
-        if msg.get("role") == "user":
-            score *= 1.5
-        # 工具结果权重更高
-        if "✅" in content or "❌" in content:
-            score *= 1.3
-        scores.append(score)
-```
-
-### 3.2 agent_tools.py - 工具系统
-
-#### 3.2.1 模糊路径搜索策略
-```python
-def _fuzzy_find_file(self, filename: str, search_home: bool = True) -> Optional[Path]:
-    """
-    三级模糊搜索策略:
-    1. 在 work_dir 递归搜索（速度快，最优先）
-    2. 在用户家目录递归搜索（若search_home=True）
-    3. 返回 None，调用方提示用户
-    
-    跳过: .git, __pycache__, node_modules, .venv 等
-    """
-    SKIP_DIRS = {
-        ".git", "__pycache__", "node_modules", ".venv", "venv",
-        ".tox", "dist", "build", ".mypy_cache", ".pytest_cache"
-    }
-```
-
-**路径解析优先级**:
-1. **绝对路径**: 直接使用，不做模糊搜索
-2. **相对路径拼接**: `work_dir / path`
-3. **直接路径尝试**: 检查文件是否存在
-4. **模糊搜索**: 递归搜索文件名匹配
-5. **错误提示**: 提供详细的搜索失败信息
-
-#### 3.2.2 工具调用解析器 (ToolParser)
-支持 **8种格式** 的工具调用:
-| 格式 | 示例 | 适用场景 |
-| :--- | :--- | :--- |
-| XML标记 | `<tool>bash</tool><input>{"cmd":"ls"}</input>` | 标准格式 |
-| JSON数组 | `[{"tool":"bash","input":{"cmd":"ls"}}]` | 批量调用 |
-| JSON对象 | `{"tool":"bash","input":{"cmd":"ls"}}` | 单工具调用 |
-| function_call | `{"name":"bash","arguments":{"cmd":"ls"}}` | OpenAI兼容 |
-| Markdown代码块 | ```json\n{"tool":"bash"...}\n``` | 模型常见输出 |
-| 工具名+代码块 | `bash\n```json\n{"cmd":"ls"}\n```` | GLM风格 |
-| 裸格式 | `bash\n{"cmd":"ls"}` | 简化格式 |
-| 单行混合 | `执行命令：bash\n{"cmd":"ls"}` | 自然语言+工具 |
-
-**容错策略**:
-```python
-@staticmethod
-def _parse_input_payload(input_str: str) -> Optional[Dict[str, Any]]:
-    """解析工具输入，容忍轻微 JSON 格式问题"""
-    
-    # 策略1: 直接 json.loads
-    try:
-        return json.loads(payload)
-    except:
-        pass
-    
-    # 策略2: 补齐缺失右括号
-    if missing_right_brace > 0:
-        repaired = payload + ("}" * missing_right_brace)
-        
-    # 策略3: 修复非法 JSON 转义序列（\\s \\; \\( 等）
-    # 将非法转义替换为双反斜杠
-```
-
-#### 3.2.3 工具注册表 (ToolRegistry)
-借鉴 **DeerFlow** 的插件化设计:
-```python
-class ToolRegistry:
-    """工具注册表：支持动态注册自定义工具"""
-    
-    def register(self, name: str, description: str, 
-                 input_schema: Dict, handler, enabled: bool = True):
-        """注册自定义工具"""
-        
-    def execute(self, tool_name: str, tool_input: Dict) -> Optional[str]:
-        """执行注册的工具"""
-```
-
-**设计哲学**: 内置工具由 ToolExecutor 管理，扩展工具通过 ToolRegistry 动态注册，实现 **开放封闭原则**。
-
-### 3.3 agent_skills.py - 技能系统
-
-#### 3.3.1 渐进式披露架构
-```mermaid
-flowchart TD
-    A[第1层: 元数据<br/>(始终加载)] --> B[name: 技能名称]
-    A --> C[description: 功能描述]
-    A --> D[tags: 分类标签]
-    E[第2层: 详细内容<br/>(按需加载)] --> F[SKILL.md 完整内容]
-    G[第3层: 资源文件<br/>(需要时加载)] --> H[scripts/ 可执行脚本]
-    G --> I[references/ 参考文档]
-```
-
-**缓存友好注入策略**:
-```python
-def inject_skills_to_context(self, messages, relevant_skills, include_full_content=False):
-    """
-    关键洞察: 技能作为工具结果 (用户消息) 注入,
-    而不是系统提示词。这保留了提示词缓存!
-    
-    错误: 编辑系统提示词 (缓存失效)
-    正确: 添加工具结果 (缓存命中) ✅
-    """
-    skill_injection_msg = {
-        "role": "user",  # 作为用户消息，不是system
-        "content": f"[可用技能]\n\n{skills_context}"
-    }
-    # 插入到最后一个用户消息之前
-    updated_messages.insert(-1, skill_injection_msg)
-```
-
-#### 3.3.2 SKILL.md 格式规范
-```markdown
----
-name: PDF 处理
-description: 使用 pdftotext 或 PyMuPDF 处理 PDF 文件
-tags: [pdf, document, parsing, extraction]
-license: MIT
-resources:
-  - references/pdf_spec.md
-  - scripts/extract.py
----
-
-# PDF 处理技能
-
-## 概述
-处理 PDF 文件的系统性方法...
-
-## 最佳实践
-1. **文本提取工具选择**: ...
-
-## 命令示例
-```bash
-pdftotext input.pdf output.txt
-```
-```
-
-### 3.4 multi_agent.py - 多Agent协作
-
-#### 3.4.1 Planner-Executor-Reviewer 架构
-```mermaid
-flowchart LR
-    A[Planner<br/>规划Agent] --> B[Executor<br/>执行Agent]
-    B --> C[Reviewer<br/>审查Agent]
-    A --> D[任务分解<br/>复杂度评估<br/>生成TODO]
-    B --> E[工具调用<br/>步骤执行<br/>错误处理]
-    C --> F[质量评估<br/>改进建议<br/>完成判定]
-```
-
-**PlannerAgent 实现**:
-```python
-def plan(self, user_input: str, context: Optional[Dict] = None) -> Dict:
-    """生成执行计划，返回严格JSON格式"""
-    system_prompt = """你是任务规划助手。将用户需求分解为2-4个具体步骤。
-    
-    返回格式（严格 JSON）：
-    {
-      "complexity": "simple|medium|complex",
-      "steps": [
-        {"id": 1, "action": "步骤描述", "tool": "可用工具之一"},
-        {"id": 2, "action": "步骤描述", "tool": "none"}
-      ]
-    }
-    """
-```
-
-**ExecutorAgent 工具参数提取**:
-```python
-def _extract_tool_args(self, action: str, tool: str) -> Dict[str, str]:
-    """
-    五级参数提取策略:
-    1. 匹配带扩展名的文件名 (api.md, config.py)
-    2. 匹配引号内的内容
-    3. 匹配关键词后的内容
-    4. 匹配相对路径
-    5. 匹配中文动词后的内容
-    """
-```
-
-#### 3.4.2 跨轮记忆机制
-```python
-def run(self, user_input: str, context: Optional[Dict] = None) -> Dict:
-    """
-    支持跨轮任务进度记忆:
-    - completed_steps: 上一轮已完成的步骤列表
-    - previous_task: 上一轮的任务描述
-    - files_touched: 已操作的文件路径列表
-    - current_task: 当前任务标识
-    """
-    plan_context = {
-        "completed_steps": context.get("completed_steps", []),
-        "previous_task": context.get("previous_task"),
-        "files_touched": context.get("files_touched", []),
-        "current_task": context.get("current_task", "")
-    }
-```
-
-### 3.5 mode_router.py - 双层意图路由
-
-#### 3.5.1 规则路由实现
-```python
-def _rule_based_detect(self, user_input: str, context: Optional[Dict] = None) -> Dict:
-    # 0. 直接命令检测（最高优先级）
-    direct_cmd = DirectCommandDetector.detect(user_input)
-    
-    # 1. 路径强信号先行判断
-    if self._PATH_PATTERN.search(user_input):
-        return {"recommended_mode": "tools", "confidence": 0.92}
-    
-    # 2. 关键词匹配计分
-    for mode, pattern in self.mode_patterns.items():
-        match_count = sum(1 for kw in keywords if kw in user_input_lower)
-        score = match_count * priority
-```
-
-#### 3.5.2 LLM语义路由
-```python
-def _llm_based_detect(self, user_input: str, context: Optional[Dict] = None) -> Optional[Dict]:
-    """
-    LLM意图路由系统提示:
-    - 背景重申 (Re-ground)
-    - 简化说明 (Simplify)
-    - 推荐模式 (Recommend)
-    - 选项展示 (Options)
-    """
-    SUMMARY_SYSTEM = """你是意图路由专家...
-    
-    分析指南：
-    1. 如果用户提到"看看"、"读读"、"文件" -> 路由到 tools
-    2. 如果用户说"帮我写"、"设计一个" -> 路由到 plan
-    3. 如果用户问"什么是"、"为什么" -> 路由到 chat
-    
-    输出格式: {"mode": "tools", "confidence": 0.9, "reason": "..."}
-    """
-```
-
-#### 3.5.3 追问上下文继承
-```python
-def analyze(self, user_message, uploaded_files=None, chat_history=None):
-    # 追问继承：检测"之前/上次/刚才"等关键词
-    _followup_patterns = re.compile(
-        r'(之前|上次|刚才|刚刚|上一轮|上一条|查看|回顾|总结|再说一遍|'
-        r'什么问题|聊过什么|聊了什么|问过什么|说了什么|记录|历史|'
-        r'前面|那个|之前说|你刚|you said|previous|last|above)'
-    )
-    
-    # 若检测到追问，注入上一轮工具执行结果摘要
-    if _is_followup and chat_history:
-        inherited_context = self._extract_history_summary(chat_history)
+┌─────────────────────────────────────────────────────────────────┐
+│                         Web UI (Gradio)                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │  Model Engine│  │  Mode Router │  │   Skill Manager      │  │
+│  │ (Qwen/GLM)   │  │(Intent Class)│  │  (Knowledge Base)    │  │
+│  └──────┬───────┘  └──────┬───────┘  └──────────┬───────────┘  │
+└─────────┼─────────────────┼─────────────────────┼──────────────┘
+          │                 │                     │
+          ▼                 ▼                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    QwenAgentFramework (Core)                    │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │               Middleware Chain (Pre-process)             │  │
+│  │  RuntimeMode → PlanMode → Skills → UploadedFiles → ...  │  │
+│  └──────────────────────┬───────────────────────────────────┘  │
+│                         ▼                                       │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │                  ReAct Loop Engine                        │  │
+│  │   ┌──────────┐   ┌──────────┐   ┌──────────────┐        │  │
+│  │   │  Thought │ → │  Action  │ → │ Observation  │        │  │
+│  │   │Generator │   │ (Tool LLM│   │  (Tool Exec) │        │  │
+│  │   └──────────┘   └────┬─────┘   └──────┬───────┘        │  │
+│  │                        │                 │               │  │
+│  │   ┌────────────────────┴─────────────────┴──────────┐   │  │
+│  │   │              DeepReflectionEngine                │   │  │
+│  │   │  ┌──────────────┐    ┌──────────────────────┐   │   │  │
+│  │   │  │ Failure      │    │ Success Pattern      │   │   │  │
+│  │   │  │ Analysis     │    │ Recording            │   │   │  │
+│  │   │  └──────────────┘    └──────────────────────┘   │   │  │
+│  │   └─────────────────────────────────────────────────┘   │  │
+│  └──────────────────────┬───────────────────────────────────┘  │
+│                         ▼                                       │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │              Tool Execution Layer                         │  │
+│  │   ┌─────────┐  ┌──────────┐  ┌──────────┐  ┌─────────┐  │  │
+│  │   │Parallel │  │ Sequential│  │  Bash    │  │ File    │  │  │
+│  │   │Executor │  │ Executor  │  │ Executor │  │ Ops     │  │  │
+│  │   └─────────┘  └──────────┘  └──────────┘  └─────────┘  │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │
+          ┌───────────────┼───────────────┐
+          ▼               ▼               ▼
+┌─────────────────┐ ┌──────────────┐ ┌──────────────────┐
+│ VectorMemory    │ │AdaptiveTool  │ │ MultiAgent       │
+│ (Semantic Store)│ │Learner       │ │ Orchestrator     │
+│                 │ │(Markov Chain)│ │ (Planner-Executor│
+│ • Embedding     │ │              │ │  -Reviewer)      │
+│ • Hierarchical  │ │ • Transition │ │                  │
+│ • Time Decay    │ │   Matrix     │ │ • Plan Mode      │
+└─────────────────┘ └──────────────┘ └──────────────────┘
 ```
 
 ---
 
-## 4. 执行流程分析
+## 2. 核心组件深度解析
 
-### 4.1 完整请求处理流程
-```mermaid
-flowchart TD
-    A[用户输入] --> B[意图路由分析<br/>ModeRouter]
-    B --> C[模式选择<br/>run_mode]
-    C --> D{多Agent模式?}
-    D -->|Yes| E[PlannerAgent<br/>任务分解]
-    D -->|No| F{技能注入?}
-    E --> G[ExecutorAgent<br/>步骤执行]
-    G --> H[ReviewerAgent<br/>结果审查]
-    H --> I[生成最终回答]
-    F -->|Yes| J[技能上下文注入]
-    F -->|No| K[中间件链处理]
-    J --> K
-    K --> L[ReAct工具循环<br/>max_iter=50]
-    I --> M[结果返回 + 日志<br/>SessionLogger]
-    L --> M
-```
+### 2.1 主执行流程（`agent_framework.py`）
 
-### 4.2 ReAct 循环详细流程
+**入口函数 `run()` → 生成器 `_run_iter()` → 工具执行 → 反思 → 输出**
+
 ```python
-# 伪代码展示单次迭代
-for iteration in range(max_iterations):
-    # 1. 上下文管理
-    messages = _compress_context_smart(messages)      # 智能压缩
-    messages = _inject_task_context(messages)         # 注入任务进度
-    messages = _inject_reflection(messages)           # 注入反思建议
+# 伪代码表示核心流程
+def run(user_input):
+    # 1. 初始化上下文
+    chain_id = generate_uuid()
+    messages = build_messages(user_input)
     
-    # 2. 中间件预处理
-    for mw in middlewares:
-        messages = mw.process_before_llm(messages, runtime_context)
-    
-    # 3. 模型调用
-    response = model_forward_fn(messages, system_prompt)
-    
-    # 4. 工具解析
-    tool_calls = tool_parser.parse_tool_calls(response)
-    
-    if not tool_calls:
-        # 无工具调用 -> 任务完成
-        break
-    
-    # 5. 并行/串行执行
-    parallel_tools, sequential_tools = _detect_parallel_tools(tool_calls)
-    parallel_results = _execute_tools_parallel(parallel_tools)
-    sequential_results = [_execute_single_tool(tc) for tc in sequential_tools]
-    
-    # 6. 结果格式化 + 反思
-    observation = _format_results(results)
-    reflection = reflection_engine.reflect_on_result(tool_name, result)
-    
-    # 7. 循环检测
-    if _detect_loop():  # 3次相同失败自动中断
-        break
-    
-    # 8. 回注结果，进入下一轮
-    messages.append({"role": "assistant", "content": response})
-    messages.append({"role": "user", "content": observation})
-```
-
----
-
-## 5. 关键技术点
-
-### 5.1 并行工具执行
-```python
-def _detect_parallel_tools(self, tool_calls: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
-    """检测可并行执行的工具"""
-    parallel_tools = []
-    sequential_tools = []
-    
-    for tc in tool_calls:
-        # 只读工具可并行（无状态副作用）
-        if tc["name"] in ["read_file", "list_dir"]:
-            parallel_tools.append(tc)
-        else:
-            # 写入工具必须串行（避免竞态条件）
-            sequential_tools.append(tc)
-    
-    return parallel_tools, sequential_tools
-
-def _execute_tools_parallel(self, tool_calls: List[Dict]) -> List[Dict]:
-    """使用 ThreadPoolExecutor 并行执行"""
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {executor.submit(_execute_single_tool, tc): tc 
-                  for tc in tool_calls}
-        for future in as_completed(futures):
-            result = future.result()
-```
-
-**设计原理**: 基于 **读写分离** 原则，只读操作无状态副作用，可安全并行；写入操作可能产生竞态条件，必须串行。
-
-### 5.2 智能重试机制
-```python
-def _try_fix(self, tool: str, args: Dict, error: str) -> Optional[Dict]:
-    """智能重试：自动修复常见错误"""
-    
-    # 场景1: grep 转义问题
-    if tool == "bash" and "grep" in args.get("command", ""):
-        cmd = args["command"]
-        if "\\(" in cmd and "\\\\(" not in cmd:
-            return {"command": cmd.replace("\\(", "(")}
-    
-    # 场景2: 路径补全
-    if tool in ["read_file", "edit_file"] and "not found" in error.lower():
-        path = args.get("path", "")
-        if not path.startswith("/") and not path.startswith("."):
-            return {"path": f"./{path}"}
-    
-    return None  # 无法自动修复
-```
-
-### 5.3 循环检测机制
-```python
-def _detect_loop(self, max_same=3) -> bool:
-    """多层次循环检测"""
-    
-    # 检测1: 连续 max_same 次相同调用
-    if len(self.tool_history) >= max_same:
-        recent = self.tool_history[-max_same:]
-        if all(h["tool"] == recent[0]["tool"] and 
-               h["args"] == recent[0]["args"] for h in recent):
-            return True
-    
-    # 检测2: 全局累计相同调用超过5次（防止极端死循环）
-    _call_counts = {}
-    for h in self.tool_history:
-        key = f"{h['tool']}|{h['args']}"
-        _call_counts[key] = _call_counts.get(key, 0) + 1
-    if any(cnt >= 5 for cnt in _call_counts.values()):
-        return True
-    
-    return False
-```
-
-### 5.4 向量记忆实现
-使用 **TF-IDF** 作为简化版 embedding:
-```python
-class VectorMemory:
-    def _compute_embedding(self, text: str) -> List[float]:
-        """计算文本的 TF-IDF embedding"""
-        tokens = self._tokenize(text)
-        tf = self._compute_tf(tokens)
+    # 2. ReAct 迭代循环（最多50轮）
+    for iteration in range(max_iterations):
+        # 2.1 上下文压缩与注入
+        messages = compress_context(messages)  # 6000字符限制
+        messages = inject_task_context(messages)  # 进度追踪
+        messages = inject_reflection(messages)    # 反思提示
         
-        # 构建向量
-        embedding = [0.0] * len(self.vocabulary)
-        for token, tf_value in tf.items():
-            if token in self.vocabulary:
-                idx = self.vocabulary[token]
-                idf_value = self.idf.get(token, 1.0)
-                embedding[idx] = tf_value * idf_value
+        # 2.2 LLM 生成 Thought + Action
+        response = llm_forward(messages, system_prompt)
         
-        # L2 归一化
-        norm = math.sqrt(sum(x * x for x in embedding))
-        if norm > 0:
-            embedding = [x / norm for x in embedding]
+        # 2.3 解析工具调用
+        tool_calls = ToolParser.parse(response)
         
-        return embedding
-    
-    def search(self, query: str, top_k: int = 3) -> List[Dict]:
-        """语义检索：基于余弦相似度"""
-        query_emb = self._compute_embedding(query)
-        similarities = [
-            (i, self._cosine_similarity(query_emb, emb))
-            for i, emb in enumerate(self.embeddings)
-        ]
-        similarities.sort(key=lambda x: x[1], reverse=True)
-        return [self.memories[i] for i, _ in similarities[:top_k]]
+        if not tool_calls:
+            # 检查是否任务完成
+            if looks_finished(response):
+                return final_response
+            else:
+                # 格式错误，注入纠正提示
+                messages.append(format_correction)
+                continue
+        
+        # 2.4 并行/串行工具执行
+        parallel, sequential = detect_parallel_tools(tool_calls)
+        results = execute_parallel(parallel) + execute_sequential(sequential)
+        
+        # 2.5 反思引擎处理
+        for result in results:
+            reflection = reflection_engine.reflect(tool_name, result)
+            if reflection.level == "strategic":
+                # 连续失败3次则中断
+                if should_stop(reflection_history):
+                    return "任务中断"
+        
+        # 2.6 更新记忆
+        vector_memory.add(content=result, tool_chain_id=chain_id)
+        tool_learner.record_usage(task_type, tool_name, success)
+        
+        # 2.7 构造 Observation 反馈给 LLM
+        observation = format_results(results)
+        messages.append({"role": "user", "content": observation})
 ```
 
----
+### 2.2 数据处理流向图
 
-## 6. 设计哲学
-
-### 6.1 核心设计原则
-| 原则 | 实现方式 | 示例 |
-| :--- | :--- | :--- |
-| **渐进式披露** | 技能系统三层加载 | 元数据->详细内容->资源文件 |
-| **缓存友好** | 技能作为用户消息注入 | 不修改system prompt |
-| **防御性编程** | 8种工具格式解析 + 智能重试 | 兼容GLM/Qwen不同输出风格 |
-| **反馈学习** | ToolLearner记录成功率 | 基于历史推荐工具 |
-| **可观测性** | SessionLogger完整记录 | 执行日志 + 模型调用日志 |
-| **优雅降级** | 工具模式失败->对话模式 | 异常捕获 + 模式切换 |
-
-### 6.2 与主流框架的差异化
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    架构定位对比                            │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  LangChain: 通用框架，强调生态集成                           │
-│     └── 抽象层级高，学习曲线陡峭                             │
-│                                                             │
-│  LangGraph: 工作流引擎，强调状态机                            │
-│     └── 图结构编排，适合复杂流程                             │
-│                                                             │
-│  QwenAgentFramework: 垂直优化，强调本地模型适配                │
-│     └── 为 Qwen2.5-0.5B 量身定制                            │
-│     └── 双层意图路由 + 渐进式技能系统                         │
-│     └── 完整的工具容错 + 智能重试                            │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+用户输入
+    │
+    ▼
+[ModeRouter] ──► 意图识别 (置信度校准)
+    │
+    ├──► Chat 模式 ──► 直接生成回复
+    │
+    ├──► Tools 模式 ──► 进入 ReAct 循环
+    │       │
+    │       ▼
+    │   [Middleware Chain]
+    │       │
+    │       ├──► RuntimeModeMiddleware (注入模式提示)
+    │       ├──► SkillsContextMiddleware (注入技能知识)
+    │       └──► UploadedFilesMiddleware (处理PDF/文件)
+    │       │
+    │       ▼
+    │   [QwenAgentFramework._run_iter]
+    │       │
+    │       ├──► 上下文压缩 (_compress_context_smart)
+    │       │       └──► 余弦相似度计算 (向量检索)
+    │       │
+    │       ├──► LLM 前向传播 (generate_stream)
+    │       │       └──► Transformer 解码 (自注意力计算)
+    │       │
+    │       ├──► 工具解析 (ToolParser.parse_tool_calls)
+    │       │       └──► 正则匹配 + JSON 解析 + 容错修复
+    │       │
+    │       ├──► 并行检测 (_detect_parallel_tools)
+    │       │       └──► 读写分离算法 (读操作可并行)
+    │       │
+    │       ├──► 工具执行 (_execute_single_tool)
+    │       │       ├──► 前置中间件处理
+    │       │       ├──► 沙箱执行 (bash/read_file)
+    │       │       └──► 后置中间件 (ToolResultGuard)
+    │       │
+    │       ├──► 反思引擎 (DeepReflectionEngine)
+    │       │       ├──► 错误模式匹配 (正则表达式)
+    │       │       ├──► 转移矩阵更新 (马尔可夫链)
+    │       │       └──► 成功率计算 (贝叶斯统计)
+    │       │
+    │       └──► 记忆更新 (VectorMemory)
+    │               ├──► Embedding 计算 (SentenceTransformer)
+    │               ├──► 余弦相似度索引
+    │               └──► 时间衰减加权 (指数函数)
+    │
+    └──► Plan 模式 ──► [MultiAgentOrchestrator]
+            │
+            ├──► PlannerAgent (任务分解)
+            │       └──► LLM 生成 JSON 计划
+            │
+            ├──► ExecutorAgent (逐步执行)
+            │       └──► 每步调用 ReAct 框架
+            │
+            └──► ReviewerAgent (质量检查)
+                    └──► 成功率评估 + 建议生成
 ```
 
-### 6.3 关键技术决策
+### 2.2 ModeRouter：智能分拣员的决策算法
 
-**决策1: 为什么使用 pickle 而不是 JSON 持久化？**
+#### 概念与比喻
+
+**ModeRouter** 是系统的"快递分拣中心"。当用户请求（包裹）到达时，它必须在 **10ms** 内决定送往哪个通道：
+
+- **Chat 通道**：普通信件（闲聊、知识问答）
+- **Tools 通道**：需要开箱检查的包裹（文件操作、命令执行）
+- **Skills 通道**：专业设备处理（PDF处理、代码审查）
+- **Plan 模式**：大件货物拆分（复杂任务分解）
+
+#### 数学模型：贝叶斯意图识别
+
+**输入示例**：`"读取 /tmp/data.txt 并分析其中的错误日志"`
+
+**步骤 1：特征提取（TF-IDF 向量化）**
+
 ```python
-# 选择 pickle 的原因:
-# 1. 支持复杂 Python 对象（defaultdict, datetime 等）
-# 2. 无需自定义序列化逻辑
-# 3. 读写速度快
-# 
-# 权衡: 非人类可读，但 SessionMemory 是内部实现细节
+# 词频向量构建（简化版）
+词频向量 = {
+    "读取": 1,      # 文件操作动词，权重 +3
+    "/tmp/data.txt": 1,  # 绝对路径，权重 +2
+    "分析": 1,      # 处理动词，权重 +1
+    "错误日志": 1   # 领域词汇，权重 +1
+}
 ```
 
-**决策2: 为什么使用 TF-IDF 而不是外部 embedding 模型？**
+**步骤 2：贝叶斯后验计算**
+
+$$
+P(\text{Intent}|\text{Evidence}) = \frac{P(\text{Intent}) \cdot \prod_{i} P(\text{feature}_i|\text{Intent})}{P(\text{Evidence})}
+$$
+
+具体计算：
+
 ```python
-# 选择 TF-IDF 的原因:
-# 1. 零外部依赖，无需下载模型
-# 2. CPU 计算快，适合本地运行
-# 3. 对于短文本检索效果足够
-# 
-# 权衡: 语义理解能力弱于神经网络，但可通过关键词密度补偿
+# 先验概率（历史数据统计）
+P(Tools) = 0.4;  P(Chat) = 0.5;  P(Skills) = 0.1
+
+# 似然计算
+P(路径|Tools) = 0.95
+P(读取|Tools) = 0.90
+P(分析|Tools) = 0.60
+
+# 联合概率
+P(Tools|证据) ∝ 0.4 × 0.95 × 0.90 × 0.60 = 0.2052
+P(Chat|证据) ∝ 0.5 × 0.05 × 0.10 × 0.30 = 0.00075
+P(Skills|证据) ∝ 0.1 × 0.20 × 0.20 × 0.40 = 0.0016
+
+# 归一化（Softmax）
+总分 = 0.2052 + 0.00075 + 0.0016 = 0.20755
+置信度(Tools) = 0.2052 / 0.20755 ≈ 0.988  # 98.8% 置信度
 ```
 
-**决策3: 为什么采用中间件链而不是装饰器？**
+**步骤 3：温度校准（Temperature Calibration）**
+
+<br/>
+
+当系统运行一段时间后，发现路由器"过于自信"（预测90%但实际只有70%准确），启动校准：
+
+$$
+\text{Calibrated} = \frac{\text{Raw}}{T} + \text{bias}
+$$
+
 ```python
-# 选择中间件链的原因:
-# 1. 支持动态增删中间件
-# 2. 统一的 before/after 钩子接口
-# 3. 便于测试和替换单个中间件
-# 
-# 权衡: 比装饰器稍复杂，但更灵活
+# 实际运行数据
+预测置信度 = [0.9, 0.8, 0.95, 0.7, 0.85]
+实际准确率 = [0.7, 0.75, 0.60, 0.80, 0.70]  # 系统过自信
+
+# 计算期望校准误差 (ECE)
+ECE = Σ|预测_i - 实际_i| / n = 0.17
+
+# 自适应调整温度
+if ECE > 0.2:
+    T *= 1.1  # 增加温度，平滑分布（降低自信）
+elif ECE < 0.1:
+    T *= 0.95  # 降低温度，锐化分布
+```
+
+**输出决策**：
+
+```json
+{
+    "intent": "tools",
+    "confidence": 0.988,
+    "router_type": "rule",
+    "reasoning": "匹配路径模式(/tmp/data.txt) + 操作动词(读取)",
+    "suggested_params": {
+        "temperature": 0.3,  # 低温度，确定性输出
+        "max_tokens": 2048
+    }
+}
 ```
 
 ---
 
-## 附录: 核心类图
-```mermaid
-classDiagram
-    class QwenAgentFramework {
-        -model_forward_fn
-        -tool_executor
-        -tool_parser
-        -memory
-        -reflection
-        -middlewares[]
-        +run()
-        +process_message()
-        +process_message_direct_stream()
-    }
-    
-    class SessionMemory {
-        -tool_stats
-        -memory_file
-        +update_tool_stats()
-        +get_tool_recommendation()
-    }
-    
-    class ReflectionEngine {
-        +reflect_on_result()
-        +should_continue()
-    }
-    
-    class ToolExecutor {
-        -work_dir
-        -enable_bash
-        +execute_tool()
-        +_fuzzy_find_file()
-        +_try_fix()
-    }
-    
-    class ToolParser {
-        +parse_tool_calls()
-        +_parse_bare_format()
-    }
-    
-    class SkillManager {
-        -skills_metadata
-        -skills_cache
-        +get_skill_detail()
-        +find_skills_for_task()
-    }
-    
-    class SkillInjector {
-        -skill_manager
-        +inject_skills_to_context()
-        +format_skills_for_display()
-    }
-    
-    class ModeRouter {
-        -llm_forward_fn
-        -mode_patterns
-        +detect_mode()
-        +_rule_based_detect()
-        +_llm_based_detect()
-    }
-    
-    class MultiAgentOrchestrator {
-        -planner
-        -executor
-        -reviewer
-        +run()
-        +run_and_generate_response()
-    }
+### 2.2 VectorMemory：魔法图书馆的索引系统
 
-    QwenAgentFramework --> SessionMemory
-    QwenAgentFramework --> ReflectionEngine
-    QwenAgentFramework --> ToolExecutor
-    QwenAgentFramework --> ToolParser
-    QwenAgentFramework --> SkillInjector
-    QwenAgentFramework --> ModeRouter
-    QwenAgentFramework --> MultiAgentOrchestrator
-    SkillInjector --> SkillManager
+#### 概念与比喻
+
+**VectorMemory** 是"魔法图书馆"。传统图书馆按字母排序（A-Z），而这里按**语义相似度**排列。当你想找"如何烤蛋糕"时，它不仅能找到《蛋糕烘焙指南》，还 能找到《甜点制作》——因为它们在 384 维空间中的"距离"只有 32 度夹角。
+
+#### 数学模型：语义嵌入与混合检索
+
+**输入文本**：`"使用 bash 命令读取文件内容"`
+
+**步骤 1：嵌入计算（简化哈希版）**
+
+```python
+dimension = 384
+vector = [0.0] * dimension
+tokens = ["使用", "bash", "命令", "读取", "文件", "内容"]
+
+# 多哈希位置映射
+for i, token in enumerate(tokens):
+    weight = 1.0 / (i + 1)  # 位置权重衰减
+    
+    for hash_idx in range(3):
+        hash_val = int(md5(f"{token}_{hash_idx}".encode()).hexdigest(), 16)
+        position = hash_val % 384
+        vector[position] += weight * (1 if hash_idx % 2 == 0 else -1)
+
+# L2 归一化（投影到单位超球面）
+norm = sqrt(sum(x^2 for x in vector))
+normalized_vector = [x / norm for x in vector]
+```
+
+**可视化理解**：
+
+```
+高维空间中的向量（简化到3维展示）：
+查询向量 q = [0.5, 0.3, 0.8]
+记忆A向量 a = [0.4, 0.35, 0.75]  # "用cat命令查看文件"
+记忆B向量 b = [0.1, 0.9, 0.1]   # "Python的for循环"
+
+夹角计算：
+cos(θ_qa) = (0.5*0.4 + 0.3*0.35 + 0.8*0.75) / (1*1) = 0.85  → θ ≈ 32°  ✅ 相关
+cos(θ_qb) = (0.5*0.1 + 0.3*0.9 + 0.8*0.1) / (1*1) = 0.12   → θ ≈ 83°  ❌ 无关
+```
+
+**步骤 2：混合评分函数**
+
+$$
+\text{Score} = w_{\text{sem}} \cdot \text{CosSim} + w_{\text{rec}} \cdot e^{-t/24} + w_{\text{imp}} \cdot I + w_{\text{acc}} \cdot \min(\frac{A}{10}, 1)
+$$
+
+**具体数据示例**：
+
+```python
+# 候选记忆1："bash命令行操作指南"（3小时前存储）
+cos_sim = 0.92
+time_diff = 3  # 小时
+recency = exp(-3/24) = exp(-0.125) ≈ 0.882
+importance = 0.8
+access_count = 5
+
+score = 0.5*0.92 + 0.3*0.882 + 0.2*0.8 + 0.1*0.5
+      = 0.46 + 0.265 + 0.16 + 0.05
+      = 0.935
+
+# 候选记忆2："文件系统基础"（48小时前存储）
+cos_sim = 0.85
+time_diff = 48
+recency = exp(-48/24) = exp(-2) ≈ 0.135
+
+score = 0.5*0.85 + 0.3*0.135 + 0.2*0.7 + 0.1*0.2
+      = 0.425 + 0.0405 + 0.14 + 0.02
+      = 0.626  # 时间衰减导致分数降低
+```
+
+**步骤 3：HNSW 近似最近邻搜索（ANN）**
+
+```python
+# 不计算与所有记忆的距离（O(n)太慢），使用分层可导航小世界图
+# 搜索复杂度：O(log n)
+
+layer_0: 最粗粒度（聚类中心）
+  ├── 聚类A（文件操作）→ 进入
+  │     ├── 子聚类A1（读取操作）→ 进入
+  │     │     ├── "bash读取文件" → 距离0.1
+  │     │     └── "Python读取文件" → 距离0.3
+  │     └── 子聚类A2（写入操作）
+  └── 聚类B（网络操作）→ 剪枝（距离>0.8）
 ```
 
 ---
 
-> **文档结束** - 本框架完整实现了从意图识别到工具执行、从单Agent到多Agent协作、从同步到流式的全链路能力，专为本地小模型场景优化设计。
+### 2.3 AdaptiveToolLearner：老工匠的经验笔记
+
+#### 概念与比喻
+
+**ToolLearner** 是"老工匠的笔记本"。他不只记录"锤子用来钉钉子"，而是记录**工作流程的统计学**：
+
+- 敲钉子前，80% 概率要先**测量**（转移概率）
+- 如果上次砸到手（失败），下次调整握法（负样本学习）
+
+#### 数学模型：马尔可夫决策过程
+
+**观测数据**（10次任务记录）：
+
+```python
+sessions = [
+    ["list_dir", "read_file", "edit_file"],      # 任务1：查看→读取→修改
+    ["list_dir", "read_file", "read_file"],      # 任务2：查看→读取→再读
+    ["bash", "read_file", "write_file"],         # 任务3：搜索→读取→写入
+    ["read_file", "edit_file"],                  # 任务4：直接读→改
+    ["list_dir", "read_file", "edit_file"],      # 任务5
+]
+```
+
+**构建转移矩阵**（条件概率 $P(T_{next} | T_{current})$）：
+
+```python
+# 统计转移频次
+transition_counts = {
+    "list_dir": {"read_file": 3},      # 3次 list_dir → read_file
+    "read_file": {
+        "edit_file": 3,                 # 3次 read_file → edit_file
+        "write_file": 1,                # 1次 read_file → write_file
+        "read_file": 1                  # 1次 read_file → read_file
+    },
+    "bash": {"read_file": 1}
+}
+
+# 归一化为概率（最大似然估计）
+transition_prob = {
+    "read_file": {
+        "edit_file": 3/5 = 0.6,
+        "write_file": 1/5 = 0.2,
+        "read_file": 1/5 = 0.2
+    }
+}
+```
+
+**工具推荐计算**（当前状态：刚执行了 `read_file`）：
+
+$$
+\text{Score}(T_{next}) = P(T_{next}|T_{current}) \times \text{SuccessRate}(T_{next}) \times \text{ContextSim}
+$$
+
+```python
+# 当前上下文：已执行 ["list_dir", "read_file"]，任务类型："代码修改"
+current_tool = "read_file"
+candidates = transition_prob[current_tool]  # {"edit_file": 0.6, "write_file": 0.2}
+
+# 成功率（贝叶斯更新）
+success_rates = {
+    "edit_file": (9+1)/(10+2) = 0.83,  # 9成功1失败，拉普拉斯平滑
+    "write_file": (17+1)/(20+2) = 0.82
+}
+
+# 上下文相似度（Jaccard指数）
+task_keywords = {"代码", "修改", "文件"}
+context_sim = {
+    "edit_file": len({"代码", "修改"} ∩ task_keywords) / len({"代码", "修改", "文件"})
+             = 2/3 ≈ 0.67,
+    "write_file": 0.33
+}
+
+# 最终评分
+score_edit = 0.6 * 0.83 * 0.67 ≈ 0.334
+score_write = 0.2 * 0.82 * 0.33 ≈ 0.054
+
+推荐结果：edit_file（置信度0.334）> write_file（置信度0.054）
+```
 
 ---
 
+### 2.4 DeepReflectionEngine：质量控制局的诊断算法
+
+#### 概念与比喻
+
+**DeepReflection** 是"工厂质量控制局"。当工人（工具）犯错时：
+
+1. **分类**：是材料不对（参数错误）还是工具坏了（执行错误）
+2. **模式识别**：这个错误5分钟内出现过吗？（重复故障检测）
+3. **策略升级**：第3次同样错误→停工检修（中断循环）
+
+#### 数学模型：故障检测与统计过程控制
+
+**场景**：用户要求读取不存在的文件
+
+**步骤 1：错误分类（正则模式匹配）**
+
+```python
+FAILURE_PATTERNS = {
+    "file_not_found": {
+        "patterns": [r"not found", r"不存在", r"找不到"],
+        "category": "parameter_error",
+        "confidence": 0.85
+    },
+    "permission_denied": {
+        "patterns": [r"permission", r"权限"],
+        "category": "auth_error", 
+        "confidence": 0.90
+    }
+}
+
+# 输入："文件不存在: /tmp/test.txt"
+error_lower = "文件不存在: /tmp/test.txt"
+
+# 匹配计算
+for pattern in [r"不存在", r"找不到"]:
+    if re.search(pattern, error_lower):
+        match_score += 0.85
+        
+# 结果：分类为 file_not_found，置信度0.85
+```
+
+**步骤 2：重复故障检测（滑动窗口统计）**
+
+```python
+# 反思历史（时间序列）
+reflection_history = [
+    {"tool": "read_file", "category": "file_not_found", "timestamp": T-300s},
+    {"tool": "read_file", "category": "file_not_found", "timestamp": T-120s},
+    {"tool": "read_file", "category": "file_not_found", "timestamp": T-30s},  # 当前
+]
+
+# 统计检验（最近300秒窗口）
+window = 300  # 5分钟
+recent_failures = [h for h in history if (T - h.time) < window and h.category == "file_not_found"]
+
+λ = len(recent_failures) / window  # 故障率（泊松过程强度）
+# λ = 3/300 = 0.01 次/秒
+
+# 连续3次同类错误判定
+if len(recent_failures) >= 3:
+    # 二项分布检验：P(3次失败|随机) < 0.05？
+    p_value = binom_test(3, 3, p=0.1, alternative='greater')  # 假设基础失败率10%
+    if p_value < 0.05:
+        decision = "STRATEGIC_ESCALATION"  # 统计显著，升级处理
+```
+
+**步骤 3：自适应中断策略（基于失败率）**
+
+```python
+# 计算动态阈值（指数加权移动平均）
+failure_rate_ewma = α * current_failure + (1-α) * previous_rate
+# α = 0.3（平滑因子）
+
+if failure_rate_ewma > 0.6:  # 60%失败率阈值
+    decision = "INTERRUPT"  # 贝叶斯决策：继续的期望损失 > 中断损失
+    action = "request_human"
+else:
+    decision = "RETRY_WITH_FIX"
+    suggestion = random_choice(pattern.fixes)  # 从修复建议中随机选择
+```
+
+---
+
+### 2.5 ReAct 循环：侦探的认知闭环
+
+#### 概念与比喻
+
+**ReAct 循环** = 侦探破案过程：
+
+1. **Thought**："根据线索，凶手应该藏在阁楼"（推理）
+2. **Action**："我去阁楼搜查"（工具调用）
+3. **Observation**："阁楼空无一人，但有脚印"（工具返回）
+4. **Reflection**："推理错误，重新分析脚印方向"（反思）
+5. **循环**：直到找到凶手或确定无解
+
+#### 完整数据流示例
+
+**任务**：`"统计 core/ 目录下有多少个 Python 文件，并写入 report.txt"`
+
+**Iteration 1：探索**
+
+```python
+# Thought生成（LLM解码过程）
+input_tokens = ["统计", "core", "Python", "文件"]
+attention_weights = softmax(Q·K^T / √d_k)  # Transformer自注意力
+
+# LLM输出
+thought = "用户需要统计 core/ 目录的 Python 文件数量。我应该先列出目录结构。"
+action_text = """
+list_dir
+{"path": "core/"}
+"""
+
+# 解析（正则DFA）
+tool_name, args = parse(action_text)  # ("list_dir", {"path": "core/"})
+
+# 执行（系统调用）
+fd = open("core/", O_RDONLY)  # 系统调用号 2
+entries = getdents(fd)         # 读取目录项
+result = ["agent.py", "tools.py", "utils/", "config.json"]
+
+# 反思
+reflection = {
+    "success": True,
+    "analysis": "成功获取目录列表，发现2个.py文件，但utils/子目录可能包含更多"
+}
+```
+
+**Iteration 2：深入**
+
+```python
+# Observation注入上下文
+observation = "✅ list_dir: 目录 core/ 包含：agent.py, tools.py, utils/, config.json"
+
+# LLM新的Thought
+thought = "有子目录utils/，需要递归统计。使用bash的find命令更高效。"
+action = """
+bash
+{"command": "find core/ -name '*.py' | wc -l"}
+"""
+
+# 执行（子进程）
+pid = fork()
+if pid == 0:
+    execve("/bin/bash", ["bash", "-c", "find core/ -name '*.py' | wc -l"])
+stdout = 5  # 假设找到5个文件
+```
+
+**Iteration 3：写入**
+
+```python
+# Thought
+thought = "已确认5个Python文件，现在需要写入report.txt。"
+action = """
+write_file
+{"path": "report.txt", "content": "core/ 目录下共有 5 个 Python 文件", "mode": "overwrite"}
+"""
+
+# 执行（文件系统）
+fd = open("report.txt", O_WRONLY|O_CREAT|O_TRUNC, 0644)
+write(fd, "core/ 目录下共有 5 个 Python 文件", 28)
+close(fd)
+
+# 完成检测（_looks_finished）
+has_tool_mention = False  # 输出中无工具名
+finish_signals = ["完成", "已写入"]  # 检测到完成词
+is_finished = True  # 触发循环终止
+```
+
+---
+
+## 3. 数据处理流向全景图
+
+```
+用户输入："读取config并修改端口"
+│
+├─► 字符编码：UTF-8解码 → Unicode码点序列
+│   ["读", "取", "c", "o", "n", "f", "i", "g", ...]
+│
+├─► 分词（Tokenizer）：BPE算法
+│   ["读取", "config", "并", "修改", "端口"]
+│   Token IDs: [1234, 5678, 90, 4321, 8765]
+│
+├─► ModeRouter特征提取
+│   路径特征：hash("config") % 1000 = 234
+│   动词特征：hash("读取") % 1000 = 876
+│   向量：[0,0,0,1,0,...,1,0] (稀疏向量)
+│
+├─► 贝叶斯分类
+│   P(Tools) = 0.92 → 决策：Tools模式
+│
+├─► Middleware链
+│   RuntimeModeMiddleware：插入"<runtime_mode>tools</runtime_mode>"
+│   SkillsContextMiddleware：检索相关技能（余弦相似度>0.8的Skills）
+│
+├─► ReAct循环
+│   │
+│   ├─► LLM生成（Transformer解码）
+│   │   输入维度：[batch=1, seq_len=20, hidden=512]
+│   │   注意力计算：Q[20,64] × K^T[64,20] → Score[20,20]
+│   │   Softmax归一化 → 加权求和V → 输出[20,512]
+│   │   解码结果："read_file\n{\"path\":\"config.json\"}"
+│   │
+│   ├─► 工具解析（正则DFA）
+│   │   状态转移：START → TOOL_NAME → NEWLINE → JSON → END
+│   │   捕获组：tool="read_file", args={"path":"config.json"}
+│   │
+│   ├─► 并行检测（读写锁算法）
+│   │   读集合 = {read_file}，写集合 = {}
+│   │   无冲突 → 允许并行执行
+│   │
+│   ├─► 沙箱执行（安全约束）
+│   │   路径解析：realpath("config.json") → "/home/user/project/config.json"
+│   │   安全检查：startswith("/home/user/project") → True
+│   │   系统调用：openat(AT_FDCWD, "config.json", O_RDONLY) = 3
+│   │   读取：read(3, buf, 4096) → "{\n  \"port\": 8080\n}"
+│   │
+│   ├─► 结果封装（JSON序列化）
+│   │   {"success": True, "content": "{\n  \"port\": 8080\n}", "size": 18}
+│   │
+│   ├─► 反思引擎
+│   │   成功检测：无error字段 → success=True
+│   │   转移矩阵更新：M[null][read_file] += 1
+│   │
+│   ├─► 记忆存储（VectorMemory）
+│   │   文本："Tool: read_file, Args: config.json, Success: True"
+│   │   嵌入计算：MD5哈希 → 384维向量 → L2归一化
+│   │   HNSW插入：找到最近邻（相似度0.92的"读取配置文件"记忆）
+│   │   存储到working_memory（容量限制：10条）
+│   │
+│   └─► Observation构造
+│       "✅ read_file: {\n  \"port\": 8080\n}"
+│
+├─► 下一次迭代（修改端口）
+│   LLM生成：edit_file操作（基于上一次Observation）
+│   ...
+│
+└─► 最终输出清理
+    移除ReAct标签：_clean_react_tags()
+    输出："已将config.json中的端口从8080修改为3000"
+    
+    日志记录：
+    ├─► 用户消息哈希：SHA256("读取config...")
+    ├─► 执行时间：Δt = 2.34s
+    ├─► Token计数：Input=45, Output=128
+    └─► 向量存储：写入.memory/vector_memory_v2.json
+```
+
+### 3.2 长期记忆的形成机制（跨会话）
+
+```
+会话1：
+用户："如何用Python读取PDF？"
+技能匹配：pdf-processing
+执行：bash("pip install PyPDF2")
+结果：成功
+记忆写入：VectorMemory.add(
+    content="任务: PDF处理, 工具: bash, 命令: pip install PyPDF2",
+    embedding=[0.23, -0.45, ...],
+    importance=0.8,
+    timestamp=2026-03-31T00:00:00
+)
+
+会话2（3天后）：
+用户："我要处理一个PDF文件"
+检索触发：VectorMemory.search("PDF处理")
+计算相似度：
+├── 候选1: "PDF处理技能" (相似度: 0.92)
+├── 候选2: "文件读取方法" (相似度: 0.65)
+└── 候选3: "Python教程" (相似度: 0.34)
+时间衰减加权：
+├── 候选1分数: 0.92 × exp(-72/24) = 0.92 × 0.05 = 0.046
+└── 候选2分数: 0.65 × exp(-0/24) = 0.65 × 1.0 = 0.65
+返回 top_k=3，注入到当前上下文作为 Few-shot 示例
+```
+
+---
+
+## 4. 端到端完整案例：PDF处理任务
+
+**用户请求**：`"读取uploaded.pdf，提取前3页内容保存到summary.txt"`
+
+### 阶段 1：意图识别与路由（0-10ms）
+
+```python
+# 输入分析
+keywords = {"读取", "pdf", "提取", "保存"}  # TF-IDF权重高
+file_ext = ".pdf"  # 触发Skills匹配
+
+# ModeRouter计算
+P(Skills) = 0.85  # PDF是专业领域
+P(Tools) = 0.90   # 涉及文件读写
+决策：Hybrid模式（技能和工具结合）
+
+# Skill注入
+匹配技能："pdf-processing"（相似度0.94）
+注入内容："使用pdftotext或PyMuPDF处理PDF文件..."
+```
+
+### 阶段 2：ReAct执行（10ms-2s）
+
+**Round 1**：验证PDF存在
+
+```python
+Thought: "先确认PDF文件是否存在，使用list_dir查看上传目录"
+Action: list_dir({"path": "./uploads"})
+Observation: {"items": [{"name": "uploaded.pdf", "size": 2048000}]}
+Reflection: 成功，文件存在，大小2MB
+```
+
+**Round 2**：提取内容（技能指导）
+
+```python
+Thought: "根据pdf-processing技能，使用pdftotext提取前3页"
+Action: bash({"command": "pdftotext -f 1 -l 3 uploads/uploaded.pdf -"})
+Observation: "Page 1\nContent...\nPage 2\nContent...\nPage 3\nContent..."
+Reflection: 成功提取3页内容，约5000字符
+```
+
+**Round 3**：写入文件
+
+```python
+Thought: "将提取的内容写入summary.txt"
+Action: write_file({
+    "path": "summary.txt",
+    "content": "Page 1\nContent...\nPage 2\nContent...\nPage 3\nContent...",
+    "mode": "overwrite"
+})
+Observation: {"success": True, "size": 5120}
+Reflection: 任务完成
+```
+
+### 阶段 3：学习与记忆（2s-2.1s）
+
+```python
+# ToolLearner更新
+transition_matrix["bash"]["write_file"] += 1
+success_rate["pdftotext"] = (9+1)/(10+2)  # 贝叶斯更新
+
+# VectorMemory存储
+entry = {
+    "content": "任务:PDF提取, 工具序列:[list_dir,bash,write_file], 耗时:2s",
+    "embedding": [0.12, -0.34, ..., 0.89],  # 384维
+    "importance": 0.8,
+    "timestamp": "2026-03-31T00:18:00"
+}
+insert_to_hnsw(entry)  # O(log n)复杂度
+```
+
+---
+
+## 5. 数学原理汇总表
+
+|组件|核心算法|数学公式|复杂度|
+|--|--|--|--|
+|**ModeRouter**|朴素贝叶斯 + 温度校准|$P(I\|E) = \frac{P(I)\prod P(f_i|I)}{P(E)}$，$C_{cal} = \frac{C_{raw}}{T} + b$|$O(n)$，$n$=特征数|
+|**VectorMemory**|余弦相似度 + HNSW|$\text{Sim} = \frac{\mathbf{a}\cdot\mathbf{b}}{\|\mathbf{a}||\mathbf{b}|}$，$\text{Score} = \sum w_i \cdot f_i$|检索$O(\log n)$，插入$O(\log n)$|
+|**ToolLearner**|马尔可夫链 + MLE|$P(T_{next}\|T_{curr}) = \frac{\text{count}(T_{curr} \to T_{next})}{\sum \text{count}}$|$O(1)$查找，$O(n)$训练|
+|**DeepReflection**|正则匹配 + 泊松检验|$\lambda = \frac{k}{t}$，$P(X \geq k) = 1 - \sum_{i=0}^{k-1}\frac{e^{-\lambda t}(\lambda t)^i}{i!}$|$O(m)$，$m$=历史长度|
+|**ReAct**|Transformer解码 + 有限状态机|$\text{Attention} = \text{softmax}(\frac{QK^T}{\sqrt{d_k}})V$|$O(L^2 \cdot d)$，$L$=序列长|
+|**并行执行**|读写锁（读者-写者问题）|约束：$R \cap W = \emptyset \Rightarrow \text{parallel}$，否则$\text{serial}$|$O(n)$检测，$n$=工具数|

@@ -3,12 +3,12 @@
 """
 验证整体链路：
   1. core 模块导入正常
-  2. QwenAgentFramework 初始化正常
+  2. LangGraphAgent (QwenAgentFramework) 初始化正常
   3. ReActMultiAgentOrchestrator 可被实例化
   4. DeepReflectionEngine ↔ AdaptiveToolLearner 双向同步
   5. 安全修复: bash 高危模式拦截
   6. 安全修复: _fuzzy_find_file 路径遍历防护
-  7. web_agent 可以正常导入（ParallelConfig 参数修复）
+  7. StreamingFramework 调用 LangGraphAgent.run() 正常
 """
 import os
 import shutil
@@ -37,7 +37,7 @@ print(f"  ✅ ParallelConfig OK: max_workers={pc.max_workers}")
 
 print()
 print("=" * 60)
-print("【测试 3】QwenAgentFramework 无模型初始化（mock forward）")
+print("【测试 3】QwenAgentFramework (LangGraphAgent) 无模型初始化（mock forward）")
 
 def _mock_forward(messages, system_prompt="", **kwargs):
     return "mock response"
@@ -52,8 +52,6 @@ fw = QwenAgentFramework(
     enable_memory=False,
     enable_reflection=True,
     enable_tool_learning=True,
-    enable_parallel=True,
-    parallel_config=pc,
 )
 assert fw.reflection is not None
 assert fw.tool_learner is not None
@@ -135,10 +133,11 @@ print(f"  ✅ 合法文件名搜索不抛异常: 结果={result}")
 
 print()
 print("=" * 60)
-print("【测试 8】StreamingFramework 消费 _run_iter")
+print("【测试 8】StreamingFramework 调用 LangGraphAgent.run()")
+import asyncio
 from core.streaming_framework import StreamingFramework
+from core.state_manager import SessionContext
 
-# _mock_forward 返回 "mock response"（无工具调用，看起来已完成）
 _fw2 = QwenAgentFramework(
     model_forward_fn=_mock_forward,
     work_dir=_tmpdir,
@@ -149,12 +148,20 @@ _fw2 = QwenAgentFramework(
     enable_tool_learning=False,
 )
 sf = StreamingFramework(_fw2)
-events = list(sf.run_stream("测试", history=None, runtime_context={}))
+
+async def run_sf_test():
+    session = SessionContext()
+    events = []
+    async for event in sf.run_stream("测试", session=session, history=None, runtime_context={}):
+        events.append(event)
+    return events
+
+events = asyncio.run(run_sf_test())
 event_types = [e.event_type for e in events]
 print(f"  收到事件: {event_types}")
 assert 'start' in event_types, "应有 start 事件"
 assert 'complete' in event_types, "应有 complete 事件"
-print("  ✅ StreamingFramework 正确消费 _run_iter，发出 start + complete 事件")
+print("  ✅ StreamingFramework 正确调用 LangGraphAgent.run()，发出 start + complete 事件")
 
 print()
 print("=" * 60)
@@ -163,10 +170,10 @@ print()
 print("验证摘要：")
 print("  ✅ core 模块导入 & __init__.py 导出正常")
 print("  ✅ ParallelConfig 只需 max_workers")
-print("  ✅ QwenAgentFramework 初始化+双向绑定")
+print("  ✅ QwenAgentFramework(LangGraphAgent) 初始化+双向绑定")
 print("  ✅ ReActMultiAgentOrchestrator 实例化（复用 react_framework）")
 print("  ✅ DeepReflectionEngine ↔ AdaptiveToolLearner 双向同步")
 print("  ✅ bash 高危模式拦截（5种攻击向量）")
 print("  ✅ _fuzzy_find_file 路径遍历防护")
-print("  ✅ StreamingFramework 无重复逻辑（消费 _run_iter）")
+print("  ✅ StreamingFramework 基于 LangGraphAgent.run()")
 

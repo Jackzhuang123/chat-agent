@@ -4,7 +4,6 @@
 Qwen2.5-0.5B Agent Web UI - 豆包风格完美版（恢复原始气泡样式，优化按钮布局）
 支持本地 Qwen 模型 和 智谱 GLM-4-Flash API（免费）双引擎切换。
 """
-
 import os
 import sys
 from pathlib import Path
@@ -14,19 +13,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from datetime import datetime
-from threading import Thread
+from core.monitor_logger import get_monitor_logger, log_startup, log_shutdown
 
 import gradio as gr
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
-
-# 导入增强版组件
-from core.agent_framework import (
-    QwenAgentFramework,
-    ParallelConfig,
-)
-from core.mode_router import PreciseModeRouter
 
 # 在任何导入前，优先加载项目根目录下的 .env 文件
 _env_file = Path(__file__).parent.parent / ".env"
@@ -40,284 +29,10 @@ if _env_file.exists():
                 if _ek and _ek not in os.environ:  # 系统环境变量优先
                     os.environ[_ek] = _ev
 
-# GLMAgent 支持
-try:
-    from glm_agent import GLMAgent, validate_api_key
-    HAS_GLM = True
-except ImportError:
-    HAS_GLM = False
-
-# 从环境变量读取 GLM API Key
-_GLM_API_KEY = os.environ.get("GLM_API_KEY", "").strip()
-_GLM_AUTO_ENABLED = HAS_GLM and bool(_GLM_API_KEY)
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from core import (
-    PlanModeMiddleware,
-    RuntimeModeMiddleware,
-    SkillInjector,
-    SkillManager,
-    SkillsContextMiddleware,
-    ToolResultGuardMiddleware,
-    UploadedFilesMiddleware,
-    create_example_skills,
-    create_qwen_model_forward,
-    MultiAgentOrchestrator,
-    ReActMultiAgentOrchestrator,
-    create_streaming_wrapper,
-    ToolEnforcementMiddleware,
-)
-from core.prompts import get_system_prompt, inject_few_shot_examples
-from session_logger import get_logger
-
-try:
-    import PyPDF2
-    HAS_PYPDF = True
-except ImportError:
-    HAS_PYPDF = False
-
-
-class QwenAgent:
-    def __init__(self, model_path="./model/qwen2.5-0.5b", logger=None):
-        print("正在初始化模型 (CPU模式)...")
-        # 确保模型路径相对于项目根目录
-        if model_path.startswith("./"):
-            project_root = Path(__file__).parent.parent
-            self.model_path = str((project_root / model_path[2:]).resolve())
-        else:
-            self.model_path = model_path
-
-        print(f"使用模型路径: {self.model_path}")
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.model_path,
-            torch_dtype=torch.float32,
-            device_map="cpu"
-        )
-        self.default_system_prompt = "你是一个智能个人助手,名字叫小Q。请用简洁、幽默的风格回答。"
-        self.logger = logger
-        print("✅ 模型加载完毕!")
-
-    def generate_stream(self, message, history, system_prompt=None, temperature=0.7, top_p=0.9, max_tokens=8192):
-        """标准的流式生成方法 - 接收 history (二维列表)，并记录模型调用"""
-        import time
-        sys_prompt = system_prompt if system_prompt and system_prompt.strip() else self.default_system_prompt
-        messages = [{"role": "system", "content": sys_prompt}]
-
-        for user_msg, bot_msg in history:
-            if user_msg:
-                messages.append({"role": "user", "content": user_msg})
-            if bot_msg:
-                messages.append({"role": "assistant", "content": bot_msg})
-
-        messages.append({"role": "user", "content": message})
-
-        text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        model_inputs = self.tokenizer([text], return_tensors="pt").to("cpu")
-        streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
-
-        generation_kwargs = dict(
-            model_inputs, streamer=streamer, max_new_tokens=int(max_tokens),
-            temperature=float(temperature), top_p=float(top_p), do_sample=True
-        )
-
-        thread = Thread(target=self.model.generate, kwargs=generation_kwargs)
-        start_time = time.time()
-        thread.start()
-
-        partial_message = ""
-        for new_token in streamer:
-            partial_message += new_token
-            yield partial_message
-
-        execution_time = time.time() - start_time
-        if self.logger:
-            try:
-                input_tokens = len(model_inputs['input_ids'][0])
-                output_tokens = len(self.tokenizer.encode(partial_message))
-                self.logger.log_model_call(
-                    prompt=text[:500] + "..." if len(text) > 500 else text,
-                    response=partial_message,
-                    execution_time=execution_time,
-                    tokens_input=input_tokens,
-                    tokens_output=output_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    model_name="Qwen2.5-0.5B"
-                )
-            except Exception as e:
-                print(f"日志记录错误: {e}")
-
-    def generate_stream_with_messages(self, messages, temperature=0.7, top_p=0.9, max_tokens=8192):
-        """新方法 - 直接接收 messages (字典列表)，用于 Skills 系统，并记录模型调用"""
-        import time
-        text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        model_inputs = self.tokenizer([text], return_tensors="pt").to("cpu")
-        streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
-
-        generation_kwargs = dict(
-            model_inputs, streamer=streamer, max_new_tokens=int(max_tokens),
-            temperature=float(temperature), top_p=float(top_p), do_sample=True
-        )
-
-        thread = Thread(target=self.model.generate, kwargs=generation_kwargs)
-        start_time = time.time()
-        thread.start()
-
-        partial_message = ""
-        for new_token in streamer:
-            partial_message += new_token
-            yield partial_message
-
-        execution_time = time.time() - start_time
-        if self.logger:
-            try:
-                input_tokens = len(model_inputs['input_ids'][0])
-                output_tokens = len(self.tokenizer.encode(partial_message))
-                self.logger.log_model_call(
-                    prompt=text[:500] + "..." if len(text) > 500 else text,
-                    response=partial_message,
-                    execution_time=execution_time,
-                    tokens_input=input_tokens,
-                    tokens_output=output_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    model_name="Qwen2.5-0.5B"
-                )
-            except Exception as e:
-                print(f"日志记录错误: {e}")
-
+from ui.chat_controller import ChatController
 
 def create_ui_with_skills():
-    logger = get_logger()
-
-    # 当前激活的 Agent（可在运行时切换）
-    _active_agent = {"instance": None, "type": "local"}  # type: 'local' | 'glm'
-
-    # 延迟绑定 LLM forward 函数
-    def get_llm_forward():
-        current_agent = _active_agent.get("instance") or get_or_init_local_agent()
-        return create_qwen_model_forward(current_agent)
-
-    # 初始化精准路由器（带置信度校准）
-    mode_router = PreciseModeRouter(
-        llm_forward_fn=None,          # 延迟绑定
-        confidence_threshold=0.7,
-        enable_calibration=True
-    )
-
-    def get_or_init_local_agent():
-        """懒加载本地 Qwen 模型（首次调用时才加载）。"""
-        if _active_agent["instance"] is None or _active_agent["type"] != "local":
-            print("正在加载本地 Qwen2.5-0.5B 模型...")
-            _active_agent["instance"] = QwenAgent(logger=logger)
-            _active_agent["type"] = "local"
-        return _active_agent["instance"]
-
-    # 启动时自动从环境变量初始化 GLM Agent
-    if _GLM_AUTO_ENABLED:
-        try:
-            _active_agent["instance"] = GLMAgent(
-                api_key=_GLM_API_KEY,
-                model="glm-4-flash",
-                logger=logger,
-            )
-            _active_agent["type"] = "glm"
-            print(f"✅ 已自动启用 GLM-4-Flash（环境变量 GLM_API_KEY）")
-        except Exception as _e:
-            print(f"⚠️  GLM 初始化失败，将使用本地模型: {_e}")
-    else:
-        print("ℹ️  未检测到 GLM_API_KEY 环境变量，将使用本地 Qwen 模型")
-
-    print("🧪 初始化 Skills 系统...")
-    create_example_skills()
-    skill_manager = SkillManager()
-    skill_injector = SkillInjector(skill_manager)
-    print(f"✅ 发现 {len(skill_manager.skills_metadata)} 个技能")
-
-    # 可用技能 ID 列表
-    _available_skill_ids = list(skill_manager.skills_metadata.keys())
-
-    middlewares = [
-        RuntimeModeMiddleware(),
-        PlanModeMiddleware(),
-        SkillsContextMiddleware(),
-        UploadedFilesMiddleware(),
-        ToolResultGuardMiddleware(),
-    ]
-
-    def dynamic_model_forward(messages, system_prompt="", **kwargs):
-        """动态前向函数：每次调用时从 _active_agent 读取当前 Agent 实例。"""
-        current_agent = _active_agent.get("instance")
-        if current_agent is None:
-            current_agent = get_or_init_local_agent()
-        forward_fn = create_qwen_model_forward(current_agent)
-        return forward_fn(messages, system_prompt=system_prompt, **kwargs)
-
-    def dynamic_routing_forward(messages, system_prompt="", **kwargs):
-        """意图路由专用 forward 函数：不记录任何日志，避免路由阶段的 LLM 调用污染 session 日志。"""
-        current_agent = _active_agent.get("instance")
-        if current_agent is None:
-            current_agent = get_or_init_local_agent()
-        _orig_logger = getattr(current_agent, "logger", None)
-        try:
-            if _orig_logger is not None:
-                current_agent.logger = None
-            forward_fn = create_qwen_model_forward(current_agent)
-            return forward_fn(messages, system_prompt=system_prompt, **kwargs)
-        finally:
-            if _orig_logger is not None:
-                current_agent.logger = _orig_logger
-
-    def dynamic_stream_forward(messages, system_prompt="", **kwargs):
-        """真流式前向函数：直接调用 Agent 的流式生成接口，逐 token yield 累积文本。"""
-        current_agent = _active_agent.get("instance")
-        if current_agent is None:
-            current_agent = get_or_init_local_agent()
-
-        full_messages = list(messages)
-        if system_prompt and system_prompt.strip():
-            _already = (
-                full_messages
-                and full_messages[0].get("role") == "system"
-                and full_messages[0].get("content", "").strip() == system_prompt.strip()
-            )
-            if not _already:
-                full_messages = [{"role": "system", "content": system_prompt}] + full_messages
-
-        if hasattr(current_agent, "generate_stream_with_messages"):
-            yield from current_agent.generate_stream_with_messages(
-                full_messages,
-                temperature=kwargs.get("temperature", 0.7),
-                top_p=kwargs.get("top_p", 0.9),
-                max_tokens=kwargs.get("max_tokens", 512),
-            )
-        else:
-            yield dynamic_model_forward(messages, system_prompt=system_prompt, **kwargs)
-
-    # 绑定 LLM forward 到 mode_router
-    mode_router.llm_forward_fn = dynamic_routing_forward
-    print("🤖 LLM 语义路由已绑定（路由调用不写入 session_log）")
-
-    # 并行配置
-    parallel_config = ParallelConfig(
-        max_workers=4,
-    )
-
-    agent_framework = QwenAgentFramework(
-        model_forward_fn=dynamic_model_forward,
-        work_dir=str(Path(__file__).parent.parent),
-        enable_bash=True,
-        max_iterations=50,
-        middlewares=middlewares + [ToolEnforcementMiddleware(max_retries=2)],
-        default_runtime_context={"run_mode": "chat", "plan_mode": False},
-        enable_memory=True,
-        enable_reflection=True,
-        enable_tool_learning=True,
-        enable_parallel=True,
-        parallel_config=parallel_config
-    )
+    controller = ChatController()
 
     # 修复后的 CSS + JavaScript - 恢复原始气泡样式
     custom_head = """
@@ -903,19 +618,19 @@ def create_ui_with_skills():
 
                     # ===== 模型引擎选择 =====
                     gr.Markdown("#### 🚀 模型引擎")
-                    _init_engine_value = "⚡ GLM-4-Flash" if _GLM_AUTO_ENABLED else "🏠 本地 Qwen2.5-0.5B"
+                    _init_engine_value = "⚡ GLM-4-Flash" if controller._GLM_AUTO_ENABLED else "🏠 本地 Qwen2.5-0.5B"
                     model_engine = gr.Radio(
                         choices=["🏠 本地 Qwen2.5-0.5B", "⚡ GLM-4-Flash"],
                         value=_init_engine_value,
                         label=None,
                         show_label=False,
-                        interactive=_GLM_AUTO_ENABLED,
+                        interactive=controller._GLM_AUTO_ENABLED,
                     )
 
                     # GLM 状态面板
                     _init_glm_status = (
                         f"✅ 已启用（模型: glm-4-flash）"
-                        if _GLM_AUTO_ENABLED
+                        if controller._GLM_AUTO_ENABLED
                         else "⚪ 未配置（请设置环境变量 GLM_API_KEY）"
                     )
                     with gr.Column(visible=True) as glm_config_panel:
@@ -936,7 +651,7 @@ def create_ui_with_skills():
                             ],
                             value="glm-4-flash",
                             label="GLM 模型",
-                            visible=_GLM_AUTO_ENABLED,
+                            visible=controller._GLM_AUTO_ENABLED,
                         )
 
                     # 数据分析链接
@@ -1001,13 +716,13 @@ def create_ui_with_skills():
                     gr.Markdown("#### 可用技能")
                     _skill_list_text = "\n".join(
                         f"• {s.get('name', s['id'])}：{s.get('description', '')}"
-                        for s in skill_manager.get_skills_list()
+                        for s in controller.skill_manager.get_skills_list()
                     ) or "（暂无技能）"
                     gr.Textbox(
                         value=_skill_list_text,
                         label="已发现技能（自动加载）",
                         interactive=False,
-                        lines=max(2, len(skill_manager.get_skills_list())),
+                        lines=max(2, len(controller.skill_manager.get_skills_list())),
                     )
 
             # 主内容区
@@ -1054,490 +769,24 @@ def create_ui_with_skills():
         def user_input(user_message, history):
             return "", history + [[user_message, None]]
 
-        def extract_pdf_text(pdf_files):
-            if not pdf_files or not HAS_PYPDF:
-                return ""
-            pdf_content = ""
-            files_to_process = pdf_files if isinstance(pdf_files, list) else [pdf_files]
-            for pdf_item in files_to_process:
-                try:
-                    pdf_path = pdf_item.get('name') if isinstance(pdf_item, dict) else pdf_item
-                    with open(pdf_path, 'rb') as f:
-                        reader = PyPDF2.PdfReader(f)
-                        filename = Path(pdf_path).name if pdf_path else "unknown.pdf"
-                        pdf_content += f"\n【文件: {filename}】\n"
-                        for page_num, page in enumerate(reader.pages, 1):
-                            text = page.extract_text()
-                            if text.strip():
-                                pdf_content += f"【第 {page_num} 页】\n{text}\n"
-                except Exception as e:
-                    pdf_content += f"\n❌ 提取失败: {str(e)}\n"
-            return pdf_content.strip()
-
-        def extract_uploaded_file_meta(pdf_files):
-            if not pdf_files:
-                return []
-            files_to_process = pdf_files if isinstance(pdf_files, list) else [pdf_files]
-            uploaded_files = []
-            for pdf_item in files_to_process:
-                pdf_path = pdf_item.get('name') if isinstance(pdf_item, dict) else pdf_item
-                if not pdf_path:
-                    continue
-                path_obj = Path(pdf_path)
-                try:
-                    file_size = path_obj.stat().st_size if path_obj.exists() else 0
-                except Exception:
-                    file_size = 0
-                uploaded_files.append({
-                    "filename": path_obj.name,
-                    "path": str(path_obj),
-                    "size": file_size,
-                })
-            return uploaded_files
-
-        def get_active_agent():
-            return _active_agent.get("instance") or get_or_init_local_agent()
-
-        def bot_response(history, sys_prompt, temp, top_p_val, max_tok, plan_mode_enabled, pdf_files):
-            if not history or history[-1][1] is not None:
-                return history
-
-            user_message = history[-1][0]
-            history_without_last = history[:-1]
-            logger = get_logger()
-            logger.create_session()
-
-            import time
-            start_time = time.time()
-
-            pdf_info = ""
-            uploaded_files_meta = extract_uploaded_file_meta(pdf_files)
-            if uploaded_files_meta and HAS_PYPDF:
-                pdf_text = extract_pdf_text(pdf_files)
-                if pdf_text:
-                    pdf_info = f"\n\n【PDF内容】:\n{pdf_text[:1000]}..."
-
-            # 过滤历史
-            _filter_prefixes = (
-                "已达到最大迭代次数",
-                "[⚠️ 工具模式错误]",
-                "[GLM API 错误]",
-                "[在进行中...]",
-                "[未设置]",
-            )
-            def _is_stale_tool_plan(a_text: str) -> bool:
-                if not a_text:
-                    return False
-                if "<tool>" in a_text and "</tool>" in a_text:
-                    return True
-                if "<input>" in a_text and "</input>" in a_text:
-                    return True
-                return False
-
-            _clean_pairs = []
-            for u, a in history_without_last:
-                if not u:
-                    continue
-                _a_invalid = (
-                    not a
-                    or any(a.startswith(p) for p in _filter_prefixes)
-                    or _is_stale_tool_plan(a)
-                )
-                if _a_invalid:
-                    _clean_pairs.append([u, None])
-                else:
-                    _clean_pairs.append([u, a])
-
-            chat_history = [[u, a] for u, a in _clean_pairs if u and a]
-
-            # ---- 意图路由：使用 PreciseModeRouter ----
-            # 构建上下文：可用技能列表
-            skill_list_for_router = []
-            for skill_id in _available_skill_ids:
-                meta = skill_manager.skills_metadata.get(skill_id, {})
-                skill_list_for_router.append({
-                    "id": skill_id,
-                    "name": meta.get("name", skill_id),
-                    "tags": meta.get("tags", []),
-                    "description": meta.get("description", "")
-                })
-
-            router_context = {
-                "available_skills": skill_list_for_router,
-                "uploaded_files": uploaded_files_meta,
-                "history": [[u, a] for u, a in _clean_pairs[-3:] if u]  # 轻量历史
-            }
-
-            intent_result = mode_router.route(user_message + pdf_info, router_context)
-
-            run_mode = intent_result.intent.value
-            confidence = intent_result.calibrated_confidence
-            risk_level = intent_result.risk_level
-            suggested = intent_result.suggested_params
-
-            # 使用建议的参数（可覆盖用户设置）
-            actual_temp = suggested.get("temperature", temp)
-            actual_max_tokens = suggested.get("max_tokens", max_tok)
-
-            # 技能匹配（保留原有逻辑，因为 IntentResult 不直接提供技能 ID）
-            skill_ids = []
-            if run_mode in ("skills", "hybrid"):
-                msg_lower = user_message.lower()
-                for sid in _available_skill_ids:
-                    if sid.lower() in msg_lower or any(
-                        kw in msg_lower for kw in sid.lower().replace("-", " ").split()
-                    ):
-                        skill_ids.append(sid)
-                if not skill_ids and run_mode == "skills":
-                    skill_ids = _available_skill_ids[:1]
-
-            needs_breakdown = (run_mode == "plan" or run_mode == "multi_agent" or intent_result.risk_level == "high")
-
-            # 构建显示信息
-            _mode_icons = {"chat": "💬", "tools": "🔧", "skills": "🎓", "hybrid": "⚡"}
-            _mode_labels = {"chat": "对话模式", "tools": "工具模式", "skills": "技能模式", "hybrid": "混合模式"}
-            mode_display_text = f"{_mode_icons.get(run_mode, '🤖')} {_mode_labels.get(run_mode, run_mode)} [{intent_result.router_type}]"
-            if skill_ids:
-                mode_display_text += f" | 技能: {', '.join(skill_ids)}"
-            if intent_result.reasoning:
-                mode_display_text += f"\n原因: {intent_result.reasoning[:100]}"
-            if needs_breakdown:
-                mode_display_text += " | 📋任务拆解中..."
-            if risk_level == "high" and confidence < 0.6:
-                mode_display_text += "\n⚠️ 意图识别置信度较低，建议确认任务理解是否正确"
-
-            runtime_context = {
-                "run_mode": run_mode,
-                "plan_mode": bool(plan_mode_enabled),
-                "uploaded_files": uploaded_files_meta,
-                "selected_skills": skill_ids,
-                "intent_reasons": [intent_result.reasoning],
-            }
-            execution_log = [{
-                "iteration": -1,
-                "type": "intent_analysis",
-                "run_mode": run_mode,
-                "skill_ids": skill_ids,
-                "reasons": [intent_result.reasoning],
-                "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-            }]
-
-            # ---- 构建基础消息 ----
-            if not sys_prompt or sys_prompt.strip() == "":
-                skills_text = ""
-                if skill_ids:
-                    skills_text = "\n".join([f"- {sid}" for sid in skill_ids])
-                sys_prompt = get_system_prompt(
-                    mode=run_mode,
-                    work_dir=str(Path.cwd()),
-                    skills_context=skills_text
-                )
-
-            base_messages = [{"role": "system", "content": sys_prompt}]
-
-            if run_mode == "tools":
-                base_messages = inject_few_shot_examples(base_messages, max_examples=2)
-
-            for u, a in chat_history:
-                base_messages.append({"role": "user", "content": u})
-                base_messages.append({"role": "assistant", "content": a})
-
-            _user_msg_with_ctx = user_message + pdf_info
-            base_messages.append({"role": "user", "content": _user_msg_with_ctx})
-
-            # ---- 技能注入 ----
-            if skill_ids:
-                skill_content_parts = []
-                skill_infos = []
-                for sid in skill_ids:
-                    content = skill_manager.get_skill_detail(sid)
-                    if not content:
-                        continue
-                    meta = skill_manager.skills_metadata.get(sid, {})
-                    skill_name = meta.get("name", sid)
-                    skill_content_parts.append(
-                        f'<skill-loaded name="{sid}">\n# 技能: {skill_name}\n\n{content}\n</skill-loaded>'
-                    )
-                    skill_infos.append({
-                        "id": sid,
-                        "name": skill_name,
-                        "description": meta.get("description", ""),
-                        "tags": meta.get("tags", []),
-                    })
-                if skill_content_parts:
-                    runtime_context["skill_contexts"] = skill_infos
-                    skill_inject_msg = (
-                        "\n\n".join(skill_content_parts)
-                        + "\n\n请参考上方技能知识完成任务。"
-                    )
-                    base_messages.append({"role": "user", "content": skill_inject_msg})
-                    execution_log.append({
-                        "iteration": -1,
-                        "type": "skill_inject",
-                        "skill_ids": skill_ids,
-                        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                    })
-
-            response_started = False
-
-            # ---- 路由分发 ----
-            if needs_breakdown or run_mode == "multi_agent":
-                # 使用 ReActMultiAgentOrchestrator：计划模式走 ReAct，充分利用反思引擎+工具学习器+向量记忆
-                print("🤝 ReAct 多 Agent 模式：Planner → ReAct Executor → Reviewer")
-                try:
-                    _react_orchestrator = ReActMultiAgentOrchestrator(
-                        react_framework=agent_framework,
-                        max_plan_steps=6,
-                        max_retries=1,
-                    )
-                    _ma_result = _react_orchestrator.run(
-                        user_input=user_message + pdf_info,
-                        context=runtime_context,
-                        temperature=actual_temp,
-                        top_p=top_p_val,
-                        max_tokens=actual_max_tokens,
-                    )
-                    final_response = _ma_result.get("final_response", "")
-                    if not final_response:
-                        final_response = "多 Agent 执行完成，但未能生成最终回答。"
-                    _plan = _ma_result.get("plan", {})
-                    _steps = _ma_result.get("step_results", [])
-                    _n_success = sum(1 for s in _steps if s.get("success"))
-                    _review = _ma_result.get("review", {})
-                    execution_log.append({
-                        "iteration": 0,
-                        "type": "react_multi_agent_run",
-                        "plan_complexity": _plan.get("complexity", "unknown"),
-                        "steps_total": len(_steps),
-                        "steps_success": _n_success,
-                        "review_quality": _review.get("quality", "unknown"),
-                        "reflection_summary": _ma_result.get("reflection_summary", "")[:200],
-                        "duration": _ma_result.get("duration", 0),
-                        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                    })
-                    history[-1][1] = final_response
-                    response_started = True
-                    yield history, mode_display_text
-                except Exception as e:
-                    print(f"⚠️ ReAct多Agent模式异常，降级为工具模式: {e}")
-                    needs_breakdown = False
-                    execution_log.append({
-                        "type": "multi_agent_error",
-                        "error": str(e),
-                        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                    })
-
-            if not needs_breakdown and run_mode in ("tools", "hybrid"):
-                # 流式模式
-                _use_streaming = False  # 可根据需要启用
-                if _use_streaming:
-                    print("🌊 流式模式：StreamingFramework 实时展示进度")
-                    try:
-                        _sf = create_streaming_wrapper(agent_framework)
-                        _chat_history_dicts = [
-                            {"role": "user", "content": u} if i % 2 == 0
-                            else {"role": "assistant", "content": a}
-                            for u, a in chat_history
-                            for i, _ in [(0, u), (1, a)]
-                        ]
-                        _sf_progress_lines = []
-                        for _evt in _sf.run_stream(
-                            user_input=user_message + pdf_info,
-                            history=_chat_history_dicts or None,
-                            runtime_context=runtime_context,
-                        ):
-                            _evt_type = _evt.event_type
-                            _evt_data = _evt.data
-                            if _evt_type == "start":
-                                _sf_progress_lines = ["## 🌊 流式执行进度\n"]
-                            elif _evt_type == "thought":
-                                if _evt_data.get("content"):
-                                    _sf_progress_lines.append(
-                                        f"💭 **思考**: {_evt_data['content'][:100]}"
-                                    )
-                            elif _evt_type == "tool_call":
-                                _tool_nm = _evt_data.get("tool", "")
-                                _mode_nm = _evt_data.get("mode", "sequential")
-                                if _tool_nm:
-                                    _sf_progress_lines.append(
-                                        f"🔧 **工具调用** [{_mode_nm}]: `{_tool_nm}`"
-                                    )
-                            elif _evt_type == "tool_result":
-                                _ok_icon = "✅" if _evt_data.get("success") else "❌"
-                                _sf_progress_lines.append(
-                                    f"{_ok_icon} **工具结果**: {str(_evt_data.get('result',''))[:80]}"
-                                )
-                            elif _evt_type == "reflection":
-                                _sf_progress_lines.append(
-                                    f"🔍 **反思**: {_evt_data.get('analysis','')}"
-                                )
-                            elif _evt_type == "progress":
-                                _sf_progress_lines.append(
-                                    f"⏳ {_evt_data.get('message','')}"
-                                )
-                            elif _evt_type == "error":
-                                _sf_progress_lines.append(
-                                    f"⚠️ **错误**: {_evt_data.get('message', _evt_data.get('reason',''))}"
-                                )
-                            elif _evt_type == "complete":
-                                _final_resp = _evt_data.get("response", "")
-                                _iters = _evt_data.get("iterations", 0)
-                                _dur = _evt_data.get("duration", 0)
-                                _sf_progress_lines.append(
-                                    f"\n---\n✅ **完成** | 迭代: {_iters} 轮 | 耗时: {_dur:.1f}s"
-                                )
-                                if _final_resp:
-                                    _sf_progress_lines.append(f"\n### 最终结果\n{_final_resp}")
-                                execution_log.append({
-                                    "iteration": _iters,
-                                    "type": "streaming_complete",
-                                    "duration": _dur,
-                                    "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                                })
-                            history[-1][1] = "\n".join(_sf_progress_lines)
-                            response_started = True
-                            yield history, mode_display_text
-                    except Exception as e:
-                        print(f"⚠️ 流式模式异常，降级为工具模式: {e}")
-                        _use_streaming = False
-                        execution_log.append({
-                            "type": "streaming_error",
-                            "error": str(e),
-                            "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                        })
-
-                if not _use_streaming:
-                    try:
-                        response, execution_log_fw, _ = agent_framework.process_message(
-                            user_message + pdf_info,
-                            chat_history,
-                            system_prompt_override=sys_prompt,
-                            runtime_context=runtime_context,
-                            return_runtime_context=True,
-                            temperature=actual_temp,
-                            top_p=top_p_val,
-                            max_tokens=actual_max_tokens,
-                        )
-                        execution_log.extend(execution_log_fw)
-                        history[-1][1] = response
-                        response_started = True
-                        yield history, mode_display_text
-                    except Exception as e:
-                        error_msg = f"[⚠️ 工具模式错误] {str(e)}"
-                        execution_log.append({
-                            "iteration": 0,
-                            "type": "runtime_error",
-                            "content": error_msg,
-                            "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                        })
-                        for text_chunk in get_active_agent().generate_stream_with_messages(
-                                base_messages, temperature=actual_temp, top_p=top_p_val, max_tokens=actual_max_tokens
-                        ):
-                            history[-1][1] = error_msg + "\n\n" + text_chunk
-                            response_started = True
-                            yield history, mode_display_text
-
-            elif not needs_breakdown:
-                # 纯对话 / Skills 知识模式
-                for response_chunk, _ in agent_framework.process_message_direct_stream(
-                    base_messages,
-                    system_prompt_override=sys_prompt,
-                    runtime_context=runtime_context,
-                    stream_forward_fn=dynamic_stream_forward,
-                    temperature=actual_temp,
-                    top_p=top_p_val,
-                    max_tokens=actual_max_tokens,
-                ):
-                    history[-1][1] = response_chunk
-                    response_started = True
-                    yield history, mode_display_text
-                execution_log.append({
-                    "iteration": 0,
-                    "type": "model_response",
-                    "content": history[-1][1] if history[-1][1] else "",
-                    "run_mode": run_mode,
-                    "plan_mode": runtime_context.get("plan_mode", False),
-                    "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                })
-
-            # ---- 记录日志 ----
-            if response_started and history[-1][1]:
-                execution_time = time.time() - start_time
-                _cur_agent = _active_agent.get("instance")
-                _agent_type = _active_agent.get("type", "local")
-                if _cur_agent is not None and hasattr(_cur_agent, "model"):
-                    _cur_model_name = _cur_agent.model
-                elif _agent_type == "glm":
-                    _cur_model_name = "glm-4-flash"
-                else:
-                    _cur_model_name = "Qwen2.5-0.5B"
-                logger.log_message(
-                    user_message=user_message,
-                    bot_response=history[-1][1],
-                    execution_time=execution_time,
-                    tokens_used=0,
-                    model=_cur_model_name,
-                    runtime_context=runtime_context,
-                    execution_log=execution_log,
-                )
-
-        # ===== GLM 引擎切换事件 =====
-        def on_engine_change(engine_choice):
-            is_glm = "GLM" in engine_choice
-            if is_glm:
-                if not _GLM_AUTO_ENABLED:
-                    return "⚪ 未配置（请设置环境变量 GLM_API_KEY）"
-                current_model = _active_agent["instance"].model if (
-                    _active_agent.get("instance") and _active_agent["type"] == "glm"
-                ) else "glm-4-flash"
-                if _active_agent["type"] != "glm":
-                    try:
-                        _active_agent["instance"] = GLMAgent(
-                            api_key=_GLM_API_KEY,
-                            model=current_model,
-                            logger=logger,
-                        )
-                        _active_agent["type"] = "glm"
-                    except Exception as e:
-                        return f"❌ 切换失败: {e}"
-                return f"✅ 已启用（模型: {current_model}）"
-            else:
-                _active_agent["instance"] = None
-                _active_agent["type"] = "local"
-                return "⚪ 本地 Qwen 模式（将在首次对话时加载模型）"
-
-        def on_model_change(model_name):
-            if not _GLM_AUTO_ENABLED:
-                return "⚪ 未配置 GLM_API_KEY，无法切换"
-            try:
-                _active_agent["instance"] = GLMAgent(
-                    api_key=_GLM_API_KEY,
-                    model=model_name,
-                    logger=logger,
-                )
-                _active_agent["type"] = "glm"
-                return f"✅ 已切换模型: {model_name}"
-            except Exception as e:
-                return f"❌ 切换失败: {e}"
-
         model_engine.change(
-            on_engine_change,
+            controller.on_engine_change,
             inputs=[model_engine],
             outputs=[glm_status],
         )
         glm_model_choice.change(
-            on_model_change,
+            controller.on_model_change,
             inputs=[glm_model_choice],
             outputs=[glm_status],
         )
 
         msg.submit(user_input, [msg, chatbot], [msg, chatbot]).then(
-            bot_response,
+            controller.handle_message_with_workflow_resume,
             [chatbot, system_prompt, temperature, top_p, max_tokens, plan_mode, pdf_file],
             [chatbot, current_mode_display]
         )
         send_btn.click(user_input, [msg, chatbot], [msg, chatbot]).then(
-            bot_response,
+            controller.handle_message_with_workflow_resume,
             [chatbot, system_prompt, temperature, top_p, max_tokens, plan_mode, pdf_file],
             [chatbot, current_mode_display]
         )
@@ -1593,11 +842,22 @@ if __name__ == "__main__":
 
     os.environ['GRADIO_DISABLE_API'] = '1'
 
-    demo.launch(
-        server_name="0.0.0.0",
-        server_port=port,
-        inbrowser=True,
-        share=False,
-        show_error=True,
-        show_api=False
-    )
+    monitor = get_monitor_logger()
+    port = find_free_port()
+    log_startup("Web Agent with Skills", port=port)
+    monitor.info(f"启动 Gradio 服务，端口 {port}")
+
+    try:
+        demo.launch(
+            server_name="0.0.0.0",
+            server_port=port,
+            inbrowser=True,
+            share=False,
+            show_error=True,
+            show_api=False
+        )
+    except Exception as e:
+        monitor.exception("Gradio 服务启动失败")
+        raise
+    finally:
+        log_shutdown("Web Agent with Skills")

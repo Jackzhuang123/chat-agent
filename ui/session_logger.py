@@ -5,9 +5,17 @@
 """
 
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
+
+# 确保项目根目录在 sys.path 中，使 core 模块可被正确导入
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from core.monitor_logger import get_monitor_logger
 
 
 def _make_json_serializable(obj: Any) -> Any:
@@ -43,9 +51,11 @@ class SessionLogger:
         """
         初始化日志管理器
 
+
         Args:
             log_dir: 日志存储目录，如果为None则使用项目根目录下的session_logs
         """
+        self.monitor = get_monitor_logger()
         if log_dir is None:
             # 获取项目根目录（ui/session_logger.py 的父目录的父目录）
             project_root = Path(__file__).parent.parent
@@ -159,6 +169,7 @@ class SessionLogger:
                 session_data = json.load(f)
         except Exception as e:
             print(f"读取会话文件失败，重新创建: {e}")
+            self.monitor.error(f"读取会话文件失败 {self.current_session_file}: {e}")
             self.create_session()
             with open(self.current_session_file, 'r', encoding='utf-8') as f:
                 session_data = json.load(f)
@@ -403,6 +414,54 @@ class SessionLogger:
         except Exception as e:
             print(f"导出会话失败: {e}")
             return False
+
+    def get_all_user_questions(self, skip_placeholders: bool = True) -> List[Dict[str, Any]]:
+        """
+        遍历所有会话日志，提取每条 user_message，返回按时间排序的问题列表。
+
+        返回格式：
+        [
+            {
+                "session_id": "20260414_053432_502",
+                "session_date": "2026-04-14",
+                "timestamp": "2026-04-14T05:36:11.482841",
+                "user_message": "用户问的内容",
+                "bot_response_snippet": "助手回复前100字"
+            },
+            ...
+        ]
+        """
+        all_questions = []
+        for log_file in sorted(self.log_dir.glob("*.json")):
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    session_data = json.load(f)
+                session_id = session_data.get("session_id", log_file.stem)
+                session_date = session_id[:8]  # "20260414"
+                try:
+                    session_date = datetime.strptime(session_date, "%Y%m%d").strftime("%Y-%m-%d")
+                except Exception:
+                    pass
+                for msg in session_data.get("messages", []):
+                    user_msg = msg.get("user_message", "")
+                    bot_resp = msg.get("bot_response", "")
+                    if skip_placeholders:
+                        if user_msg == "[未设置]" and bot_resp == "[在进行中...]":
+                            continue
+                    if not user_msg or user_msg == "[未设置]":
+                        continue
+                    all_questions.append({
+                        "session_id": session_id,
+                        "session_date": session_date,
+                        "timestamp": msg.get("timestamp", ""),
+                        "user_message": user_msg,
+                        "bot_response_snippet": bot_resp[:100] if bot_resp else "",
+                    })
+            except Exception as e:
+                print(f"读取日志文件 {log_file} 失败: {e}")
+        # 按时间戳升序排列（旧→新）
+        all_questions.sort(key=lambda x: x.get("timestamp", ""))
+        return all_questions
 
     def delete_session(self, session_id: str) -> bool:
         """

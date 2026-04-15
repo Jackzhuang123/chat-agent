@@ -1,0 +1,18 @@
+{
+  "stages": {
+    "init": {"next": ["analyze"], "checkpoint": false},
+    "analyze": {"next": ["process_a", "process_b"], "parallel": true, "checkpoint": true},
+    "process_a": {"next": ["merge"], "wait_for": ["process_b"]},
+    "process_b": {"next": [], "feeds_into": "merge"},
+    "merge": {"next": ["report"], "checkpoint": false},
+    "report": {"next": []}
+  },
+  "handlers": {
+    "init": "handlers.init_handler",
+    "analyze": "handlers.analyze_handler",
+    "process_a": "handlers.process_handler",
+    "process_b": "handlers.process_handler",
+    "merge": "handlers.merge_handler",
+    "report": "handlers.report_handler"
+  }
+}

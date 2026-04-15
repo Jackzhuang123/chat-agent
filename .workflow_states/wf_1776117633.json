@@ -1,0 +1,74 @@
+{
+  "workflow_id": "wf_1776117633",
+  "status": "idle",
+  "created_at": "2026-04-14T06:00:33.060768",
+  "updated_at": "2026-04-14T06:07:08.027380",
+  "current_stage": "report",
+  "stages": {
+    "init": {
+      "status": "completed",
+      "started_at": "2026-04-14T06:00:33.062039",
+      "completed_at": "2026-04-14T06:06:17.577613",
+      "error": null
+    },
+    "analyze": {
+      "status": "completed",
+      "started_at": "2026-04-14T06:06:17.581988",
+      "completed_at": "2026-04-14T06:06:58.810939",
+      "error": null
+    },
+    "merge": {
+      "status": "completed",
+      "started_at": "2026-04-14T06:06:58.811582",
+      "completed_at": "2026-04-14T06:07:05.584463",
+      "error": null
+    },
+    "report": {
+      "status": "completed",
+      "started_at": "2026-04-14T06:07:05.586691",
+      "completed_at": "2026-04-14T06:07:08.027095",
+      "error": null
+    }
+  },
+  "artifacts": {
+    "response": "以下是您问过的所有问题的总结：\n\n1. 读取api.md中内容。\n2. 给出周杰伦最出名的十首歌，截取片段并解释含义。\n3. 阅读session_analyzer.py代码，进行解释。",
+    "tool_calls": [
+      {
+        "iteration": 1,
+        "tool": null,
+        "type": "thought",
+        "content": "以下是您问过的所有问题的总结：\n\n1. 读取api.md中内容。\n2. 给出周杰伦最出名的十首歌，截取片段并解释含义。\n3. 阅读session_analyzer.py代码，进行解释。",
+        "success": true,
+        "parallel": false,
+        "timestamp": "2026-04-13T22:07:07Z"
+      },
+      {
+        "iteration": 1,
+        "tool": null,
+        "type": "final_response",
+        "success": true,
+        "parallel": false,
+        "timestamp": "2026-04-13T22:07:08Z"
+      }
+    ],
+    "parallel_triggered": [
+      "process_a",
+      "process_b"
+    ]
+  },
+  "user_input": "我问过的所有问题总结一下",
+  "runtime_context": {
+    "run_mode": "plan",
+    "plan_mode": false,
+    "uploaded_files": [],
+    "selected_skills": [],
+    "intent_reasons": [
+      "LLM: 用户提出了一个需要多步骤执行的任务，即总结之前的问题。 | 规则: 匹配0个模式"
+    ],
+    "start_time": 1776118025.587609,
+    "tool_chain_id": "chain_1776118025_dd0ecc",
+    "iteration": 0
+  },
+  "pending_interaction_stage": null,
+  "pending_interaction_config": null
+}

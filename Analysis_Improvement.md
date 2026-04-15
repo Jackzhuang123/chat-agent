@@ -191,7 +191,7 @@ app = graph.compile(checkpointer=MemorySaver())
 不同于 LangChain 的 `AgentExecutor` 简单循环, 本项目实现了**四层认知架构**:
 
 ```python
-# 本项目 ReAct 循环 (agent_framework.py)
+# 本项目 ReAct 循环 (agent_framework_legacy.py)
 class QwenAgentFramework:
     def run(self, user_input, history, runtime_context):
         for iteration in range(self.max_iterations):
@@ -353,7 +353,7 @@ LangChain 的记忆是**消息列表的简单封装**, 核心类 `BaseChatMessag
 #### 2.2.2 本项目 SessionMemory + VectorMemory
 
 ```python
-# 会话记忆 (agent_framework.py)
+# 会话记忆 (agent_framework_legacy.py)
 class SessionMemory:
     def __init__(self, memory_dir=".agent_memory"):
         self.tool_stats = defaultdict(lambda: {"success": 0, "failed": 0, "avg_time": 0})
@@ -549,7 +549,7 @@ agent = create_react_agent(llm, tools, prompt)
 agent_executor = AgentExecutor(agent=agent, tools=tools)
 
 # 执行
-result = agent_executor.invoke({"input": "分析 agent_framework.py"})
+result = agent_executor.invoke({"input": "分析 agent_framework_legacy.py"})
 ```
 
 **本项目实现**:
@@ -567,7 +567,7 @@ framework = QwenAgentFramework(
 )
 
 # 执行 (自动路由为 tools 模式)
-result = framework.run("分析 agent_framework.py")
+result = framework.run("分析 agent_framework_legacy.py")
 # 自动调用 read_file -> 分析 -> 返回结果
 ```
 

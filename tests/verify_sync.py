@@ -13,26 +13,29 @@ shutil.rmtree(_mem_dir, ignore_errors=True)
 os.makedirs(_mem_dir, exist_ok=True)
 
 from core.tool_learner import AdaptiveToolLearner
-from core.agent_framework import DeepReflectionEngine
+from core.components import DeepReflectionEngine  # 从独立组件模块导入
 
 # 创建组件（使用全新目录，无历史数据）
 learner = AdaptiveToolLearner(memory_dir=_mem_dir)
 engine = DeepReflectionEngine()
 engine.attach_tool_learner(learner)
 
+# 使用外部 history 列表（DeepReflectionEngine 将历史写入此列表）
+history = []
+
 # 模拟成功工具序列: read_file -> bash -> write_file
 ctx1 = {'recent_tools': [], 'task': 'code_review', '_execution_time': 0.5}
-engine.reflect_on_result('read_file', {'output': 'ok'}, context=ctx1)
+engine.reflect_on_result('read_file', {'output': 'ok'}, context=ctx1, history=history)
 
 ctx2 = {'recent_tools': ['read_file'], 'task': 'code_review', '_execution_time': 1.2}
-engine.reflect_on_result('bash', {'output': 'ok'}, context=ctx2)
+engine.reflect_on_result('bash', {'output': 'ok'}, context=ctx2, history=history)
 
 ctx3 = {'recent_tools': ['read_file', 'bash'], 'task': 'code_review', '_execution_time': 0.3}
-engine.reflect_on_result('write_file', {'output': 'ok'}, context=ctx3)
+engine.reflect_on_result('write_file', {'output': 'ok'}, context=ctx3, history=history)
 
 # 模拟失败
 ctx4 = {'recent_tools': ['write_file'], 'task': 'code_review', '_execution_time': 0.1}
-engine.reflect_on_result('read_file', {'error': 'not found'}, context=ctx4)
+engine.reflect_on_result('read_file', {'error': 'not found'}, context=ctx4, history=history)
 
 print('[1] 成功模式记录（engine.success_patterns）:')
 for k, v in engine.success_patterns.items():
@@ -78,10 +81,10 @@ assert 'bash->write_file' in engine.success_patterns, \
 assert len(recs) > 0, "应有推荐结果"
 assert recs[0]['tool'] == 'bash', f"推荐第一位应为 bash，实际: {recs[0]['tool']}"
 
-# 验证反思历史
-assert len(engine.reflection_history) == 4, \
-    f"应有4条反思记录，实际: {len(engine.reflection_history)}"
-success_count = sum(1 for r in engine.reflection_history if r.get('success'))
+# 验证反思历史（使用外部 history 列表）
+assert len(history) == 4, \
+    f"应有4条反思记录，实际: {len(history)}"
+success_count = sum(1 for r in history if r.get('success'))
 assert success_count == 3, \
     f"应有3次成功反思，实际: {success_count}"
 
@@ -89,5 +92,5 @@ print()
 print('✅ 所有断言通过！双向同步逻辑验证成功！')
 print()
 print('[反思摘要]:')
-print(engine.get_reflection_summary())
+print(engine.get_reflection_summary(history))
 

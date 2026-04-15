@@ -1,13 +1,45 @@
 # -*- coding: utf-8 -*-
 """多 Agent 协作模块 - Planner + Executor + Reviewer 架构"""
 
+import inspect
 import json
 import re
 import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
+from core.monitor_logger import get_monitor_logger
 
-_AVAILABLE_TOOLS = {"read_file", "write_file", "edit_file", "list_dir", "none"}
+_AVAILABLE_TOOLS = {"bash", "read_file", "write_file", "edit_file", "list_dir", "execute_python", "none"}
+
+
+def _safe_model_call(model_forward_fn: Callable, messages: list, system_prompt: str = "", **kwargs) -> str:
+    """安全调用 model_forward_fn，兼容同步返回 str 和流式 generator 两种情况。
+
+    GLMAgent.generate_stream_with_messages 是 generator，
+    直接传入 re.search 会报 expected string or bytes-like object。
+    此函数统一消费 generator，返回最终字符串。
+    """
+    try:
+        result = model_forward_fn(messages, system_prompt, **kwargs)
+    except Exception as e:
+        return f"模型调用失败: {e}"
+
+    # 处理 generator / iterator（流式返回）
+    if inspect.isgenerator(result) or hasattr(result, "__next__"):
+        chunks = []
+        try:
+            for chunk in result:
+                if isinstance(chunk, str):
+                    chunks.append(chunk)
+        except Exception:
+            pass
+        # 流式返回通常是累积字符串，取最后一个（最完整）
+        return chunks[-1] if chunks else ""
+
+    if not isinstance(result, str):
+        return str(result) if result is not None else ""
+
+    return result
 
 
 class PlannerAgent:
@@ -17,28 +49,49 @@ class PlannerAgent:
 
     def plan(self, user_input: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         tools_list = " / ".join(sorted(self.available_tools))
-        system_prompt = f"""你是任务规划助手。将用户需求分解为2-4个具体步骤。
+        system_prompt = f"""你是任务规划助手。将用户需求分解为可执行步骤。
 
-可用工具（仅限以下工具，禁止使用未列出的工具）：
+可用工具（仅限以下工具）：
 {tools_list}
 
-返回格式（严格 JSON）：
+返回格式（严格 JSON，不要输出其他内容）：
 {{
   "complexity": "simple|medium|complex",
   "steps": [
-    {{"id": 1, "action": "步骤描述", "tool": "上方可用工具之一"}},
-    {{"id": 2, "action": "步骤描述", "tool": "none"}}
+    {{"id": 1, "action": "步骤描述（必须含具体文件名/目录名）", "tool": "工具名", "task_type": "tool|knowledge"}},
+    {{"id": 2, "action": "步骤描述", "tool": "none", "task_type": "knowledge"}}
   ],
   "estimated_time": "预计耗时（秒）"
 }}
 
-规则：
-- 步骤数量：2-4个，简洁可执行
-- tool 字段只能用上方可用工具，不可用 bash 等未列出工具
-- 步骤之间有逻辑顺序
-- 每步描述简洁（20字以内）
-- 禁止重复步骤
-- 如果上下文中已经有完成过的步骤，不要重复规划这些步骤"""
+核心规则（违反将导致执行失败）：
+1. 步骤数量：严格限制 2-4 个，多个用户子任务合并为操作类别，不要每个子任务单独一步
+2. action 描述必须具体：若涉及文件操作，必须写出具体文件名（如 "用 execute_python 扫描 core/ 目录整理类和方法写入 API.md" 而非 "读取源文件"）
+3. task_type 字段：需要工具的步骤填 "tool"；纯知识问答（无文件操作）填 "knowledge"，tool 填 "none"
+4. 工具选择策略（重要）：
+   - 批量搜索/统计多文件 → bash（grep/find/wc）
+   - 读单文件 → read_file
+   - 写简单文件（几行内容）→ write_file
+   - 需要「搜索+格式化+写入文件」→ 用 execute_python（代码中搜索、格式化、写入文件，最后必须 print 确认）
+     ⚠️ 禁止用 write_file 写入从其他工具获取的大段内容！模型无法在参数中填入实际内容，只能写占位符
+     ✅ 正确：execute_python 代码中完成搜索+格式化+写入+print确认
+     ❌ 错误：bash搜索后用write_file写结果（模型只会写占位符如"<完整复制上方输出>"）
+   - 【禁止】用 bash grep 直接重定向写文档：`grep ... > 文件.md` 只会输出 "文件名:行号:内容" 格式的原始数据，不是人类可读的文档
+5. 禁止生成幻觉文件名（如 "源文件.py"、"文件名.py"），必须使用用户明确提到的真实文件名
+6. 如果有已完成步骤，不要重复规划
+
+示例（用户有3个子任务时如何合并为2-3步）：
+用户: "扫描core目录找出所有类和方法整理成文档写入API.md，列出周杰伦10首歌，阅读main.py解释"
+正确规划:
+- 步骤1: "用execute_python扫描core/目录的所有.py文件，提取类和方法名，格式化为Markdown写入API.md，最后print确认" tool=execute_python task_type=tool
+- 步骤2: "列出周杰伦最出名十首歌并解释" tool=none task_type=knowledge
+- 步骤3: "用read_file读取main.py并解释代码" tool=read_file task_type=tool
+（execute_python代码中必须包含print确认写入成功，避免stdout为空导致重试）
+
+错误示例（不要这样做）：
+- 步骤1: "用bash搜索后用write_file写入API.md" tool=bash  ← 错误！模型无法在write_file参数中填入bash的实际输出，只会写占位符
+- 步骤1: "用execute_python扫描并写入API.md"（但代码没加print） ← 错误！stdout为空导致无限重试
+- 步骤1: "用bash grep重定向写入API.md" tool=bash  ← 错误！bash grep输出不是人类可读的格式化文档"""
         messages = [{"role": "user", "content": user_input}]
         if context:
             ctx_parts = []
@@ -56,7 +109,7 @@ class PlannerAgent:
                 context_str = f"上下文：{json.dumps(context, ensure_ascii=False)}"
             messages.insert(0, {"role": "system", "content": context_str})
         try:
-            response = self.model_forward_fn(messages, system_prompt)
+            response = _safe_model_call(self.model_forward_fn, messages, system_prompt)
             json_match = re.search(r'\{[\s\S]*\}', response)
             if json_match:
                 plan = json.loads(json_match.group())
@@ -87,7 +140,7 @@ class ExecutorAgent:
                         context_str = "\n\n已有信息：\n" + "\n".join([f"- {r.get('action', '')}: {self._extract_content_summary(r.get('result', ''))}" for r in context["previous_results"] if r.get("success") and r.get("result")])
                     prompt = f"请完成以下任务：{action}{context_str}"
                     messages = [{"role": "user", "content": prompt}]
-                    response = self.model_forward_fn(messages, system_prompt="你是一个智能助手，请直接回答用户的问题，不要添加额外的解释或格式。", temperature=0.7, top_p=0.9, max_tokens=1024)
+                    response = _safe_model_call(self.model_forward_fn, messages, "你是一个智能助手，请直接回答用户的问题，不要添加额外的解释或格式。", temperature=0.7, top_p=0.9, max_tokens=1024)
                     return {"success": True, "step_id": step.get("id"), "action": action, "result": response, "reasoning_task": True}
                 except Exception as e:
                     return {"success": False, "step_id": step.get("id"), "action": action, "error": f"推理任务执行失败: {str(e)}"}
@@ -109,6 +162,10 @@ class ExecutorAgent:
             return {"success": False, "step_id": step.get("id"), "action": action, "tool": tool, "error": str(e)}
 
     def _extract_tool_args(self, action: str, tool: str) -> Dict[str, str]:
+        if not isinstance(action, str):
+            print(f"⚠️ 工具参数提取失败：action 类型错误 (期望 str，实际 {type(action).__name__})")
+            return {"error": f"无效的步骤描述类型: {type(action).__name__}"}
+
         if tool in ["read_file", "list_dir"]:
             ext_match = re.search(r'([a-zA-Z0-9_/.-]+\.[a-zA-Z0-9]+)', action)
             if ext_match:
@@ -205,7 +262,7 @@ class ReviewerAgent:
 {json.dumps(execution_results, ensure_ascii=False, indent=2)}"""
         messages = [{"role": "user", "content": context}]
         try:
-            response = self.model_forward_fn(messages, system_prompt)
+            response = _safe_model_call(self.model_forward_fn, messages, system_prompt)
             json_match = re.search(r'\{[\s\S]*\}', response)
             if json_match:
                 review = json.loads(json_match.group())
@@ -268,7 +325,7 @@ class MultiAgentOrchestrator:
 - 对于推理任务的结果（如列表、解释、分析等），请直接展示完整内容，不要省略或概括"""
         messages = [{"role": "user", "content": final_prompt}]
         try:
-            final_response = model_forward_fn(messages, system_prompt=system_prompt, temperature=temperature, top_p=top_p, max_tokens=max_tokens)
+            final_response = _safe_model_call(model_forward_fn, messages, system_prompt, temperature=temperature, top_p=top_p, max_tokens=max_tokens)
         except Exception as e:
             final_response = f"生成最终回答时出错: {e}"
         result["final_response"] = final_response
@@ -355,7 +412,7 @@ class ReActMultiAgentOrchestrator:
         result = orchestrator.run("分析并修复 core/ 下所有 bug")
     """
 
-    def __init__(self, react_framework, max_plan_steps: int = 6, max_retries: int = 1):
+    def __init__(self, react_framework, max_plan_steps: int = 4, max_retries: int = 1):
         """
         Args:
             react_framework: QwenAgentFramework 实例（所有子模块共享）
@@ -367,37 +424,32 @@ class ReActMultiAgentOrchestrator:
         self.max_retries = max_retries
 
         # Planner 复用 ReAct 的模型
+        # ⚠️ execute_python 必须加入白名单，否则 ReAct Executor 调用时会报"未知工具"
         self.planner = PlannerAgent(
             react_framework.model_forward_fn,
             available_tools=set(
                 (["bash"] if react_framework.tool_executor.enable_bash else []) +
-                ["read_file", "write_file", "edit_file", "list_dir", "none"]
+                ["read_file", "write_file", "edit_file", "list_dir", "execute_python", "none"]
             )
         )
         # Reviewer 复用 ReAct 的模型
         self.reviewer = ReviewerAgent(react_framework.model_forward_fn)
+        self.monitor = get_monitor_logger()
 
-    def run(
+    async def run(
             self,
             user_input: str,
+            session: "SessionContext",
             context: Optional[Dict] = None,
             runtime_context: Optional[Dict] = None,
             temperature: float = 0.7,
             top_p: float = 0.9,
             max_tokens: int = 8192,
     ) -> Dict[str, Any]:
-        """执行完整的 Plan → ReAct Execute → Review 流水线。
-
-        Returns:
-            {
-              success, plan, step_results, review,
-              final_response, reflection_summary,
-              tool_chain_ids, duration
-            }
-        """
+        import traceback
         start_time = time.time()
         fw = self.react_framework
-
+        self.monitor.info(f"多 Agent 流程开始，输入长度: {len(user_input)}")
         # ── 1. 规划阶段 ──
         plan_ctx: Dict = {}
         if context:
@@ -407,7 +459,17 @@ class ReActMultiAgentOrchestrator:
                 "files_touched": context.get("files_touched", []),
                 "current_task": context.get("current_task", user_input),
             }
-        plan_result = self.planner.plan(user_input, plan_ctx if any(plan_ctx.values()) else None)
+        try:
+            plan_result = self.planner.plan(user_input, plan_ctx if any(plan_ctx.values()) else None)
+        except Exception as e:
+            print(f"❌ 规划阶段异常: {e}\n{traceback.format_exc()}")
+            return {
+                "success": False,
+                "stage": "planning",
+                "error": f"规划失败: {e}",
+                "duration": time.time() - start_time,
+            }
+
         if not plan_result["success"]:
             return {
                 "success": False,
@@ -418,8 +480,9 @@ class ReActMultiAgentOrchestrator:
 
         plan = plan_result["plan"]
         steps = plan.get("steps", [])[:self.max_plan_steps]
+        self.monitor.info(f"规划完成，步骤数: {len(steps)}，复杂度: {plan.get('complexity', 'unknown')}")
 
-        # ── 2. ReAct 执行阶段（每步独立调用 ReAct）──
+        # ── 2. ReAct 执行阶段 ──
         step_results: List[Dict] = []
         tool_chain_ids: List[str] = []
         accumulated_context = {
@@ -432,49 +495,82 @@ class ReActMultiAgentOrchestrator:
             step_id = step.get("id", len(step_results) + 1)
             action = step.get("action", "")
             tool_hint = step.get("tool", "none")
+            task_type = step.get("task_type", "tool")
+            self.monitor.debug(f"执行步骤 {step_id}/{len(steps)}: {action[:50]}")
 
-            # 构建给 ReAct 的子任务描述（附带上下文和工具提示）
-            sub_task = self._build_step_prompt(
-                action, tool_hint, accumulated_context, step_id, len(steps)
-            )
+            # ── 新增：防御性检查 ─────────────────────────────────────────────
+            if not action:
+                print(f"⚠️ 步骤 {step_id} 缺少 action 描述，跳过")
+                continue
 
-            # 构建子任务的 runtime_context（继承父级）
+            # 重置步骤级别状态
+            session.task_context["completed_steps"] = []
+            session.task_context["failed_attempts"] = []
+            session.task_context["subtask_status"] = {}
+            session.task_context["_plan_step_task_type"] = task_type
+            session.task_context["_plan_step_id"] = step_id
+            session.task_context["_plan_step_total"] = len(steps)
+            session.task_context["_plan_step_action"] = action
+
+            session.task_context["current_task"] = action  # 先临时设置为 action，稍后会被 fw.run 覆盖
+            # 构建子任务描述
+            try:
+                sub_task = self._build_step_prompt(
+                    action, tool_hint, accumulated_context, step_id, len(steps),
+                    task_type=task_type, full_plan_steps=steps,
+                )
+            except Exception as e:
+                print(f"❌ 构建步骤 {step_id} 提示词失败: {e}\n{traceback.format_exc()}")
+                step_results.append({
+                    "step_id": step_id, "action": action, "success": False,
+                    "error": f"构建提示词异常: {e}"
+                })
+                continue
+
+            session.task_context["current_task"] = sub_task
             step_runtime_ctx = dict(runtime_context or {})
             step_runtime_ctx.update({
                 "run_mode": "tools",
                 "task": user_input,
                 "plan_step": step_id,
                 "plan_total": len(steps),
+                "max_timeout_seconds": min(len(steps) * 90, 300),
             })
 
             # ReAct 执行（最多 max_retries+1 次）
             react_result: Optional[Dict] = None
             for attempt in range(self.max_retries + 1):
-                react_result = fw.run(
-                    user_input=sub_task,
-                    history=None,
-                    runtime_context=step_runtime_ctx,
-                    temperature=temperature,
-                    top_p=top_p,
-                    max_tokens=max_tokens,
-                )
-                # 判断是否成功（无错误 && 未被中断且未检测到循环）
-                if not react_result.get("error") and not react_result.get("interrupted") and not react_result.get("loop_detected"):
+                try:
+                    react_result = await fw.run(
+                        user_input=sub_task,
+                        session=session,
+                        history=None,
+                        runtime_context=step_runtime_ctx,
+                        temperature=temperature,
+                        top_p=top_p,
+                        max_tokens=max_tokens,
+                    )
+                except Exception as e:
+                    print(f"❌ 步骤 {step_id} 执行异常 (尝试 {attempt + 1}): {e}\n{traceback.format_exc()}")
+                    react_result = {"response": f"执行异常: {e}", "error": str(e)}
+                if not react_result.get("error") and not react_result.get("interrupted") and not react_result.get(
+                        "loop_detected"):
                     break
                 if attempt < self.max_retries:
-                    # 将失败信息注入下次重试的 context
                     step_runtime_ctx["_retry_reason"] = react_result.get("response", "")
 
             step_success = (
-                react_result is not None and
-                not react_result.get("error") and
-                not react_result.get("interrupted")
+                    react_result is not None and
+                    not react_result.get("error") and
+                    not react_result.get("interrupted") and
+                    not react_result.get("timed_out")
             )
 
             step_record = {
                 "step_id": step_id,
                 "action": action,
                 "tool_hint": tool_hint,
+                "task_type": task_type,
                 "success": step_success,
                 "response": react_result.get("response", "") if react_result else "",
                 "tool_calls": react_result.get("tool_calls", []) if react_result else [],
@@ -483,40 +579,60 @@ class ReActMultiAgentOrchestrator:
             }
             step_results.append(step_record)
 
-            if react_result and fw._current_tool_chain_id:
-                tool_chain_ids.append(fw._current_tool_chain_id)
+            if react_result and session.current_tool_chain_id:
+                tool_chain_ids.append(session.current_tool_chain_id)
 
-            # 更新累积上下文供后续步骤使用
+            # 更新累积上下文
             if step_success:
+                self.monitor.debug(f"步骤 {step_id} 成功")
                 accumulated_context["completed_steps"].append(f"步骤{step_id}: {action}")
+                if "step_outputs" not in accumulated_context:
+                    accumulated_context["step_outputs"] = {}
+                accumulated_context["step_outputs"][step_id] = step_record["response"][:400]
             else:
+                self.monitor.warning(f"步骤 {step_id} 失败")
                 accumulated_context["failed_steps"].append(f"步骤{step_id}: {action}")
 
-            # 若步骤被标记为 critical 且失败，中断
             if not step_success and step.get("critical", False):
                 break
 
         # ── 3. 评审阶段 ──
-        review_result = self.reviewer.review(
-            user_input,
-            plan,
-            [{"action": r["action"], "success": r["success"], "result": r["response"][:300]} for r in step_results]
-        )
+        _review_steps = []
+        for r in step_results:
+            sid = r["step_id"]
+            _step_out = accumulated_context.get("step_outputs", {}).get(sid, "")
+            _result_text = _step_out or r["response"]
+            if not r["success"]:
+                _result_text = f"[执行失败] {r['response'][:200]}"
+            _review_steps.append({
+                "action": r["action"],
+                "success": r["success"],
+                "result": _result_text[:400],
+                "tool_calls_count": len(r.get("tool_calls", [])),
+            })
+        review_result = self.reviewer.review(user_input, plan, _review_steps)
 
-        # ── 4. 生成最终回答（复用 ReAct 的模型）──
+        # ── 4. 生成最终回答 ──
         final_summary = self._generate_final_response(
             user_input, step_results, review_result, fw.model_forward_fn,
             temperature=temperature, top_p=top_p, max_tokens=max_tokens
         )
 
         duration = time.time() - start_time
+
+        self.monitor.info(
+            f"多 Agent 流程完成，成功步骤: {sum(1 for r in step_results if r['success'])}/{len(step_results)}，"
+            f"总耗时: {duration:.2f}s"
+        )
+
         return {
             "success": True,
             "plan": plan,
             "step_results": step_results,
             "review": review_result.get("review", {}),
             "final_response": final_summary,
-            "reflection_summary": fw.reflection.get_reflection_summary() if fw.reflection else "",
+            "reflection_summary": fw.reflection.get_reflection_summary(
+                session.reflection_history) if fw.reflection else "",
             "tool_chain_ids": tool_chain_ids,
             "duration": duration,
             "timestamp": datetime.now().isoformat(),
@@ -529,16 +645,88 @@ class ReActMultiAgentOrchestrator:
             accumulated_context: Dict,
             step_id: int,
             total_steps: int,
+            task_type: str = "tool",
+            full_plan_steps: Optional[list] = None,
     ) -> str:
-        """将计划步骤转换为 ReAct 可理解的子任务 prompt。"""
-        parts = [f"【计划执行 步骤 {step_id}/{total_steps}】{action}"]
-        if tool_hint and tool_hint != "none":
-            parts.append(f"提示：可能需要使用 {tool_hint} 工具。")
-        if accumulated_context.get("completed_steps"):
-            parts.append("已完成的前置步骤：" + "；".join(accumulated_context["completed_steps"][-3:]))
+        """将计划步骤转换为 ReAct 可理解的子任务 prompt。
+
+        改进点：
+        - 注入完整计划概览，让 ReAct 知道全局目标和当前所处位置
+        - 知识类任务（task_type=knowledge）明确告知不需要工具
+        - 前置完成步骤完整透传（最多5条），而非仅3条
+        - 明确成功标准：必须完成什么才算完成本步骤
+        """
+        parts = []
+
+        # ── 全局计划概览（首步或未完成步骤时注入）──────────────────────────────
+        if full_plan_steps and total_steps > 1:
+            plan_overview = [f"📋 完整计划（共{total_steps}步）："]
+            for s in full_plan_steps:
+                sid = s.get("id", "?")
+                sa = s.get("action", "")
+                marker = "▶ 【当前】" if sid == step_id else ("  ✅ 已完成" if f"步骤{sid}" in " ".join(accumulated_context.get("completed_steps", [])) else f"  ⏳ 步骤{sid}")
+                plan_overview.append(f"  {marker}: {sa}")
+            parts.append("\n".join(plan_overview))
+            parts.append("")
+
+        # ── 当前步骤指令 ──────────────────────────────────────────────────────
+        parts.append(f"【计划执行 步骤 {step_id}/{total_steps}】{action}")
+
+        # ── 任务类型处理 ──────────────────────────────────────────────────────
+        if task_type == "knowledge":
+            parts.append("📝 【知识问答步骤】：此步骤不需要调用任何工具，请直接根据已有知识回答，输出完整内容。")
+            parts.append(
+                "⚠️ 【防幻觉提醒】：对于引用、歌词、诗句、名人名言、具体数据等内容，"
+                "请务必确认准确。如不确定，请在该内容后标注「（待核实）」，"
+                "而非编造看似合理但实际错误的内容。模糊的记忆远好于自信的错误。"
+            )
+        elif tool_hint and tool_hint != "none":
+            parts.append("")
+            parts.append("⚠️ 工具调用强制格式要求：")
+            parts.append(f"你必须输出如下标准格式（工具名独占一行，紧接着是 JSON 参数，参数名必须精确）：")
+            parts.append(f"{tool_hint}")
+            # 根据工具类型提供参数模板
+            if tool_hint == "execute_python":
+                parts.append('{"code": "你的Python代码"}')
+            elif tool_hint == "read_file":
+                parts.append('{"path": "文件路径"}')
+            elif tool_hint == "write_file":
+                parts.append('{"path": "文件路径", "content": "内容", "mode": "overwrite"}')
+            elif tool_hint == "bash":
+                parts.append('{"command": "shell命令"}')
+            elif tool_hint == "list_dir":
+                parts.append('{"path": "目录路径"}')
+            elif tool_hint == "edit_file":
+                parts.append('{"path": "文件路径", "old_content": "旧内容", "new_content": "新内容"}')
+            else:
+                parts.append('{"param": "value"}')
+            parts.append("严禁使用其他参数名如 'param' 或命令行风格！")
+
+        # ── 前置完成步骤（最多5条，完整透传）──────────────────────────────────
+        completed = accumulated_context.get("completed_steps", [])
+        if completed:
+            parts.append("✅ 已完成的前置步骤：" + "；".join(completed[-5:]))
+
+        # ── 前置步骤输出摘要（关键！让当前步骤知道前面发现了什么）────────────
+        step_outputs: Dict = accumulated_context.get("step_outputs", {})
+        if step_outputs:
+            parts.append("📄 前置步骤执行结果摘要（可直接引用，无需重新执行）：")
+            for sid in sorted(step_outputs.keys()):
+                if sid < step_id:  # 只注入当前步骤之前的输出
+                    out = step_outputs[sid]
+                    if out:
+                        parts.append(f"  步骤{sid}输出: {out[:300]}")
+
         if accumulated_context.get("failed_steps"):
             parts.append("⚠️ 以下步骤之前失败：" + "；".join(accumulated_context["failed_steps"]))
-        parts.append("请直接执行此步骤，完成后输出结果摘要。")
+
+        # ── 成功标准 ────────────────────────────────────────────────────────
+        parts.append("")
+        if task_type == "knowledge":
+            parts.append("✅ 成功标准：直接输出完整回答，无需调用工具。")
+        else:
+            parts.append("✅ 成功标准：执行完毕后输出【结果摘要】，说明做了什么、得到了什么结果。")
+
         return "\n".join(parts)
 
     def _generate_final_response(
@@ -557,7 +745,11 @@ class ReActMultiAgentOrchestrator:
             status = "✅" if r["success"] else "❌"
             lines.append(f"{status} 步骤{r['step_id']}: {r['action']}")
             if r["response"]:
-                lines.append(f"   {r['response'][:300]}")
+                # 知识类步骤（如歌曲列表、代码解释）响应可能很长，不能截断太短
+                # 工具类步骤摘要一般较短；knowledge 步骤内容本身就是最终答案的一部分
+                task_type = r.get("task_type", "tool")
+                max_resp = 2000 if task_type == "knowledge" else 1500
+                lines.append(f"   {r['response'][:max_resp]}")
 
         review = review_result.get("review", {})
         if review.get("issues"):
@@ -569,9 +761,10 @@ class ReActMultiAgentOrchestrator:
         prompt += "\n\n请根据以上执行结果，给出完整详细的回答，不要省略重要信息。"
 
         try:
-            return model_forward_fn(
+            return _safe_model_call(
+                model_forward_fn,
                 [{"role": "user", "content": prompt}],
-                system_prompt="你是智能助手，请整合执行结果回答用户。",
+                "你是智能助手，请整合执行结果回答用户。",
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,

@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Any, List, Optional, Callable, Tuple
-
+from core.monitor_logger import get_monitor_logger
 
 class IntentType(Enum):
     CHAT = "chat"
@@ -34,6 +34,7 @@ class ConfidenceCalibrator:
     def __init__(self):
         self.calibration_history: List[Tuple[float, bool]] = []
         self.temperature = 1.0
+        self.monitor = get_monitor_logger()
 
     def calibrate(self, raw_confidence: float, router_type: str) -> float:
         router_bias = {"rule": 0.05, "llm": -0.05, "ensemble": 0.0}.get(router_type, 0.0)
@@ -133,6 +134,7 @@ class PreciseModeRouter:
                 {"patterns": [r"规划并执行", r"分析并生成", r"审查", r"评估质量", r"端到端", r"完整流程", r"全链路"], "weight": 1.0},
             ],
         }
+        self.monitor = get_monitor_logger()
 
     def route(self, user_input: str, context: Dict = None) -> IntentResult:
         context = context or {}
@@ -143,23 +145,58 @@ class PreciseModeRouter:
         max_rule_conf = max(rule_result["confidence"], skill_result["confidence"])
 
         if path_signals["has_path"]:
-            return self._build_result(IntentType.TOOLS, 0.95, "rule", path_signals["reason"], alternatives=[])
+            result = self._build_result(IntentType.TOOLS, 0.95, "rule", path_signals["reason"], alternatives=[])
+            self.monitor.info(
+                f"意图路由: {result.intent.value} (置信度: {result.confidence:.2f}) "
+                f"路由方式: {result.router_type}, 风险: {result.risk_level}"
+            )
+            return result
 
         if max_rule_conf >= self.threshold:
             best = rule_result if rule_result["confidence"] > skill_result["confidence"] else skill_result
             calibrated = self._calibrate(best["confidence"], "rule") if self.calibrator else best["confidence"]
-            return self._build_result(best["intent"], calibrated, "rule", best["reason"], alternatives=self._get_alternatives([rule_result, skill_result]))
+            result = self._build_result(best["intent"], calibrated, "rule", best["reason"],
+                               alternatives=self._get_alternatives([rule_result, skill_result]))
+            self.monitor.info(
+                f"意图路由: {result.intent.value} (置信度: {result.confidence:.2f}) "
+                f"路由方式: {result.router_type}, 风险: {result.risk_level}"
+            )
+            return result
 
         if self.llm_forward_fn:
             llm_result = self._llm_route(user_input, context)
             reliability = self.reliability_assessor.assess(llm_result.get("raw_response", ""), llm_result)
             if reliability["recommendation"] == "fallback":
-                return self._build_result(rule_result["intent"], self._calibrate(rule_result["confidence"] * 0.9, "ensemble") if self.calibrator else rule_result["confidence"], "ensemble", f"LLM不可靠({reliability['reliability_score']:.2f})，回退规则: {rule_result['reason']}", alternatives=[(llm_result["intent"], llm_result["confidence"])], risk_level="high")
+                result = self._build_result(rule_result["intent"],
+                                   self._calibrate(rule_result["confidence"] * 0.9, "ensemble") if self.calibrator else
+                                   rule_result["confidence"], "ensemble",
+                                   f"LLM不可靠({reliability['reliability_score']:.2f})，回退规则: {rule_result['reason']}",
+                                   alternatives=[(llm_result["intent"], llm_result["confidence"])], risk_level="high")
+                self.monitor.info(
+                    f"意图路由: {result.intent.value} (置信度: {result.confidence:.2f}) "
+                    f"路由方式: {result.router_type}, 风险: {result.risk_level}"
+                )
+                return result
             ensemble_conf = self._fuse_confidence(rule_result["confidence"], llm_result["confidence"], reliability["reliability_score"])
             calibrated = self._calibrate(ensemble_conf, "ensemble") if self.calibrator else ensemble_conf
-            return self._build_result(llm_result["intent"], calibrated, "ensemble", f"LLM: {llm_result['reason']} | 规则: {rule_result['reason']}", alternatives=self._get_alternatives([rule_result, skill_result, llm_result]), risk_level="low" if reliability["reliability_score"] > 0.8 else "medium")
-
-        return self._build_result(rule_result["intent"], self._calibrate(rule_result["confidence"], "rule") if self.calibrator else rule_result["confidence"], "rule", rule_result["reason"], alternatives=[(skill_result["intent"], skill_result["confidence"])])
+            result = self._build_result(llm_result["intent"], calibrated, "ensemble",
+                               f"LLM: {llm_result['reason']} | 规则: {rule_result['reason']}",
+                               alternatives=self._get_alternatives([rule_result, skill_result, llm_result]),
+                               risk_level="low" if reliability["reliability_score"] > 0.8 else "medium")
+            self.monitor.info(
+                f"意图路由: {result.intent.value} (置信度: {result.confidence:.2f}) "
+                f"路由方式: {result.router_type}, 风险: {result.risk_level}"
+            )
+            return result
+        result = self._build_result(rule_result["intent"],
+                           self._calibrate(rule_result["confidence"], "rule") if self.calibrator else rule_result[
+                               "confidence"], "rule", rule_result["reason"],
+                           alternatives=[(skill_result["intent"], skill_result["confidence"])])
+        self.monitor.info(
+            f"意图路由: {result.intent.value} (置信度: {result.confidence:.2f}) "
+            f"路由方式: {result.router_type}, 风险: {result.risk_level}"
+        )
+        return result
 
     def _rule_route(self, user_input: str, context: Dict) -> Dict:
         scores = {intent: 0.0 for intent in IntentType}
@@ -339,7 +376,7 @@ class PreciseModeRouter:
         params = {
             IntentType.CHAT: {"temperature": 0.8, "max_tokens": 1024, "tools_enabled": False},
             IntentType.TOOLS: {"temperature": 0.3, "max_tokens": 2048, "tools_enabled": True, "plan_mode": False},
-            IntentType.PLAN: {"temperature": 0.4, "max_tokens": 4096, "tools_enabled": True, "plan_mode": True, "max_iterations": 50},
+            IntentType.PLAN: {"temperature": 0.4, "max_tokens": 4096, "tools_enabled": True, "plan_mode": True, "max_iterations": 20},
             IntentType.SKILLS: {"temperature": 0.5, "max_tokens": 2048, "tools_enabled": True, "skill_mode": True},
         }
         return params.get(intent, params[IntentType.CHAT])

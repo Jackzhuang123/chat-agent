@@ -1,5 +1,21 @@
 #!/bin/bash
 
+LOG_DIR="$SCRIPT_DIR/logs"
+mkdir -p "$LOG_DIR"
+STARTUP_LOG="$LOG_DIR/startup.log"
+log_info() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*" | tee -a "$STARTUP_LOG"
+}
+
+log_error() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" | tee -a "$STARTUP_LOG" >&2
+}
+
+# 在启动每个应用前后调用 log_info
+log_info "开始启动 QwenAgent 系统"
+# ... 启动主应用时
+log_info "主应用启动，PID: $pid"
+
 # 启动所有应用的脚本
 # 这个脚本会同时启动：
 # 1. 主应用 (web_agent_with_skills.py) - 端口 7860

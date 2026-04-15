@@ -22,10 +22,10 @@ class GLMAgent:
     """
 
     AVAILABLE_MODELS = {
-        "glm-4-flash": "GLM-4-Flash（永久免费）",
-        "glm-4-flash-250414": "GLM-4-Flash 最新版（永久免费）",
-        "glm-4-air": "GLM-4-Air（付费）",
-        "glm-4": "GLM-4（付费）",
+        "glm-4-flash": "GLM-4-Flash",
+        "glm-4-flash-250414": "GLM-4-Flash 最新版",
+        "glm-4-air": "GLM-4-Air",
+        "glm-4": "GLM-4",
     }
 
     def __init__(

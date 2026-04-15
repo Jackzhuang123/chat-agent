@@ -1,0 +1,74 @@
+{
+  "workflow_id": "wf_1776119013",
+  "status": "idle",
+  "created_at": "2026-04-14T06:23:33.349564",
+  "updated_at": "2026-04-14T06:25:23.393522",
+  "current_stage": "report",
+  "stages": {
+    "init": {
+      "status": "completed",
+      "started_at": "2026-04-14T06:23:33.350692",
+      "completed_at": "2026-04-14T06:25:04.407639",
+      "error": null
+    },
+    "analyze": {
+      "status": "completed",
+      "started_at": "2026-04-14T06:25:04.410579",
+      "completed_at": "2026-04-14T06:25:14.065038",
+      "error": null
+    },
+    "merge": {
+      "status": "completed",
+      "started_at": "2026-04-14T06:25:14.065413",
+      "completed_at": "2026-04-14T06:25:20.851356",
+      "error": null
+    },
+    "report": {
+      "status": "completed",
+      "started_at": "2026-04-14T06:25:20.855292",
+      "completed_at": "2026-04-14T06:25:23.393161",
+      "error": null
+    }
+  },
+  "artifacts": {
+    "response": "execute_python\n{\"code\": \"import sys; sys.path.insert(0,'ui'); from session_logger import get_logger; qs=get_logger().get_all_user_questions(); [print(f\"[{q['session_date']}] {q['user_message'][:80]}\") for q in qs]\"}",
+    "tool_calls": [
+      {
+        "iteration": 1,
+        "tool": null,
+        "type": "thought",
+        "content": "execute_python\n{\"code\": \"import sys; sys.path.insert(0,'ui'); from session_logger import get_logger; qs=get_logger().get_all_user_questions(); [print(f\"[{q['session_date']}] {q['user_message'][:80]}\") for q in qs]\"}",
+        "success": true,
+        "parallel": false,
+        "timestamp": "2026-04-13T22:25:23Z"
+      },
+      {
+        "iteration": 1,
+        "tool": null,
+        "type": "final_response",
+        "success": true,
+        "parallel": false,
+        "timestamp": "2026-04-13T22:25:23Z"
+      }
+    ],
+    "parallel_triggered": [
+      "process_a",
+      "process_b"
+    ]
+  },
+  "user_input": "我问过的所有问题总结一下",
+  "runtime_context": {
+    "run_mode": "plan",
+    "plan_mode": false,
+    "uploaded_files": [],
+    "selected_skills": [],
+    "intent_reasons": [
+      "LLM: 用户请求对之前的问题进行总结，这涉及到对多个步骤的回顾和整合 | 规则: 匹配0个模式"
+    ],
+    "start_time": 1776119120.856016,
+    "tool_chain_id": "chain_1776119120_96b43f",
+    "iteration": 0
+  },
+  "pending_interaction_stage": null,
+  "pending_interaction_config": null
+}
