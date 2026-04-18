@@ -5,10 +5,12 @@
 import json
 import re
 import subprocess
+import time as _time_module
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import time as _time_module
-from core.monitor_logger import get_monitor_logger
+
+from core.monitor_logger import get_monitor_logger, log_function_call
+
 
 class ToolExecutor:
     def __init__(self, work_dir: Optional[str] = None, enable_bash: bool = True):
@@ -49,7 +51,7 @@ class ToolExecutor:
         except Exception as e:
             return json.dumps({"error": str(e)})
 
-    def _fuzzy_find_file(self, filename: str, search_home: bool = True) -> Optional[Path]:
+    def _fuzzy_find_file(self, filename: str, search_home: bool = True, depth_limit: int = 8) -> Optional[Path]:
         """模糊搜索文件。"""
         SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv",
                      ".tox", "dist", "build", ".mypy_cache", ".pytest_cache",
@@ -68,8 +70,8 @@ class ToolExecutor:
             except ValueError:
                 return False
 
-        def _scan(root: Path, depth_limit: int = 8) -> Optional[Path]:
-            if depth_limit < 0:
+        def _scan(root: Path, depth: int) -> Optional[Path]:
+            if depth < 0:
                 return None
             try:
                 for item in sorted(root.iterdir()):
@@ -80,15 +82,15 @@ class ToolExecutor:
                     if item.is_file() and item.name == target_name:
                         if _is_safe(item, work_dir_real):
                             return item
-                    elif item.is_dir() and depth_limit > 0:
-                        found = _scan(item, depth_limit - 1)
+                    elif item.is_dir() and depth > 0:
+                        found = _scan(item, depth - 1)
                         if found:
                             return found
             except (PermissionError, OSError):
                 pass
             return None
 
-        result = _scan(self.work_dir)
+        result = _scan(self.work_dir, depth_limit)
         if result:
             return result
 
@@ -108,7 +110,7 @@ class ToolExecutor:
                         if _is_safe(item, home_real):
                             return item
                     if item.is_dir():
-                        def _scan_sub(root2: Path, depth: int = 6) -> Optional[Path]:
+                        def _scan_sub(root2: Path, depth: int) -> Optional[Path]:
                             if depth < 0:
                                 return None
                             try:
@@ -127,7 +129,8 @@ class ToolExecutor:
                             except (PermissionError, OSError):
                                 pass
                             return None
-                        found = _scan_sub(item, 6)
+
+                        found = _scan_sub(item, min(depth_limit, 6))
                         if found:
                             return found
             except (PermissionError, OSError):
@@ -141,8 +144,85 @@ class ToolExecutor:
         "__pycache__/", ".git/", "node_modules/",
     )
 
+    @staticmethod
+    def _chunk_text_lines(content: str, chunk_size: int = 80) -> List[Dict[str, Any]]:
+        lines = content.splitlines()
+        chunks = []
+        for start in range(0, len(lines), chunk_size):
+            end = min(len(lines), start + chunk_size)
+            chunks.append({
+                "start_line": start + 1,
+                "end_line": end,
+                "text": "\n".join(lines[start:end]),
+            })
+        return chunks or [{"start_line": 1, "end_line": 1, "text": content}]
+
+    @staticmethod
+    def _build_file_facts(path: Path, content: str) -> Dict[str, Any]:
+        lines = content.splitlines()
+        classes = []
+        functions = []
+        imports = []
+        for line in lines:
+            stripped = line.strip()
+            class_match = re.match(r"class\s+([A-Za-z_][A-Za-z0-9_]*)", stripped)
+            func_match = re.match(r"def\s+([A-Za-z_][A-Za-z0-9_]*)", stripped)
+            if class_match:
+                classes.append(class_match.group(1))
+            if func_match:
+                functions.append(func_match.group(1))
+            if stripped.startswith("import ") or stripped.startswith("from "):
+                imports.append(stripped[:120])
+
+        chunk_summaries = []
+        for chunk in ToolExecutor._chunk_text_lines(content)[:8]:
+            chunk_lines = chunk["text"].splitlines()
+            non_empty = [line.strip() for line in chunk_lines if line.strip()]
+            summary = {
+                "line_range": f"{chunk['start_line']}-{chunk['end_line']}",
+                "classes": [],
+                "functions": [],
+                "signals": non_empty[:3],
+            }
+            for line in chunk_lines:
+                stripped = line.strip()
+                class_match = re.match(r"class\s+([A-Za-z_][A-Za-z0-9_]*)", stripped)
+                func_match = re.match(r"def\s+([A-Za-z_][A-Za-z0-9_]*)", stripped)
+                if class_match:
+                    summary["classes"].append(class_match.group(1))
+                if func_match:
+                    summary["functions"].append(func_match.group(1))
+            chunk_summaries.append(summary)
+
+        return {
+            "path": str(path),
+            "line_count": len(lines),
+            "classes": classes[:12],
+            "functions": functions[:20],
+            "imports": imports[:12],
+            "summary": (
+                f"共 {len(lines)} 行；"
+                f"类 {', '.join(classes[:4]) if classes else '无'}；"
+                f"函数 {', '.join(functions[:6]) if functions else '无'}"
+            ),
+            "chunk_summaries": chunk_summaries,
+        }
+
+    def _build_read_result(self, path: Path, content: str, extra: Optional[Dict[str, Any]] = None) -> str:
+        result = {
+            "success": True,
+            "path": str(path),
+            "content": content,
+            "file_facts": self._build_file_facts(path, content),
+        }
+        if extra:
+            result.update(extra)
+        if not content.strip():
+            result["warning"] = "文件存在但内容为空"
+        return json.dumps(result, ensure_ascii=False)
+
+    @log_function_call()
     def _read_file(self, path: str) -> str:
-        # 路径拦截 (保持原有逻辑不变)
         _norm = path.replace("\\", "/")
         for _blocked in self._BLOCKED_PATH_PATTERNS:
             if _blocked in _norm:
@@ -156,43 +236,39 @@ class ToolExecutor:
 
         # ----- 绝对路径分支 -----
         if p.is_absolute():
-            # 若文件存在且不是目录，正常读取
             if p.exists() and p.is_file():
                 try:
                     with open(p, "r", encoding="utf-8") as f:
                         content = f.read()
-                    result = {"success": True, "path": str(p), "content": content}
-                    if not content.strip():
-                        result["warning"] = "文件存在但内容为空"
-                    return json.dumps(result, ensure_ascii=False)
+                    return self._build_read_result(p, content)
                 except Exception as e:
                     return json.dumps({"success": False, "error": f"读取文件失败: {str(e)}"}, ensure_ascii=False)
             else:
-                # ⭐ 新增：绝对路径不存在时，尝试模糊搜索
                 filename = p.name
-                found = self._fuzzy_find_file(filename, search_home=True)
+                found = self._fuzzy_find_file(filename, search_home=True, depth_limit=5)
                 if found:
                     try:
                         with open(found, "r", encoding="utf-8") as f:
                             content = f.read()
-                        return json.dumps({
-                            "success": True,
-                            "path": str(found),
+                        correction_prefix = (
+                            f"⚠️ 系统自动纠正：你请求的路径 '{path}' 不存在。\n"
+                            f"✅ 实际读取的文件为：{found}\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                        )
+                        return self._build_read_result(found, correction_prefix + content, extra={
                             "fuzzy_match": True,
                             "original_request": path,
                             "note": f"原绝对路径 '{path}' 不存在，自动匹配到: {found}",
-                            "content": content
-                        }, ensure_ascii=False)
+                        })
                     except Exception as e:
                         return json.dumps({"success": False, "error": f"读取文件失败: {str(e)}"}, ensure_ascii=False)
-                # 模糊搜索也未找到
                 return json.dumps({
                     "success": False,
                     "error": f"文件不存在: {path}",
                     "hint": "绝对路径指定的文件不存在，且项目内未找到同名文件。请仅提供文件名（如 'session_analyzer.py'），系统会自动搜索。"
                 }, ensure_ascii=False)
 
-        # ----- 相对路径分支 (原有逻辑保持不变) -----
+        # ----- 相对路径分支 -----
         file_path = self.work_dir / path
         if file_path.exists() and file_path.is_dir():
             return json.dumps({
@@ -206,28 +282,27 @@ class ToolExecutor:
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
-                result = {"success": True, "path": str(file_path.resolve()), "content": content}
-                if not content.strip():
-                    result["warning"] = "文件存在但内容为空"
-                return json.dumps(result, ensure_ascii=False)
+                return self._build_read_result(file_path.resolve(), content)
             except Exception as e:
                 return json.dumps({"success": False, "error": f"读取文件失败: {str(e)}"}, ensure_ascii=False)
 
-        # 相对路径不存在时的模糊搜索 (原有逻辑)
+        # 相对路径不存在时的模糊搜索
         filename = Path(path).name
-        found = self._fuzzy_find_file(filename, search_home=True)
+        found = self._fuzzy_find_file(filename, search_home=True, depth_limit=5)
         if found:
             try:
                 with open(found, "r", encoding="utf-8") as f:
                     content = f.read()
-                return json.dumps({
-                    "success": True,
-                    "path": str(found),
+                correction_prefix = (
+                    f"⚠️ 系统自动纠正：你请求的路径 '{path}' 不存在。\n"
+                    f"✅ 实际读取的文件为：{found}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                )
+                return self._build_read_result(found, correction_prefix + content, extra={
                     "fuzzy_match": True,
                     "original_request": path,
                     "note": f"原路径 '{path}' 不存在，自动匹配到: {found}",
-                    "content": content
-                }, ensure_ascii=False)
+                })
             except Exception as e:
                 return json.dumps({"error": f"读取文件失败: {str(e)}"}, ensure_ascii=False)
 
@@ -363,12 +438,12 @@ class ToolExecutor:
         except Exception as e:
             return json.dumps({"error": f"列出目录失败: {str(e)}"})
 
+    @log_function_call()
     def execute_python(self, code: str, timeout: int = 30) -> str:
         import sys as _sys
         import re as _re
         import subprocess
         import json
-        import os
 
         _has_write = bool(_re.search(
             r'open\s*\([^)]*[\'\"].*[\'\"],\s*[\'\"]w[\'\"]'
@@ -381,7 +456,6 @@ class ToolExecutor:
             code = code + '\nprint("✅ 文件写入操作已完成")\n'
 
         _PRELUDE = (
-            # 保持原有 prelude 不变
             "import sys, traceback, json, math, re, os, os.path as _osp\n"
             "import datetime, collections, itertools, functools, random, statistics\n"
             "import subprocess, shutil, pathlib\n"
@@ -437,29 +511,17 @@ class ToolExecutor:
                     stderr_raw = (inner.get("stderr", "") or proc.stderr or "").strip()[:2000]
                     success = inner.get("success", False)
 
-                    # ⭐ 新增：写文件但产出可能为空的检测
-                    if success and _has_write:
-                        # 尝试检测目标文件是否真的写入了内容
-                        write_paths = _re.findall(r'open\(["\']([^"\']+)["\']\s*,\s*["\']w["\']', code)
-                        is_content_written = False
-                        for wpath in write_paths:
-                            target = Path(wpath)
-                            if not target.is_absolute():
-                                target = self.work_dir / target
-                            if target.exists() and target.stat().st_size > 0:
-                                is_content_written = True
-                                break
-                        if not is_content_written and not stdout_raw:
-                            # 既没有控制台输出，文件也为空 -> 认为实际失败
+                    if success:
+                        _has_write_inner = bool(_re.search(
+                            r'open\s*\([^)]*[\'\"].*[\'\"],\s*[\'\"]w[\'\"]|\.write\s*\(|write_file|to_csv|to_json|to_excel|shutil\.copy|os\.rename',
+                            code
+                        ))
+                        _is_scan_task = bool(_re.search(r'os\.listdir|glob\.glob|re\.findall|re\.finditer|\.findall\(', code))
+                        if _is_scan_task and not stdout_raw and not _has_write_inner:
                             success = False
-                            inner["error"] = (
-                                "代码执行未报错，但目标文件为空且无控制台输出。"
-                                "可能原因：正则匹配无结果、写入逻辑未执行。"
-                            )
-                            inner["fix_hint"] = (
-                                "❌ 任务实际未完成。建议改用 bash 命令完成相同操作，例如：\n"
-                                "bash {\"command\": \"grep -E '^class |^def ' core/*.py > API.md\"}"
-                            )
+                            inner["error"] = "代码执行成功但未提取到任何有效结果（stdout为空且未写入文件）。"
+                            inner["fix_hint"] = "请检查正则表达式是否正确，或改用 bash 命令重试。"
+                            self.monitor.warning(f"execute_python 空结果: {code[:200]}")
 
                     resp = {
                         "success": success,
@@ -468,19 +530,15 @@ class ToolExecutor:
                         "error": error_raw,
                         "returncode": proc.returncode,
                     }
-                    if not success and "fix_hint" not in resp and inner.get("fix_hint"):
-                        resp["fix_hint"] = inner["fix_hint"]
-                    elif not success:
+                    if not success and "fix_hint" not in resp:
                         resp["fix_hint"] = (
                             "❌ 代码执行失败。请仔细阅读上方 error/stderr 中的错误信息，"
                             "修正代码后再次调用 execute_python 重新执行。"
-                            "常见修复方向：检查变量名/缩进/语法、确认导入的模块已安装、"
-                            "数据类型是否符合预期。"
                         )
                     return json.dumps(resp, ensure_ascii=False)
                 except json.JSONDecodeError:
                     pass
-            # 兜底处理 (保持原有)
+            # 兜底处理
             stdout_fb = proc.stdout.strip()
             stderr_fb = proc.stderr.strip()
             if len(stdout_fb) > 8000:
@@ -608,6 +666,31 @@ class ToolExecutor:
 
 
 class ToolParser:
+
+    @staticmethod
+    def _fix_bash_command_json(json_str: str) -> str:
+        """修复 bash 命令 JSON 中的转义问题"""
+        import re
+        # 匹配 "command": "..." 字段
+        pattern = re.compile(r'"command"\s*:\s*"((?:[^"\\]|\\.)*)"', re.DOTALL)
+        match = pattern.search(json_str)
+        if not match:
+            return json_str
+        cmd = match.group(1)
+        # 将反斜杠加倍（因为 JSON 中需要 \\ 表示单个 \）
+        # 但要保护已经转义的双反斜杠
+        def escape_backslashes(s: str) -> str:
+            # 临时替换 \\ 为特殊标记
+            s = s.replace('\\\\', '\x00')
+            s = s.replace('\\', '\\\\')
+            s = s.replace('\x00', '\\\\')
+            return s
+        safe_cmd = escape_backslashes(cmd)
+        # 重建 JSON
+        return json_str[:match.start(1)] + safe_cmd + json_str[match.end(1):]
+
+    # ... 原有的其他方法 ...
+
     @staticmethod
     def _parse_input_payload(input_str: str) -> Optional[Dict[str, Any]]:
         if not input_str:
@@ -615,11 +698,58 @@ class ToolParser:
         payload = input_str.strip()
         if not payload:
             return None
+
+        # 修复bash命令
+        if '"command"' in payload:
+            fixed = ToolParser._fix_bash_command_json(payload)
+            try:
+                data = json.loads(fixed)
+                if isinstance(data, dict):
+                    return data
+            except:
+                pass
+
+        # ---------- 新增：转义 JSON 字符串值内的控制字符 ----------
+        def _escape_control_chars_in_strings(s: str) -> str:
+            """将 JSON 字符串值内的未转义控制字符（\n, \r, \t）替换为标准转义序列。"""
+            result = []
+            in_string = False
+            escaped = False
+            for ch in s:
+                if in_string:
+                    if escaped:
+                        result.append(ch)
+                        escaped = False
+                    elif ch == '\\':
+                        result.append(ch)
+                        escaped = True
+                    elif ch == '"':
+                        result.append(ch)
+                        in_string = False
+                    elif ch == '\n':
+                        result.append('\\n')
+                    elif ch == '\r':
+                        result.append('\\r')
+                    elif ch == '\t':
+                        result.append('\\t')
+                    else:
+                        result.append(ch)
+                else:
+                    if ch == '"':
+                        in_string = True
+                    result.append(ch)
+            return ''.join(result)
+
+        payload = _escape_control_chars_in_strings(payload)
+        # ---------------------------------------------------------
+
         try:
             data = json.loads(payload)
             return data if isinstance(data, dict) else None
         except json.JSONDecodeError:
             pass
+
+        # 原有的补全括号、修复无效转义、修复嵌套引号等逻辑保持不变
         if payload.startswith("{"):
             missing_right_brace = payload.count("{") - payload.count("}")
             if missing_right_brace > 0:
@@ -629,6 +759,7 @@ class ToolParser:
                     return data if isinstance(data, dict) else None
                 except json.JSONDecodeError:
                     pass
+
         _VALID_JSON_ESCAPES = set('"\\//bfnrtu')
         if payload.startswith("{"):
             try:
@@ -647,6 +778,7 @@ class ToolParser:
                             result.append(s[i])
                         i += 1
                     return ''.join(result)
+
                 fixed = fix_invalid_escapes(payload)
                 data = json.loads(fixed)
                 return data if isinstance(data, dict) else None
@@ -657,14 +789,18 @@ class ToolParser:
             try:
                 import re as _re_fix
                 def _fix_nested_quotes(s: str) -> str:
-                    _field_pattern = _re_fix.compile(r'"(code|command|content|script)"\s*:\s*"((?:[^"\\]|\\.)*)"', _re_fix.DOTALL)
+                    _field_pattern = _re_fix.compile(r'"(code|command|content|script)"\s*:\s*"((?:[^"\\]|\\.)*)"',
+                                                     _re_fix.DOTALL)
+
                     def _escape_single_quotes_in_value(m):
                         field_name = m.group(1)
                         value = m.group(2)
                         fixed_value = value.replace("'", "\\'")
                         return f'"{field_name}": "{fixed_value}"'
+
                     repaired = _field_pattern.sub(_escape_single_quotes_in_value, s)
                     return repaired
+
                 fixed2 = _fix_nested_quotes(payload)
                 if fixed2 != payload:
                     data = json.loads(fixed2)
@@ -675,16 +811,114 @@ class ToolParser:
         return None
 
     @staticmethod
+    def _extract_balanced_json_object(text: str, start_idx: int) -> Optional[str]:
+        """提取从 start_idx 开始的首个平衡 JSON 对象，正确处理字符串内换行和花括号。"""
+        if start_idx < 0 or start_idx >= len(text) or text[start_idx] != "{":
+            return None
+        depth = 0
+        in_string = False
+        escaped = False
+        for i in range(start_idx, len(text)):
+            ch = text[i]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start_idx:i + 1]
+                if depth < 0:
+                    return None
+        return None
+
+    @staticmethod
+    @log_function_call()
     def parse_tool_calls(text: str) -> List[Tuple[str, Dict[str, Any]]]:
         if not isinstance(text, str):
             print(f"⚠️ 工具解析失败：输入类型错误 (期望 str，实际 {type(text).__name__})")
             return []
 
+        monitor = get_monitor_logger()
         calls = []
         stripped = text.strip()
         known_tools = {"read_file", "write_file", "edit_file", "list_dir", "bash", "todo_write", "execute_python"}
 
-        # ---------- 1. 标准 JSON 格式 ----------
+        # 快速跳过自然语言长文本
+        if len(stripped) > 200 and not re.search(r'\n\s*\{', stripped):
+            monitor.debug("跳过自然语言长文本解析")
+            return []
+
+        # ---------- 0. 专为 execute_python 设计的增强解析 ----------
+        if "execute_python" in stripped:
+            ep_pattern = re.compile(
+                r'(?:^|\n)\s*execute_python\s*\n\s*(\{[\s\S]*?\})\s*(?:$|\n)',
+                re.MULTILINE
+            )
+            ep_match = ep_pattern.search(stripped)
+            if ep_match:
+                json_str = ep_match.group(1)
+                args = ToolParser._parse_input_payload(json_str)
+                if args and isinstance(args, dict) and "code" in args:
+                    monitor.debug("通过 execute_python 专用解析器成功解析")
+                    return ToolParser._normalize_args([("execute_python", args)])
+            ep_pattern2 = re.compile(
+                r'execute_python\s*(\{[\s\S]*?\})',
+                re.MULTILINE
+            )
+            ep_match2 = ep_pattern2.search(stripped)
+            if ep_match2:
+                json_str = ep_match2.group(1)
+                args = ToolParser._parse_input_payload(json_str)
+                if args and isinstance(args, dict) and "code" in args:
+                    monitor.debug("通过 execute_python 专用解析器（模式2）成功解析")
+                    return ToolParser._normalize_args([("execute_python", args)])
+
+        # ---------- 新增：处理 markdown 代码块内的工具调用（包括 plaintext） ----------
+        # 匹配 ```python / ```plaintext / ```json / ``` 等代码块
+        code_block_pattern = re.compile(
+            r'```(?:python|plaintext|json|text)?\s*\n\s*([\s\S]*?)\s*```',
+            re.MULTILINE
+        )
+        for block_match in code_block_pattern.finditer(stripped):
+            inner = block_match.group(1).strip()
+            # 检查内部是否包含工具名 + JSON 的格式
+            for tool in known_tools:
+                tool_pattern = re.compile(
+                    rf'{re.escape(tool)}\s*\n\s*(\{{[\s\S]*?\}})',
+                    re.MULTILINE
+                )
+                tool_match = tool_pattern.search(inner)
+                if tool_match:
+                    json_str = tool_match.group(1)
+                    args = ToolParser._parse_input_payload(json_str)
+                    if args and isinstance(args, dict):
+                        monitor.debug(f"从代码块解析到工具调用: {tool}")
+                        return ToolParser._normalize_args([(tool, args)])
+            # 尝试直接解析为 JSON 对象
+            try:
+                obj = json.loads(inner)
+                if isinstance(obj, dict):
+                    if "tool" in obj and "input" in obj:
+                        return ToolParser._normalize_args([(obj["tool"], obj["input"])])
+                    elif "name" in obj and "arguments" in obj:
+                        args = obj["arguments"]
+                        if isinstance(args, str):
+                            args = json.loads(args)
+                        return ToolParser._normalize_args([(obj["name"], args)])
+            except:
+                pass
+
+        # ---------- 原有 JSON 格式解析 ----------
         try:
             if stripped.startswith("["):
                 data = json.loads(stripped)
@@ -703,11 +937,13 @@ class ToolParser:
                         if isinstance(args, dict):
                             calls.append((item["name"], args))
                 if calls:
+                    monitor.debug(f"解析到 JSON 数组格式工具调用: {len(calls)} 个")
                     return ToolParser._normalize_args(calls)
             elif stripped.startswith("{"):
                 item = json.loads(stripped)
                 if isinstance(item, dict):
                     if "tool" in item and "input" in item and isinstance(item["input"], dict):
+                        monitor.debug("解析到 JSON 对象格式工具调用")
                         return ToolParser._normalize_args([(item["tool"], item["input"])])
                     elif "name" in item and "arguments" in item:
                         args = item["arguments"]
@@ -727,254 +963,29 @@ class ToolParser:
         except (json.JSONDecodeError, KeyError, TypeError):
             pass
 
-        # ---------- 2. Markdown 代码块中的 JSON API 格式 ----------
-        _md_api_pattern = re.compile(r'```(?:json)?\s*\n\s*(\{[\s\S]*?\})\s*\n?\s*```')
-        for _mam in _md_api_pattern.finditer(stripped):
-            try:
-                _obj = json.loads(_mam.group(1))
-                if isinstance(_obj, dict) and "api" in _obj and isinstance(_obj["api"], str) and _obj[
-                    "api"] in known_tools:
-                    _tname = _obj["api"]
-                    _targs = {k: v for k, v in _obj.items() if k != "api"}
-                    return ToolParser._normalize_args([(_tname, _targs)])
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-        # ---------- 3. Markdown 代码块包裹的 JSON 工具调用 ----------
-        md_block_match = re.match(r'^```(?:json|python)?\s*\n([\s\S]*?)\s*```\s*$', stripped)
-        if md_block_match:
-            inner = md_block_match.group(1).strip()
-            try:
-                item = json.loads(inner)
-                if isinstance(item, dict):
-                    if "tool" in item and "input" in item and isinstance(item["input"], dict):
-                        return ToolParser._normalize_args([(item["tool"], item["input"])])
-                    elif "name" in item and "arguments" in item:
-                        args = item["arguments"]
-                        if isinstance(args, str):
-                            try:
-                                args = json.loads(args)
-                            except Exception:
-                                pass
-                        if isinstance(args, dict):
-                            return ToolParser._normalize_args([(item["name"], args)])
-                    elif "name" in item and "params" in item and isinstance(item["params"], dict):
-                        return ToolParser._normalize_args([(item["name"], item["params"])])
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-        # ---------- 4. 内联代码块中的 JSON ----------
-        _inline_block_pattern = re.compile(r'```(?:json|plaintext|python|bash|shell|text)?\s*\n([\s\S]*?)\s*```',
-                                           re.MULTILINE)
-        for _m in _inline_block_pattern.finditer(stripped):
-            _inner = _m.group(1).strip()
-            try:
-                _item = json.loads(_inner)
-            except (json.JSONDecodeError, TypeError):
-                _item = None
-            if not isinstance(_item, dict):
-                continue
-            if "tool" in _item and "input" in _item and isinstance(_item["input"], dict):
-                return ToolParser._normalize_args([(_item["tool"], _item["input"])])
-            elif "name" in _item and "arguments" in _item:
-                args = _item["arguments"]
-                if isinstance(args, str):
-                    try:
-                        args = json.loads(args)
-                    except Exception:
-                        pass
-                if isinstance(args, dict):
-                    return ToolParser._normalize_args([(_item["name"], args)])
-            elif "name" in _item and "params" in _item and isinstance(_item["params"], dict):
-                return ToolParser._normalize_args([(_item["name"], _item["params"])])
-            if "tool" in _item or "name" in _item:
-                continue
-            _keys = set(_item.keys())
-            _inferred_tool = None
-            if "command" in _keys:
-                _inferred_tool = "bash"
-            elif {"path", "old_content", "new_content"}.issubset(_keys):
-                _inferred_tool = "edit_file"
-            elif {"path", "content"}.issubset(_keys):
-                _inferred_tool = "write_file"
-            elif _keys == {"path"}:
-                _window_start = max(0, _m.start() - 150)
-                _prefix = stripped[_window_start: _m.start()].lower()
-                _list_hints_strict = ("列出", "列目录", "list_dir", "listdir", "目录结构", "查看目录", "浏览目录")
-                if any(h in _prefix for h in _list_hints_strict):
-                    _inferred_tool = "list_dir"
-                else:
-                    _inferred_tool = "read_file"
-            if _inferred_tool and _inferred_tool in known_tools:
-                calls.append((_inferred_tool, _item))
-        if calls:
-            return ToolParser._normalize_args(calls)
-
-        # ---------- 5. 工具名 + 换行 + JSON 代码块 ----------
+        # ---------- 原有工具名+换行+JSON解析 ----------
         for tool in known_tools:
             pattern = re.compile(
-                r'(?:^|(?<=[\s。.，,、！!？?；;：:\n]))' + re.escape(tool) + r'\s*\n\s*```(?:json)?\s*\n([\s\S]*?)\s*```',
-                re.MULTILINE)
+                rf'(?:^|\n)\s*{re.escape(tool)}\s*\n\s*(\{{)',
+                re.MULTILINE | re.DOTALL
+            )
             for m in pattern.finditer(stripped):
-                inner = m.group(1).strip()
-                data = ToolParser._parse_input_payload(inner)
-                if data is not None:
-                    calls.append((tool, data))
-            if calls:
-                return ToolParser._normalize_args(calls)
-
-        # ---------- 6. XML 标签格式 ----------
-        tool_pattern = r"<tool>(\w+)</tool>"
-        input_pattern = r"<input>(.*?)</input>"
-        tools = re.findall(tool_pattern, text)
-        inputs = re.findall(input_pattern, text, re.DOTALL)
-        if tools and inputs and len(tools) == len(inputs):
-            for tool, input_str in zip(tools, inputs):
-                input_data = ToolParser._parse_input_payload(input_str)
-                if input_data is not None:
-                    calls.append((tool, input_data))
-            if calls:
-                return ToolParser._normalize_args(calls)
-
-        # ---------- 7. 宽松 XML 格式 ----------
-        tool_matches = list(re.finditer(tool_pattern, text))
-        if tool_matches:
-            tolerant_calls = []
-            for idx, tool_match in enumerate(tool_matches):
-                tool_name = tool_match.group(1)
-                segment_start = tool_match.end()
-                segment_end = tool_matches[idx + 1].start() if idx + 1 < len(tool_matches) else len(text)
-                segment = text[segment_start:segment_end]
-                input_start_match = re.search(r"<input>", segment)
-                if not input_start_match:
+                json_start = m.start(1)
+                candidate = ToolParser._extract_balanced_json_object(stripped, json_start)
+                if candidate is None:
                     continue
-                payload_start = input_start_match.end()
-                payload_segment = segment[payload_start:]
-                payload_segment = re.sub(r"</input>\s*$", "", payload_segment, flags=re.DOTALL).strip()
-                input_data = ToolParser._parse_input_payload(payload_segment)
-                if input_data is not None:
-                    tolerant_calls.append((tool_name, input_data))
-            if tolerant_calls:
-                return ToolParser._normalize_args(tolerant_calls)
-
-        # ---------- 8. 裸格式 <input> 标签 ----------
-        bare_calls = ToolParser._parse_bare_format(stripped)
-        if bare_calls:
-            return ToolParser._normalize_args(bare_calls)
-
-        # ---------- 9. 工具名后跟 JSON 对象（同一行或下一行） ----------
-        for tool in known_tools:
-            if tool in stripped:
-                tool_idx = stripped.find(tool)
-                json_start = stripped.find('{', tool_idx)
-                if json_start != -1:
-                    for json_end in range(len(stripped), json_start, -1):
-                        try:
-                            candidate = stripped[json_start:json_end]
-                            args = ToolParser._parse_input_payload(candidate)
-                            if args and isinstance(args, dict):
-                                return ToolParser._normalize_args([(tool, args)])
-                        except Exception:
-                            continue
-
-        # ========== 10. 非标准格式解析（增强重点） ==========
-        if not calls:
-            # 10.1 函数调用风格：tool_name("arg") 或 tool_name -c "code"
-            func_patterns = [
-                (r'execute_python\s+(?:-c|--code)\s+["\'](.*?)["\']', 'execute_python', 'code'),
-                (r'read_file\s*\(\s*["\']([^"\']+)["\']\s*\)', 'read_file', 'path'),
-                (r'write_file\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']*)["\'](?:\s*,\s*["\'](overwrite|append)["\'])?\s*\)',
-                 'write_file', 'path', 'content', 'mode'),
-                (r'list_dir\s*\(\s*["\']([^"\']*)["\']?\s*\)', 'list_dir', 'path'),
-                (r'bash\s*\(\s*["\']([^"\']+)["\']\s*\)', 'bash', 'command'),
-                (r'edit_file\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']*)["\']\s*,\s*["\']([^"\']*)["\']\s*\)',
-                 'edit_file', 'path', 'old_content', 'new_content'),
-            ]
-            for pattern, tool_name, *arg_keys in func_patterns:
-                match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-                if match:
-                    groups = match.groups()
-                    args = {}
-                    for i, key in enumerate(arg_keys):
-                        if i < len(groups) and groups[i] is not None:
-                            if key == 'code':
-                                code_str = groups[i]
-                                try:
-                                    code_str = code_str.encode().decode('unicode_escape')
-                                except Exception:
-                                    pass
-                                args[key] = code_str
-                            elif key == 'mode':
-                                args[key] = groups[i] if groups[i] else 'overwrite'
-                            else:
-                                args[key] = groups[i]
-                    if tool_name == 'write_file' and 'mode' not in args:
-                        args['mode'] = 'overwrite'
-                    if tool_name == 'list_dir' and 'path' not in args:
-                        args['path'] = '.'
-                    calls.append((tool_name, args))
-                    return ToolParser._normalize_args(calls)
-
-            # 10.2 裸工具名 + 多行字符串块（作为 code/path 内容）
-            for tool in known_tools:
-                if tool == 'bash':
-                    continue
-                pattern = re.compile(
-                    rf'(?:^|\n)\s*{re.escape(tool)}\s*\n(?!\s*{{)(.*?)(?=\n\s*(?:{"|".join(re.escape(t) for t in known_tools)})\s*\n|$)',
-                    re.DOTALL | re.IGNORECASE
-                )
-                match = pattern.search(text)
-                if match:
-                    content = match.group(1).strip()
-                    if tool == 'execute_python':
-                        calls.append((tool, {"code": content}))
-                    elif tool == 'write_file':
-                        lines = content.split('\n', 1)
-                        if len(lines) >= 2:
-                            path = lines[0].strip().strip('"\'')
-                            file_content = lines[1].strip()
-                            calls.append((tool, {"path": path, "content": file_content}))
-                    elif tool == 'read_file':
-                        path = content.split('\n')[0].strip().strip('"\'')
-                        calls.append((tool, {"path": path}))
-                    if calls:
-                        return ToolParser._normalize_args(calls)
-
-            # 10.3 类似 {"tool": "read_file", "path": "..."} 但缺少外层结构
-            json_like = re.search(r'\{[^{}]*"tool"\s*:\s*"[^"]+"\s*[,}][^{}]*\}', text)
-            if json_like:
-                try:
-                    obj = json.loads(json_like.group())
-                    if 'tool' in obj and obj['tool'] in known_tools:
-                        tool = obj.pop('tool')
-                        if 'input' in obj and isinstance(obj['input'], dict):
-                            args = obj['input']
-                        else:
-                            args = {k: v for k, v in obj.items() if k != 'tool'}
-                        calls.append((tool, args))
-                        return ToolParser._normalize_args(calls)
-                except Exception:
-                    pass
-
-            # 10.4 工具名 + 冒号 + JSON 片段
-            colon_match = re.search(rf'({"|".join(known_tools)})\s*:\s*(\{{.*?\}})', text, re.DOTALL)
-            if colon_match:
-                tool = colon_match.group(1)
-                try:
-                    args = json.loads(colon_match.group(2))
-                    calls.append((tool, args))
-                    return ToolParser._normalize_args(calls)
-                except Exception:
-                    pass
+                args = ToolParser._parse_input_payload(candidate)
+                if args and isinstance(args, dict):
+                    monitor.debug(f"解析工具调用成功: {tool} (工具名+JSON格式)")
+                    return ToolParser._normalize_args([(tool, args)])
 
         if not calls and any(t in text for t in known_tools):
-            print(f"⚠️ [ToolParser] 响应包含工具名但解析失败，前200字符: {text[:200]}")
+            monitor.warning(f"响应包含工具名但解析失败，前200字符: {text[:200]}")
 
         return ToolParser._normalize_args(calls)
 
     @staticmethod
     def _normalize_args(calls: List[Tuple[str, Dict[str, Any]]]) -> List[Tuple[str, Dict[str, Any]]]:
-        """将工具参数中的非标准键名标准化（例如 'param' -> 'path'/'code'）"""
         normalized = []
         for tool_name, args in calls:
             if not isinstance(args, dict):
@@ -982,7 +993,6 @@ class ToolParser:
                 continue
 
             new_args = dict(args)
-            # 处理通用 "param" 键（模型常犯错误）
             if "param" in new_args and tool_name in ("read_file", "write_file", "edit_file", "list_dir"):
                 if "path" not in new_args:
                     new_args["path"] = new_args.pop("param")
@@ -993,7 +1003,6 @@ class ToolParser:
                 if "command" not in new_args:
                     new_args["command"] = new_args.pop("param")
 
-            # 处理其他常见别名
             if tool_name == "execute_python" and "script" in new_args and "code" not in new_args:
                 new_args["code"] = new_args.pop("script")
             if tool_name == "bash" and "cmd" in new_args and "command" not in new_args:

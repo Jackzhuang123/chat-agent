@@ -4,6 +4,29 @@
 from typing import Dict, List
 
 
+def _merge_system_messages(messages: List[Dict[str, str]], combined_system_prompt: str = "") -> List[Dict[str, str]]:
+    """合并外部 system_prompt 与消息中的 system 消息，避免多 system 导致模型接口报错。"""
+    merged_system_parts = []
+    if combined_system_prompt and combined_system_prompt.strip():
+        merged_system_parts.append(combined_system_prompt.strip())
+
+    normalized_messages = []
+    for msg in messages:
+        role = (msg.get("role") or "").strip()
+        content = (msg.get("content") or "").strip()
+        if not role or not content:
+            continue
+        if role == "system":
+            merged_system_parts.append(content)
+            continue
+        normalized_messages.append({"role": role, "content": content})
+
+    if merged_system_parts:
+        merged_system = "\n\n".join(part for part in merged_system_parts if part)
+        return [{"role": "system", "content": merged_system}] + normalized_messages
+    return normalized_messages
+
+
 def create_qwen_model_forward(qwen_agent, system_prompt_base: str = ""):
     """
     创建模型前向函数，兼容 QwenAgent 和 GLMAgent。
@@ -26,11 +49,8 @@ def create_qwen_model_forward(qwen_agent, system_prompt_base: str = ""):
         if system_prompt:
             combined = f"{combined}\n\n{system_prompt}" if combined else system_prompt
 
-        # 构建消息列表（仅在 system_prompt 非空时才插入 system 消息）
-        if combined and combined.strip():
-            full_messages = [{"role": "system", "content": combined}] + list(messages)
-        else:
-            full_messages = list(messages)
+        # 合并所有 system 消息，兼容仅支持单个 system 消息的模型接口（如 GLM）。
+        full_messages = _merge_system_messages(list(messages), combined)
 
         gen_kwargs = {
             "temperature": kwargs.get("temperature", 0.7),
@@ -54,4 +74,3 @@ def create_qwen_model_forward(qwen_agent, system_prompt_base: str = ""):
         return response_text
 
     return forward
-

@@ -1,0 +1,17 @@
+2026-04-15 14:29:10 | ERROR    | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行失败，耗时 0.000s
+异常类型: TypeError
+异常信息: object async_generator can't be used in 'await' expression
+堆栈跟踪:
+Traceback (most recent call last):
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/core/monitor_logger.py", line 157, in wrapper
+    result = await f(*args, **kwargs)
+TypeError: object async_generator can't be used in 'await' expression
+
+2026-04-15 22:32:29 | ERROR    | monitor:537 | 步骤 1 执行异常: 'LangGraphAgent' object has no attribute '_build_messages'
+2026-04-15 22:32:29 | ERROR    | monitor:537 | 步骤 1 执行异常: 'LangGraphAgent' object has no attribute '_build_messages'
+2026-04-15 22:32:29 | ERROR    | monitor:537 | 步骤 1 执行异常: 'LangGraphAgent' object has no attribute '_build_messages'
+2026-04-15 22:32:29 | ERROR    | monitor:537 | 步骤 2 执行异常: 'LangGraphAgent' object has no attribute '_build_messages'
+2026-04-15 22:32:29 | ERROR    | monitor:537 | 步骤 3 执行异常: 'LangGraphAgent' object has no attribute '_build_messages'
+2026-04-15 22:32:29 | ERROR    | monitor:537 | 步骤 3 执行异常: 'LangGraphAgent' object has no attribute '_build_messages'
+2026-04-15 22:32:29 | ERROR    | monitor:537 | 步骤 3 执行异常: 'LangGraphAgent' object has no attribute '_build_messages'
+2026-04-15 22:32:29 | ERROR    | monitor:537 | 步骤 4 执行异常: 'LangGraphAgent' object has no attribute '_build_messages'

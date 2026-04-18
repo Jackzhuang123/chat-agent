@@ -1,0 +1,5 @@
+{"source_file":"sample-1","user_message":"你好","expected_intent":"chat"}
+{"source_file":"sample-2","user_message":"查找20260330_190340_005.json，解析我问的问题","expected_intent":"tools"}
+{"source_file":"sample-3","user_message":"我之前问了什么","expected_intent":"memory_query"}
+{"source_file":"sample-4","user_message":"帮我设计一个多步骤重构方案","expected_intent":"plan"}
+{"source_file":"sample-5","user_message":"阅读multi_agent.py代码，进行解释","expected_intent":"tools"}

@@ -1,0 +1,414 @@
+2026-04-16 00:02:22 | INFO     | monitor:842 | GLM 模型切换为: glm-4
+2026-04-16 00:02:54 | INFO     | monitor:239 | 工作流恢复请求，session=7q4hl72m, 消息长度=9
+2026-04-16 00:02:54 | INFO     | monitor:291 | 收到用户消息，session=7q4hl72m, 消息预览: 我之前有提什么问题
+2026-04-16 00:02:55 | INFO     | monitor:186 | 意图路由: chat (置信度: 0.47) 路由方式: ensemble, 风险: low
+2026-04-16 00:02:55 | INFO     | monitor:393 | 意图路由结果: chat, 置信度: 0.47, 计划模式: False
+2026-04-16 00:02:55 | INFO     | monitor:575 | LangGraphAgent.run 开始，输入长度: 9
+2026-04-16 00:02:55 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:02:55 | DEBUG    | monitor:161 | RAG 增强后消息数: 6
+2026-04-16 00:02:56 | INFO     | monitor:622 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 1.31s
+2026-04-16 00:02:56 | INFO     | monitor:772 | 请求处理完成，总耗时 2.56s
+2026-04-16 00:02:56 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 2.563s
+2026-04-16 00:02:56 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 2.564s
+2026-04-16 00:03:11 | INFO     | monitor:239 | 工作流恢复请求，session=7q4hl72m, 消息长度=4
+2026-04-16 00:03:11 | INFO     | monitor:291 | 收到用户消息，session=7q4hl72m, 消息预览: 再之前呢
+2026-04-16 00:03:12 | INFO     | monitor:186 | 意图路由: chat (置信度: 0.15) 路由方式: ensemble, 风险: low
+2026-04-16 00:03:12 | INFO     | monitor:393 | 意图路由结果: chat, 置信度: 0.15, 计划模式: False
+2026-04-16 00:03:12 | INFO     | monitor:575 | LangGraphAgent.run 开始，输入长度: 4
+2026-04-16 00:03:12 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:03:12 | DEBUG    | monitor:161 | RAG 增强后消息数: 6
+2026-04-16 00:03:13 | INFO     | monitor:622 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 1.31s
+2026-04-16 00:03:13 | INFO     | monitor:772 | 请求处理完成，总耗时 2.67s
+2026-04-16 00:03:13 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 2.675s
+2026-04-16 00:03:13 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 2.676s
+2026-04-16 00:04:14 | INFO     | monitor:239 | 工作流恢复请求，session=7q4hl72m, 消息长度=23
+2026-04-16 00:04:14 | INFO     | monitor:291 | 收到用户消息，session=7q4hl72m, 消息预览: 调用工具输出py代码查看我之前都有问过什么问题
+2026-04-16 00:04:16 | INFO     | monitor:186 | 意图路由: tools (置信度: 0.72) 路由方式: ensemble, 风险: low
+2026-04-16 00:04:16 | INFO     | monitor:393 | 意图路由结果: tools, 置信度: 0.72, 计划模式: False
+2026-04-16 00:04:16 | INFO     | monitor:575 | LangGraphAgent.run 开始，输入长度: 23
+2026-04-16 00:04:16 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:04:16 | DEBUG    | monitor:161 | RAG 增强后消息数: 5
+2026-04-16 00:04:40 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('\n我来帮您查看之前问过的问题。首先让我检查当前目录结构，然后查找相关的Python代码文件。\n\n```bash\nlist_dir\n```\n\n```bash\nfind . -name )
+2026-04-16 00:04:40 | DEBUG    | monitor:758 | 跳过自然语言长文本解析
+2026-04-16 00:04:40 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 []
+2026-04-16 00:04:40 | INFO     | monitor:622 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 24.79s
+2026-04-16 00:04:40 | INFO     | monitor:772 | 请求处理完成，总耗时 26.08s
+2026-04-16 00:04:40 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 26.080s
+2026-04-16 00:04:40 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 26.083s
+2026-04-16 00:06:09 | INFO     | monitor:842 | GLM 模型切换为: glm-4-air
+2026-04-16 00:06:16 | INFO     | monitor:239 | 工作流恢复请求，session=7q4hl72m, 消息长度=23
+2026-04-16 00:06:16 | INFO     | monitor:291 | 收到用户消息，session=7q4hl72m, 消息预览: 调用工具输出py代码查看我之前都有问过什么问题
+2026-04-16 00:06:18 | INFO     | monitor:186 | 意图路由: tools (置信度: 0.72) 路由方式: ensemble, 风险: low
+2026-04-16 00:06:18 | INFO     | monitor:393 | 意图路由结果: tools, 置信度: 0.72, 计划模式: False
+2026-04-16 00:06:18 | INFO     | monitor:575 | LangGraphAgent.run 开始，输入长度: 23
+2026-04-16 00:06:18 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:06:18 | DEBUG    | monitor:161 | RAG 增强后消息数: 5
+2026-04-16 00:06:18 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('\n我需要先查看当前目录结构，然后找到可能包含对话历史或问题记录的文件。\n\n```bash\nlist_dir\n```\n\n让我先查看当前目录的内容，看看是否有存储对话历史的文件。')
+2026-04-16 00:06:18 | WARNING  | monitor:883 | 响应包含工具名但解析失败，前200字符: 
+我需要先查看当前目录结构，然后找到可能包含对话历史或问题记录的文件。
+
+```bash
+list_dir
+```
+
+让我先查看当前目录的内容，看看是否有存储对话历史的文件。
+2026-04-16 00:06:18 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 []
+2026-04-16 00:06:19 | INFO     | monitor:622 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 0.58s
+2026-04-16 00:06:19 | INFO     | monitor:772 | 请求处理完成，总耗时 2.19s
+2026-04-16 00:06:19 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 2.194s
+2026-04-16 00:06:19 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 2.194s
+2026-04-16 00:06:23 | INFO     | monitor:842 | GLM 模型切换为: glm-4-flash
+2026-04-16 00:06:27 | INFO     | monitor:239 | 工作流恢复请求，session=7q4hl72m, 消息长度=23
+2026-04-16 00:06:27 | INFO     | monitor:291 | 收到用户消息，session=7q4hl72m, 消息预览: 调用工具输出py代码查看我之前都有问过什么问题
+2026-04-16 00:06:31 | INFO     | monitor:186 | 意图路由: tools (置信度: 0.72) 路由方式: ensemble, 风险: low
+2026-04-16 00:06:31 | INFO     | monitor:393 | 意图路由结果: tools, 置信度: 0.72, 计划模式: False
+2026-04-16 00:06:31 | INFO     | monitor:575 | LangGraphAgent.run 开始，输入长度: 23
+2026-04-16 00:06:31 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:06:31 | DEBUG    | monitor:161 | RAG 增强后消息数: 5
+2026-04-16 00:06:40 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('为了查看您之前都问过什么问题，我们可以编写一个Python脚本来读取当前会话的日志文件，并提取出您的问题。以下是一个简单的Python脚本，它将读取一个名为`session_log.txt`的文件，)
+2026-04-16 00:06:40 | DEBUG    | monitor:758 | 跳过自然语言长文本解析
+2026-04-16 00:06:40 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-16 00:06:40 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('为了查看您之前都问过什么问题，我们可以编写一个Python脚本来读取当前会话的日志文件，并提取出您的问题。以下是一个简单的Python脚本，它将读取一个名为`session_log.txt`的文件，)
+2026-04-16 00:06:40 | DEBUG    | monitor:758 | 跳过自然语言长文本解析
+2026-04-16 00:06:40 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-16 00:06:40 | INFO     | monitor:622 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 8.37s
+2026-04-16 00:06:40 | INFO     | monitor:772 | 请求处理完成，总耗时 12.36s
+2026-04-16 00:06:40 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 12.363s
+2026-04-16 00:06:40 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 12.363s
+2026-04-16 00:09:01 | INFO     | monitor:239 | 工作流恢复请求，session=7q4hl72m, 消息长度=9
+2026-04-16 00:09:01 | INFO     | monitor:291 | 收到用户消息，session=7q4hl72m, 消息预览: 我之前有提什么问题
+2026-04-16 00:09:03 | INFO     | monitor:186 | 意图路由: chat (置信度: 0.47) 路由方式: ensemble, 风险: low
+2026-04-16 00:09:03 | INFO     | monitor:393 | 意图路由结果: chat, 置信度: 0.47, 计划模式: False
+2026-04-16 00:09:03 | INFO     | monitor:575 | LangGraphAgent.run 开始，输入长度: 9
+2026-04-16 00:09:03 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:09:03 | DEBUG    | monitor:161 | RAG 增强后消息数: 6
+2026-04-16 00:09:05 | INFO     | monitor:622 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 1.80s
+2026-04-16 00:09:05 | INFO     | monitor:772 | 请求处理完成，总耗时 3.77s
+2026-04-16 00:09:05 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 3.774s
+2026-04-16 00:09:05 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 3.777s
+2026-04-16 00:10:10 | INFO     | monitor:239 | 工作流恢复请求，session=7q4hl72m, 消息长度=9
+2026-04-16 00:10:10 | INFO     | monitor:291 | 收到用户消息，session=7q4hl72m, 消息预览: 我之前有提什么问题
+2026-04-16 00:10:12 | INFO     | monitor:186 | 意图路由: chat (置信度: 0.47) 路由方式: ensemble, 风险: low
+2026-04-16 00:10:12 | INFO     | monitor:393 | 意图路由结果: chat, 置信度: 0.47, 计划模式: False
+2026-04-16 00:10:12 | INFO     | monitor:575 | LangGraphAgent.run 开始，输入长度: 9
+2026-04-16 00:10:12 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:10:12 | DEBUG    | monitor:161 | RAG 增强后消息数: 6
+2026-04-16 00:10:14 | INFO     | monitor:622 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 2.00s
+2026-04-16 00:10:14 | INFO     | monitor:772 | 请求处理完成，总耗时 4.00s
+2026-04-16 00:10:14 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 4.006s
+2026-04-16 00:10:14 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 4.007s
+2026-04-16 00:10:43 | INFO     | monitor:239 | 工作流恢复请求，session=7q4hl72m, 消息长度=12
+2026-04-16 00:10:43 | INFO     | monitor:291 | 收到用户消息，session=7q4hl72m, 消息预览: 你可以查询RAG的代码嘛
+2026-04-16 00:10:45 | INFO     | monitor:186 | 意图路由: skills (置信度: 0.53) 路由方式: ensemble, 风险: low
+2026-04-16 00:10:45 | INFO     | monitor:393 | 意图路由结果: skills, 置信度: 0.53, 计划模式: False
+2026-04-16 00:10:45 | INFO     | monitor:575 | LangGraphAgent.run 开始，输入长度: 850
+2026-04-16 00:10:45 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:10:45 | DEBUG    | monitor:161 | RAG 增强后消息数: 7
+2026-04-16 00:11:05 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('关于RAG（Retrieval-Augmented Generation）的代码，这是一个在自然语言处理领域中常用的技术，它结合了检索和生成模型来提高生成文本的质量。以下是一个简单的RAG模型的Py)
+2026-04-16 00:11:05 | DEBUG    | monitor:758 | 跳过自然语言长文本解析
+2026-04-16 00:11:05 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-16 00:11:05 | INFO     | monitor:622 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 19.78s
+2026-04-16 00:11:05 | INFO     | monitor:772 | 请求处理完成，总耗时 22.06s
+2026-04-16 00:11:05 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 22.062s
+2026-04-16 00:11:05 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 22.063s
+2026-04-16 00:40:04 | INFO     | monitor:84 | 初始化 Skills 系统...
+2026-04-16 00:40:04 | INFO     | monitor:89 | 发现 4 个技能
+2026-04-16 00:40:04 | INFO     | monitor:75 | GLM-4-Flash 已自动启用（通过环境变量 GLM_API_KEY）
+2026-04-16 00:40:04 | INFO     | monitor:239 | Web Agent with Skills 启动，监听端口 7860
+2026-04-16 00:40:04 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7860
+2026-04-16 00:40:11 | INFO     | monitor:239 | 工作流恢复请求，session=nutgovii, 消息长度=2
+2026-04-16 00:40:11 | INFO     | monitor:291 | 收到用户消息，session=nutgovii, 消息预览: 你好
+2026-04-16 00:40:13 | INFO     | monitor:186 | 意图路由: chat (置信度: 0.64) 路由方式: ensemble, 风险: low
+2026-04-16 00:40:13 | INFO     | monitor:393 | 意图路由结果: chat, 置信度: 0.64, 计划模式: False
+2026-04-16 00:40:13 | INFO     | monitor:623 | LangGraphAgent.run 开始，输入长度: 2
+2026-04-16 00:40:13 | DEBUG    | monitor:161 | RAG 增强后消息数: 2
+2026-04-16 00:40:15 | INFO     | monitor:675 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 2.53s
+2026-04-16 00:40:15 | INFO     | monitor:772 | 请求处理完成，总耗时 4.20s
+2026-04-16 00:40:15 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 4.197s
+2026-04-16 00:40:15 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 4.252s
+2026-04-16 00:40:20 | INFO     | monitor:239 | 工作流恢复请求，session=nutgovii, 消息长度=9
+2026-04-16 00:40:20 | INFO     | monitor:291 | 收到用户消息，session=nutgovii, 消息预览: 我之前的问题是什么
+2026-04-16 00:40:22 | INFO     | monitor:186 | 意图路由: chat (置信度: 0.47) 路由方式: ensemble, 风险: low
+2026-04-16 00:40:22 | INFO     | monitor:393 | 意图路由结果: chat, 置信度: 0.47, 计划模式: False
+2026-04-16 00:40:22 | INFO     | monitor:623 | LangGraphAgent.run 开始，输入长度: 9
+2026-04-16 00:40:22 | DEBUG    | monitor:161 | RAG 增强后消息数: 4
+2026-04-16 00:40:25 | INFO     | monitor:675 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 3.32s
+2026-04-16 00:40:25 | INFO     | monitor:772 | 请求处理完成，总耗时 5.35s
+2026-04-16 00:40:25 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 5.356s
+2026-04-16 00:40:25 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 5.356s
+2026-04-16 00:42:49 | INFO     | monitor:239 | 工作流恢复请求，session=nutgovii, 消息长度=9
+2026-04-16 00:42:49 | INFO     | monitor:291 | 收到用户消息，session=nutgovii, 消息预览: 给我一些学习建议呢
+2026-04-16 00:42:51 | INFO     | monitor:186 | 意图路由: skills (置信度: 0.54) 路由方式: ensemble, 风险: low
+2026-04-16 00:42:51 | INFO     | monitor:393 | 意图路由结果: skills, 置信度: 0.54, 计划模式: False
+2026-04-16 00:42:51 | INFO     | monitor:623 | LangGraphAgent.run 开始，输入长度: 850
+2026-04-16 00:42:52 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:42:52 | DEBUG    | monitor:161 | RAG 增强后消息数: 7
+2026-04-16 00:43:01 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls("以下是一些建议，可以帮助你提升学习效率：\n\n1. **环境管理**：\n   - 使用虚拟环境来隔离项目依赖，避免版本冲突。\n   - 通过`pip freeze > requirements)
+2026-04-16 00:43:01 | DEBUG    | monitor:758 | 跳过自然语言长文本解析
+2026-04-16 00:43:01 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 []
+2026-04-16 00:43:01 | INFO     | monitor:675 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 9.93s
+2026-04-16 00:43:01 | INFO     | monitor:772 | 请求处理完成，总耗时 11.87s
+2026-04-16 00:43:01 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 11.872s
+2026-04-16 00:43:01 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 11.873s
+2026-04-16 00:44:23 | INFO     | monitor:239 | 工作流恢复请求，session=nutgovii, 消息长度=16
+2026-04-16 00:44:23 | INFO     | monitor:291 | 收到用户消息，session=nutgovii, 消息预览: 头疼呀，最近的任务也没有处理完成
+2026-04-16 00:44:26 | INFO     | monitor:186 | 意图路由: chat (置信度: 0.37) 路由方式: ensemble, 风险: low
+2026-04-16 00:44:26 | INFO     | monitor:393 | 意图路由结果: chat, 置信度: 0.37, 计划模式: False
+2026-04-16 00:44:26 | INFO     | monitor:623 | LangGraphAgent.run 开始，输入长度: 16
+2026-04-16 00:44:27 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:44:27 | DEBUG    | monitor:161 | RAG 增强后消息数: 6
+2026-04-16 00:44:43 | INFO     | monitor:675 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 16.76s
+2026-04-16 00:44:43 | INFO     | monitor:772 | 请求处理完成，总耗时 19.35s
+2026-04-16 00:44:43 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 19.349s
+2026-04-16 00:44:43 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 19.350s
+2026-04-16 00:44:48 | INFO     | monitor:239 | 工作流恢复请求，session=nutgovii, 消息长度=9
+2026-04-16 00:44:48 | INFO     | monitor:291 | 收到用户消息，session=nutgovii, 消息预览: 我提过的问题有哪些
+2026-04-16 00:44:50 | INFO     | monitor:186 | 意图路由: skills (置信度: 0.47) 路由方式: ensemble, 风险: low
+2026-04-16 00:44:50 | INFO     | monitor:393 | 意图路由结果: skills, 置信度: 0.47, 计划模式: False
+2026-04-16 00:44:50 | INFO     | monitor:623 | LangGraphAgent.run 开始，输入长度: 850
+2026-04-16 00:44:50 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:44:50 | DEBUG    | monitor:161 | RAG 增强后消息数: 7
+2026-04-16 00:44:53 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('很抱歉，由于我无法访问你的历史对话记录，我无法列出你之前提出的问题。如果你能提供一些具体的上下文或者描述你之前的问题，我可以尝试帮助你回忆或者提供相关的帮助。')
+2026-04-16 00:44:53 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.002s | 返回 []
+2026-04-16 00:44:53 | INFO     | monitor:675 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 2.96s
+2026-04-16 00:44:53 | INFO     | monitor:772 | 请求处理完成，总耗时 5.46s
+2026-04-16 00:44:53 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 5.463s
+2026-04-16 00:44:53 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 5.464s
+2026-04-16 00:44:59 | INFO     | monitor:239 | 工作流恢复请求，session=nutgovii, 消息长度=9
+2026-04-16 00:44:59 | INFO     | monitor:291 | 收到用户消息，session=nutgovii, 消息预览: 我提过的问题有哪些
+2026-04-16 00:45:02 | INFO     | monitor:186 | 意图路由: skills (置信度: 0.47) 路由方式: ensemble, 风险: low
+2026-04-16 00:45:02 | INFO     | monitor:393 | 意图路由结果: skills, 置信度: 0.47, 计划模式: False
+2026-04-16 00:45:02 | INFO     | monitor:623 | LangGraphAgent.run 开始，输入长度: 850
+2026-04-16 00:45:02 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:45:02 | DEBUG    | monitor:161 | RAG 增强后消息数: 7
+2026-04-16 00:45:05 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('很抱歉，由于我无法访问你的个人对话历史，我无法列出你之前提出的问题。我的设计不允许我存储或检索用户的个人数据，包括他们之前的问题。如果你需要回顾你之前提出的问题，你可能需要查看你的个人聊天记录或电子)
+2026-04-16 00:45:05 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-16 00:45:05 | INFO     | monitor:675 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 2.68s
+2026-04-16 00:45:05 | INFO     | monitor:772 | 请求处理完成，总耗时 5.60s
+2026-04-16 00:45:05 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 5.601s
+2026-04-16 00:45:05 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 5.601s
+2026-04-16 00:46:52 | INFO     | monitor:239 | 工作流恢复请求，session=nutgovii, 消息长度=9
+2026-04-16 00:46:52 | INFO     | monitor:291 | 收到用户消息，session=nutgovii, 消息预览: 我之前的问题是什么
+2026-04-16 00:46:54 | INFO     | monitor:186 | 意图路由: chat (置信度: 0.47) 路由方式: ensemble, 风险: low
+2026-04-16 00:46:54 | INFO     | monitor:393 | 意图路由结果: chat, 置信度: 0.47, 计划模式: False
+2026-04-16 00:46:54 | INFO     | monitor:623 | LangGraphAgent.run 开始，输入长度: 9
+2026-04-16 00:46:54 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:46:54 | DEBUG    | monitor:161 | RAG 增强后消息数: 6
+2026-04-16 00:46:59 | INFO     | monitor:675 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 5.28s
+2026-04-16 00:46:59 | INFO     | monitor:772 | 请求处理完成，总耗时 7.21s
+2026-04-16 00:46:59 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 7.214s
+2026-04-16 00:46:59 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 7.215s
+2026-04-16 00:52:04 | INFO     | monitor:84 | 初始化 Skills 系统...
+2026-04-16 00:52:04 | INFO     | monitor:89 | 发现 4 个技能
+2026-04-16 00:52:04 | INFO     | monitor:75 | GLM-4-Flash 已自动启用（通过环境变量 GLM_API_KEY）
+2026-04-16 00:52:04 | INFO     | monitor:239 | Web Agent with Skills 启动，监听端口 7860
+2026-04-16 00:52:04 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7860
+2026-04-16 00:52:16 | INFO     | monitor:239 | 工作流恢复请求，session=94k8j5x9, 消息长度=7
+2026-04-16 00:52:16 | INFO     | monitor:291 | 收到用户消息，session=94k8j5x9, 消息预览: 之前问题是什么
+2026-04-16 00:52:19 | INFO     | monitor:186 | 意图路由: chat (置信度: 0.45) 路由方式: ensemble, 风险: low
+2026-04-16 00:52:19 | INFO     | monitor:393 | 意图路由结果: chat, 置信度: 0.45, 计划模式: False
+2026-04-16 00:52:19 | INFO     | monitor:631 | LangGraphAgent.run 开始，输入长度: 7
+2026-04-16 00:52:19 | DEBUG    | monitor:161 | RAG 增强后消息数: 2
+2026-04-16 00:52:21 | INFO     | monitor:683 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 2.14s
+2026-04-16 00:52:21 | INFO     | monitor:772 | 请求处理完成，总耗时 5.07s
+2026-04-16 00:52:21 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 5.075s
+2026-04-16 00:52:21 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 5.140s
+2026-04-16 00:53:46 | INFO     | monitor:239 | 工作流恢复请求，session=94k8j5x9, 消息长度=101
+2026-04-16 00:53:46 | INFO     | monitor:291 | 收到用户消息，session=94k8j5x9, 消息预览: 1. 帮我扫描整个 core 目录，找出所有类和方法，整理成文档写入 API.md
+2. 给出周杰伦最出名的十首歌，截取片段并解释含义
+3. 阅读 session_analyzer.py 代码，进行解
+2026-04-16 00:53:46 | INFO     | monitor:149 | 意图路由: tools (置信度: 0.95) 路由方式: rule, 风险: low
+2026-04-16 00:53:46 | INFO     | monitor:393 | 意图路由结果: tools, 置信度: 0.95, 计划模式: True
+2026-04-16 00:53:46 | INFO     | monitor:564 | 进入 ReAct 多 Agent 模式
+2026-04-16 00:53:46 | INFO     | monitor:421 | 多 Agent 流程开始，输入长度: 101
+2026-04-16 00:53:50 | INFO     | monitor:461 | 规划完成，步骤数: 3，复杂度: medium
+2026-04-16 00:53:50 | INFO     | monitor:631 | LangGraphAgent.run 开始，输入长度: 347
+2026-04-16 00:53:50 | DEBUG    | monitor:161 | RAG 增强后消息数: 2
+2026-04-16 00:53:52 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "grep -Ern \'^class |^def \' core/ > /Users/zhuangranxin/PyCharmProjects/chat-Age)
+2026-04-16 00:53:52 | DEBUG    | monitor:879 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-16 00:53:52 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('bash', {'command': "grep -Ern '^class |^def ' core/ > /Users/zhuangranxin/PyCharmProjects/chat-Agent/API.md"})]
+2026-04-16 00:53:52 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "grep -Ern \'^class |^def \' core/ > /Users/zhuangranxin/PyCharmProjects/chat-Age)
+2026-04-16 00:53:52 | DEBUG    | monitor:879 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-16 00:53:52 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('bash', {'command': "grep -Ern '^class |^def ' core/ > /Users/zhuangranxin/PyCharmProjects/chat-Agent/API.md"})]
+2026-04-16 00:53:52 | DEBUG    | monitor:460 | 工具执行: ✅ bash
+2026-04-16 00:53:52 | DEBUG    | monitor:472 | 工具结果已写入向量库: bash
+2026-04-16 00:53:52 | DEBUG    | monitor:161 | RAG 增强后消息数: 2
+2026-04-16 00:53:53 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('【结果摘要】\n成功使用bash扫描了core/目录，提取了类和方法，并将结果重定向写入到API.md文件中。')
+2026-04-16 00:53:53 | WARNING  | monitor:883 | 响应包含工具名但解析失败，前200字符: 【结果摘要】
+成功使用bash扫描了core/目录，提取了类和方法，并将结果重定向写入到API.md文件中。
+2026-04-16 00:53:53 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 []
+2026-04-16 00:53:53 | INFO     | monitor:683 | LangGraphAgent.run 完成，迭代: 1，工具调用数: 1，耗时: 3.25s
+2026-04-16 00:53:53 | DEBUG    | monitor:545 | 步骤 1 成功（尝试 1 次）
+2026-04-16 00:53:53 | INFO     | monitor:631 | LangGraphAgent.run 开始，输入长度: 430
+2026-04-16 00:53:54 | DEBUG    | monitor:161 | RAG 增强后消息数: 2
+2026-04-16 00:54:09 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('周杰伦是华语乐坛极具影响力的歌手，他的歌曲广受欢迎，以下是周杰伦最出名的十首歌及其片段解释：\n\n1. 《青花瓷》\n   - 片段：素胚勾勒出青花笔锋浓转淡\n   - 含义：描述了青花瓷的制作)
+2026-04-16 00:54:09 | DEBUG    | monitor:758 | 跳过自然语言长文本解析
+2026-04-16 00:54:09 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 []
+2026-04-16 00:54:09 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('周杰伦是华语乐坛极具影响力的歌手，他的歌曲广受欢迎，以下是周杰伦最出名的十首歌及其片段解释：\n\n1. 《青花瓷》\n   - 片段：素胚勾勒出青花笔锋浓转淡\n   - 含义：描述了青花瓷的制作)
+2026-04-16 00:54:09 | DEBUG    | monitor:758 | 跳过自然语言长文本解析
+2026-04-16 00:54:09 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-16 00:54:09 | INFO     | monitor:683 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 15.28s
+2026-04-16 00:54:09 | DEBUG    | monitor:545 | 步骤 2 成功（尝试 1 次）
+2026-04-16 00:54:09 | INFO     | monitor:631 | LangGraphAgent.run 开始，输入长度: 783
+2026-04-16 00:54:09 | DEBUG    | monitor:161 | RAG 增强后消息数: 2
+2026-04-16 00:54:10 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_analyzer.py"}')
+2026-04-16 00:54:10 | DEBUG    | monitor:879 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-16 00:54:10 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_analyzer.py'})]
+2026-04-16 00:54:10 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_analyzer.py"}')
+2026-04-16 00:54:10 | DEBUG    | monitor:879 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-16 00:54:10 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_analyzer.py'})]
+2026-04-16 00:54:10 | DEBUG    | monitor:460 | 工具执行: ❌ read_file
+2026-04-16 00:54:10 | DEBUG    | monitor:472 | 工具结果已写入向量库: read_file
+2026-04-16 00:54:10 | DEBUG    | monitor:161 | RAG 增强后消息数: 2
+2026-04-16 00:54:12 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "find . -name \'session_analyzer.py\' 2>/dev/null"}')
+2026-04-16 00:54:12 | DEBUG    | monitor:879 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-16 00:54:12 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('bash', {'command': "find . -name 'session_analyzer.py' 2>/dev/null"})]
+2026-04-16 00:54:12 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "find . -name \'session_analyzer.py\' 2>/dev/null"}')
+2026-04-16 00:54:12 | DEBUG    | monitor:879 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-16 00:54:12 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('bash', {'command': "find . -name 'session_analyzer.py' 2>/dev/null"})]
+2026-04-16 00:54:12 | DEBUG    | monitor:460 | 工具执行: ✅ bash
+2026-04-16 00:54:12 | DEBUG    | monitor:472 | 工具结果已写入向量库: bash
+2026-04-16 00:54:12 | DEBUG    | monitor:161 | RAG 增强后消息数: 2
+2026-04-16 00:54:14 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('已找到文件 `session_analyzer.py`，路径为 `./ui/session_analyzer.py`。接下来，我将使用 `read_file` 工具读取该文件的内容。\n\nread)
+2026-04-16 00:54:14 | DEBUG    | monitor:879 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-16 00:54:14 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': './ui/session_analyzer.py'})]
+2026-04-16 00:54:14 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('已找到文件 `session_analyzer.py`，路径为 `./ui/session_analyzer.py`。接下来，我将使用 `read_file` 工具读取该文件的内容。\n\nread)
+2026-04-16 00:54:14 | DEBUG    | monitor:879 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-16 00:54:14 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': './ui/session_analyzer.py'})]
+2026-04-16 00:54:14 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x13943a6d0>, './ui/session_analyzer.py')
+2026-04-16 00:54:14 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.001s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py", "content": "#!/usr/bin/env python\\n# -*- coding: utf-8 -*-\\n\\"\\"\\"\\n高级会话分析页面 - 提供可视化、JSON编辑和深度
+2026-04-16 00:54:14 | DEBUG    | monitor:460 | 工具执行: ✅ read_file
+2026-04-16 00:54:14 | DEBUG    | monitor:472 | 工具结果已写入向量库: read_file
+2026-04-16 00:54:14 | DEBUG    | monitor:161 | RAG 增强后消息数: 2
+2026-04-16 00:54:15 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py"}')
+2026-04-16 00:54:15 | DEBUG    | monitor:879 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-16 00:54:15 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py'})]
+2026-04-16 00:54:15 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py"}')
+2026-04-16 00:54:15 | DEBUG    | monitor:879 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-16 00:54:15 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py'})]
+2026-04-16 00:54:15 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x13943a6d0>, '/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py')
+2026-04-16 00:54:15 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.000s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py", "content": "#!/usr/bin/env python\\n# -*- coding: utf-8 -*-\\n\\"\\"\\"\\n高级会话分析页面 - 提供可视化、JSON编辑和深度
+2026-04-16 00:54:15 | DEBUG    | monitor:460 | 工具执行: ✅ read_file
+2026-04-16 00:54:15 | DEBUG    | monitor:472 | 工具结果已写入向量库: read_file
+2026-04-16 00:54:15 | DEBUG    | monitor:161 | RAG 增强后消息数: 2
+2026-04-16 00:54:17 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py"}')
+2026-04-16 00:54:17 | DEBUG    | monitor:879 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-16 00:54:17 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py'})]
+2026-04-16 00:54:17 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py"}')
+2026-04-16 00:54:17 | DEBUG    | monitor:879 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-16 00:54:17 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py'})]
+2026-04-16 00:54:17 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x13943a6d0>, '/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py')
+2026-04-16 00:54:17 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.001s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py", "content": "#!/usr/bin/env python\\n# -*- coding: utf-8 -*-\\n\\"\\"\\"\\n高级会话分析页面 - 提供可视化、JSON编辑和深度
+2026-04-16 00:54:17 | DEBUG    | monitor:460 | 工具执行: ✅ read_file
+2026-04-16 00:54:17 | DEBUG    | monitor:472 | 工具结果已写入向量库: read_file
+2026-04-16 00:54:17 | DEBUG    | monitor:161 | RAG 增强后消息数: 2
+2026-04-16 00:54:19 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py"}')
+2026-04-16 00:54:19 | DEBUG    | monitor:879 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-16 00:54:19 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py'})]
+2026-04-16 00:54:19 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py"}')
+2026-04-16 00:54:19 | DEBUG    | monitor:879 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-16 00:54:19 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py'})]
+2026-04-16 00:54:19 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x13943a6d0>, '/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py')
+2026-04-16 00:54:19 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.001s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py", "content": "#!/usr/bin/env python\\n# -*- coding: utf-8 -*-\\n\\"\\"\\"\\n高级会话分析页面 - 提供可视化、JSON编辑和深度
+2026-04-16 00:54:19 | DEBUG    | monitor:460 | 工具执行: ✅ read_file
+2026-04-16 00:54:19 | DEBUG    | monitor:472 | 工具结果已写入向量库: read_file
+2026-04-16 00:54:19 | DEBUG    | monitor:161 | RAG 增强后消息数: 2
+2026-04-16 00:54:23 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('已成功读取文件 `/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py` 的内容。文件内容如下：\n\n```\)
+2026-04-16 00:54:23 | DEBUG    | monitor:758 | 跳过自然语言长文本解析
+2026-04-16 00:54:23 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-16 00:54:23 | DEBUG    | monitor:263 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('已成功读取文件 `/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py` 的内容。文件内容如下：\n\n```\)
+2026-04-16 00:54:23 | DEBUG    | monitor:758 | 跳过自然语言长文本解析
+2026-04-16 00:54:23 | DEBUG    | monitor:269 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-16 00:54:23 | INFO     | monitor:683 | LangGraphAgent.run 完成，迭代: 6，工具调用数: 1，耗时: 14.17s
+2026-04-16 00:54:23 | DEBUG    | monitor:545 | 步骤 3 成功（尝试 1 次）
+2026-04-16 00:54:46 | INFO     | monitor:610 | 多 Agent 流程完成，成功步骤: 3/3，总耗时: 59.71s
+2026-04-16 00:54:46 | INFO     | monitor:603 | 多 Agent 执行完成，成功步骤: 3/3
+2026-04-16 00:54:46 | INFO     | monitor:772 | 请求处理完成，总耗时 59.72s
+2026-04-16 00:54:46 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 59.724s
+2026-04-16 00:54:46 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 59.725s
+2026-04-16 00:58:21 | INFO     | monitor:239 | 工作流恢复请求，session=94k8j5x9, 消息长度=9
+2026-04-16 00:58:21 | INFO     | monitor:291 | 收到用户消息，session=94k8j5x9, 消息预览: 我之前的问题是什么
+2026-04-16 00:58:23 | INFO     | monitor:186 | 意图路由: chat (置信度: 0.47) 路由方式: ensemble, 风险: low
+2026-04-16 00:58:23 | INFO     | monitor:393 | 意图路由结果: chat, 置信度: 0.47, 计划模式: False
+2026-04-16 00:58:23 | INFO     | monitor:631 | LangGraphAgent.run 开始，输入长度: 9
+2026-04-16 00:58:23 | DEBUG    | monitor:161 | RAG 增强后消息数: 6
+2026-04-16 00:58:26 | INFO     | monitor:683 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 3.54s
+2026-04-16 00:58:26 | INFO     | monitor:772 | 请求处理完成，总耗时 5.61s
+2026-04-16 00:58:26 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 5.612s
+2026-04-16 00:58:26 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 5.613s
+2026-04-16 00:58:36 | INFO     | monitor:239 | 工作流恢复请求，session=94k8j5x9, 消息长度=9
+2026-04-16 00:58:36 | INFO     | monitor:291 | 收到用户消息，session=94k8j5x9, 消息预览: 最近一个问题是什么
+2026-04-16 00:58:38 | INFO     | monitor:186 | 意图路由: chat (置信度: 0.45) 路由方式: ensemble, 风险: low
+2026-04-16 00:58:38 | INFO     | monitor:393 | 意图路由结果: chat, 置信度: 0.45, 计划模式: False
+2026-04-16 00:58:38 | INFO     | monitor:631 | LangGraphAgent.run 开始，输入长度: 9
+2026-04-16 00:58:39 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:58:39 | DEBUG    | monitor:161 | RAG 增强后消息数: 6
+2026-04-16 00:58:40 | INFO     | monitor:683 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 1.79s
+2026-04-16 00:58:40 | INFO     | monitor:772 | 请求处理完成，总耗时 3.99s
+2026-04-16 00:58:40 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 3.995s
+2026-04-16 00:58:40 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 3.996s
+2026-04-16 00:59:39 | INFO     | monitor:239 | 工作流恢复请求，session=94k8j5x9, 消息长度=12
+2026-04-16 00:59:39 | INFO     | monitor:291 | 收到用户消息，session=94k8j5x9, 消息预览: 仔细看一下我的问题是什么
+2026-04-16 00:59:41 | INFO     | monitor:186 | 意图路由: chat (置信度: 0.47) 路由方式: ensemble, 风险: low
+2026-04-16 00:59:41 | INFO     | monitor:393 | 意图路由结果: chat, 置信度: 0.47, 计划模式: False
+2026-04-16 00:59:41 | INFO     | monitor:631 | LangGraphAgent.run 开始，输入长度: 12
+2026-04-16 00:59:42 | DEBUG    | monitor:145 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-16 00:59:42 | DEBUG    | monitor:161 | RAG 增强后消息数: 6
+2026-04-16 00:59:44 | INFO     | monitor:683 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 2.85s
+2026-04-16 00:59:44 | INFO     | monitor:772 | 请求处理完成，总耗时 4.91s
+2026-04-16 00:59:44 | INFO     | monitor:166 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 4.908s
+2026-04-16 00:59:44 | INFO     | monitor:166 | ui.chat_controller.ChatController.handle_message_with_workflow_resume 执行完成，耗时 4.909s
+2026-04-16 16:27:54 | INFO     | monitor:87 | 初始化 Skills 系统...
+2026-04-16 16:27:54 | INFO     | monitor:92 | 发现 4 个技能
+2026-04-16 16:27:54 | INFO     | monitor:79 | GLM-4-Flash 已自动启用
+2026-04-16 16:27:54 | INFO     | monitor:248 | Web Agent with Skills 启动，监听端口 7860
+2026-04-16 16:27:54 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7860
+2026-04-16 17:42:50 | INFO     | monitor:87 | 初始化 Skills 系统...
+2026-04-16 17:42:50 | INFO     | monitor:92 | 发现 4 个技能
+2026-04-16 17:42:50 | INFO     | monitor:79 | GLM-4-Flash 已自动启用
+2026-04-16 17:42:50 | INFO     | monitor:248 | Web Agent with Skills 启动，监听端口 7860
+2026-04-16 17:42:50 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7860
+2026-04-16 17:43:08 | ERROR    | monitor:170 | ui.chat_controller.ChatController.bot_response 执行失败，耗时 6.048s
+异常类型: ValueError
+异常信息: Channel name 'checkpoint_id' is reserved
+堆栈跟踪:
+Traceback (most recent call last):
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/core/monitor_logger.py", line 161, in async_gen_wrapper
+    async for item in f(*args, **kwargs):
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/chat_controller.py", line 235, in bot_response
+    session_state = self.get_session_state(session_hash)
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/chat_controller.py", line 104, in get_session_state
+    agent_framework = QwenAgentFramework(
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/core/langgraph_agent.py", line 422, in __init__
+    self.graph = self._build_graph()
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/core/langgraph_agent.py", line 447, in _build_graph
+    return builder.compile(checkpointer=self.checkpointer)
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/.venv/lib/python3.9/site-packages/langgraph/graph/state.py", line 903, in compile
+    return compiled.validate()
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/.venv/lib/python3.9/site-packages/langgraph/pregel/main.py", line 784, in validate
+    validate_graph(
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/.venv/lib/python3.9/site-packages/langgraph/pregel/_validate.py", line 25, in validate_graph
+    raise ValueError(f"Channel name '{chan}' is reserved")
+ValueError: Channel name 'checkpoint_id' is reserved
+
+2026-04-16 18:18:08 | INFO     | monitor:87 | 初始化 Skills 系统...
+2026-04-16 18:18:08 | INFO     | monitor:92 | 发现 4 个技能
+2026-04-16 18:18:08 | INFO     | monitor:79 | GLM-4-Flash 已自动启用
+2026-04-16 18:18:08 | INFO     | monitor:248 | Web Agent with Skills 启动，监听端口 7860
+2026-04-16 18:18:08 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7860
+2026-04-16 18:18:21 | INFO     | monitor:434 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-16 18:18:24 | INFO     | monitor:254 | 收到用户消息，session=6hpmp78o, 消息预览: 你好
+2026-04-16 18:18:24 | DEBUG    | monitor:74 | RAG路由开始，输入: 你好
+2026-04-16 18:18:25 | DEBUG    | monitor:85 | 检索到 1 条历史证据
+2026-04-16 18:18:25 | INFO     | monitor:92 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-16 18:18:27 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.95) - 用户输入的是常见的打招呼用语，没有明确的工具、技能、计划或混合意图指示。
+2026-04-16 18:18:27 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.95, 计划模式: False
+2026-04-16 18:18:27 | INFO     | monitor:485 | LangGraphAgent.run 开始，输入长度: 2
+2026-04-16 18:18:27 | ERROR    | monitor:503 | Agent 执行异常: The SqliteSaver does not support async methods. Consider using AsyncSqliteSaver instead.
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+Note: AsyncSqliteSaver requires the aiosqlite package to use.
+Install with:
+`pip install aiosqlite`
+See https://langchain-ai.github.io/langgraph/reference/checkpoints/#langgraph.checkpoint.sqlite.aio.AsyncSqliteSaverfor more information.
+2026-04-16 18:18:27 | INFO     | monitor:527 | 请求处理完成，总耗时 0.01s
+2026-04-16 18:18:27 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 10.785s

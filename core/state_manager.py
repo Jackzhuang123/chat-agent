@@ -18,6 +18,12 @@ class SessionContext:
         "failed_attempts": [],
         # 结构化子任务状态：{subtask_index(int): {"desc": str, "status": "pending"|"done", "done_by": [tool_call_str]}}
         "subtask_status": {},
+        "facts_ledger": {
+            "confirmed_facts": [],
+            "file_facts": [],
+            "failed_actions": [],
+            "open_questions": [],
+        },
     })
     current_tool_chain_id: Optional[str] = None
     runtime_context: Dict[str, Any] = field(default_factory=dict)

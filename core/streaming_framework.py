@@ -69,6 +69,7 @@ class StreamingFramework:
                     content=f"User: {user_input}",
                     metadata={"role": "user", "type": "input"},
                     importance=0.8,
+                    original_question=user_input,  # 新增参数
                 )
 
         yield StreamEvent("start", {

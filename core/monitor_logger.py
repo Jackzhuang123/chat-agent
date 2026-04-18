@@ -1,19 +1,22 @@
+# core/monitor_logger.py （完整文件，仅新增部分，其余保持不变）
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
 监控日志模块 - 记录系统运行状态、请求耗时、错误堆栈
 支持按天轮转、多进程安全、控制台彩色输出
 """
-
+import functools
 import inspect
 import logging
 import logging.handlers
 import sys
 import time
 import traceback
+import uuid
 from functools import wraps
 from pathlib import Path
 from typing import Callable, Optional
+import inspect
 
 # 日志存储目录（项目根目录下的 logs/）
 LOG_DIR = Path(__file__).parent.parent / "logs"
@@ -102,19 +105,27 @@ def get_monitor_logger() -> logging.Logger:
     return _monitor_logger
 
 
+def make_trace_id(prefix: str = "req") -> str:
+    """生成短请求追踪 ID，用于串联一次请求的全链路日志。"""
+    return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+
+def set_log_level(level: str):
+    """
+    动态调整日志级别。参数: 'DEBUG', 'INFO', 'WARNING', 'ERROR'
+    """
+    logger = get_monitor_logger()
+    numeric_level = getattr(logging, level.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise ValueError(f"无效日志级别: {level}")
+    logger.setLevel(numeric_level)
+    for handler in logger.handlers:
+        if isinstance(handler, logging.StreamHandler):
+            handler.setLevel(numeric_level)
+
+
 def log_execution_time(func: Optional[Callable] = None, *, level: int = logging.INFO):
-    """
-    装饰器：记录函数执行耗时和异常
-
-    用法：
-        @log_execution_time
-        def my_func():
-            pass
-
-        @log_execution_time(level=logging.WARNING)
-        def slow_func():
-            pass
-    """
+    """装饰器：记录函数执行耗时和异常"""
     def decorator(f: Callable):
         @wraps(f)
         def wrapper(*args, **kwargs):
@@ -145,15 +156,9 @@ def log_execution_time(func: Optional[Callable] = None, *, level: int = logging.
 
 
 def log_async_execution_time(func: Optional[Callable] = None, *, level: int = logging.INFO):
-    """
-    装饰器：记录异步函数执行耗时和异常。
-    同时支持：
-      - 普通 async 函数（coroutine function）
-      - 异步生成器函数（async def + yield）
-    """
+    """装饰器：记录异步函数执行耗时和异常"""
     def decorator(f: Callable):
         if inspect.isasyncgenfunction(f):
-            # ---- 异步生成器函数：用 async for 透传每个 yield 值 ----
             @wraps(f)
             async def async_gen_wrapper(*args, **kwargs):
                 logger = get_monitor_logger()
@@ -177,7 +182,6 @@ def log_async_execution_time(func: Optional[Callable] = None, *, level: int = lo
                     raise
             return async_gen_wrapper
         else:
-            # ---- 普通 async 函数：await 调用 ----
             @wraps(f)
             async def wrapper(*args, **kwargs):
                 logger = get_monitor_logger()
@@ -228,9 +232,21 @@ def exception(msg: str, *args, **kwargs):
     get_monitor_logger().exception(msg, *args, **kwargs)
 
 
-# ========== 启动日志记录 ==========
+def log_event(event_type: str, message: str, level: int = logging.INFO, **extra_fields):
+    """
+    记录系统内部事件，支持结构化字段。
+    示例: log_event("loop_detected", "连续相同工具调用", tool="read_file", count=3)
+    """
+    logger = get_monitor_logger()
+    extra_str = " | ".join(f"{k}={v}" for k, v in extra_fields.items()) if extra_fields else ""
+    full_msg = f"[{event_type}] {message}"
+    if extra_str:
+        full_msg += f" | {extra_str}"
+    logger.log(level, full_msg)
+
+
+# ========== 启动/关闭日志记录 ==========
 def log_startup(app_name: str = "QwenAgent", port: Optional[int] = None):
-    """应用启动时记录一条日志"""
     logger = get_monitor_logger()
     msg = f"{app_name} 启动"
     if port:
@@ -239,11 +255,61 @@ def log_startup(app_name: str = "QwenAgent", port: Optional[int] = None):
 
 
 def log_shutdown(app_name: str = "QwenAgent"):
-    """应用关闭时记录一条日志"""
     get_monitor_logger().info(f"{app_name} 关闭")
 
 
-# ========== 请求日志中间件（用于 Gradio 或自定义框架） ==========
+# ========== 请求日志中间件 ==========
 def log_http_request(method: str, path: str, status: int, duration_ms: float):
-    """记录 HTTP 请求摘要"""
     get_monitor_logger().info(f"{method} {path} → {status} ({duration_ms:.2f}ms)")
+
+
+def log_function_call(level: int = logging.DEBUG):
+    """装饰器：自动记录函数进入/退出，参数和返回值摘要"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            logger = get_monitor_logger()
+            func_name = f"{func.__module__}.{func.__qualname__}"
+            args_repr = [repr(a)[:100] for a in args]
+            kwargs_repr = [f"{k}={repr(v)[:100]}" for k, v in kwargs.items()]
+            signature = ", ".join(args_repr + kwargs_repr)
+            logger.log(level, f"→ 进入 {func_name}({signature})")
+            start = time.perf_counter()
+            try:
+                result = func(*args, **kwargs)
+                elapsed = time.perf_counter() - start
+                result_repr = repr(result)[:200] if result is not None else "None"
+                logger.log(level, f"← 退出 {func_name} | 耗时 {elapsed:.3f}s | 返回 {result_repr}")
+                return result
+            except Exception as e:
+                elapsed = time.perf_counter() - start
+                logger.error(f"✗ 异常 {func_name} | 耗时 {elapsed:.3f}s | {type(e).__name__}: {e}")
+                raise
+        return wrapper
+    return decorator
+
+
+def log_async_function_call(level: int = logging.DEBUG):
+    """装饰器：异步函数版本"""
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            logger = get_monitor_logger()
+            func_name = f"{func.__module__}.{func.__qualname__}"
+            args_repr = [repr(a)[:100] for a in args]
+            kwargs_repr = [f"{k}={repr(v)[:100]}" for k, v in kwargs.items()]
+            signature = ", ".join(args_repr + kwargs_repr)
+            logger.log(level, f"→ 进入异步 {func_name}({signature})")
+            start = time.perf_counter()
+            try:
+                result = await func(*args, **kwargs)
+                elapsed = time.perf_counter() - start
+                result_repr = repr(result)[:200] if result is not None else "None"
+                logger.log(level, f"← 退出异步 {func_name} | 耗时 {elapsed:.3f}s | 返回 {result_repr}")
+                return result
+            except Exception as e:
+                elapsed = time.perf_counter() - start
+                logger.error(f"✗ 异步异常 {func_name} | 耗时 {elapsed:.3f}s | {type(e).__name__}: {e}")
+                raise
+        return wrapper
+    return decorator

@@ -269,7 +269,7 @@ class ConversationSummaryMiddleware(AgentMiddleware):
         summary_text = self._summarize(old_pairs)
         new_messages = []
         if summary_text:
-            new_messages.append({"role": "user", "content": f"<conversation_summary>\n以下是早期对话的摘要（共 {len(old_pairs)} 轮）：\n{summary_text}\n</conversation_summary>"})
+            new_messages.append({"role": "user", "content": f"<conversation_summary>\n以下是早期对话的结构化摘要（共 {len(old_pairs)} 轮）：\n{summary_text}\n</conversation_summary>"})
             new_messages.append({"role": "assistant", "content": "好的，我了解了之前对话的背景。"})
         for u, a in recent_pairs:
             new_messages.append({"role": "user", "content": u})
@@ -286,7 +286,11 @@ class ConversationSummaryMiddleware(AgentMiddleware):
         return self._rule_summarize(pairs)
 
     def _llm_summarize(self, pairs: List[Tuple[str, str]]) -> str:
-        SUMMARY_SYSTEM = "你是一个对话摘要助手。将以下多轮对话总结为 3-5 句话的摘要，保留关键信息（用户需求、已完成的操作、重要结论）。只输出摘要，不加任何前缀。"
+        SUMMARY_SYSTEM = (
+            "你是一个对话摘要助手。请将以下多轮对话压缩为结构化 JSON，"
+            "字段仅限 user_goals/completed_actions/failures/open_questions。"
+            "每个字段都是字符串数组，只输出 JSON。"
+        )
         conv_lines = []
         for u, a in pairs[-6:]:
             if u:
@@ -294,24 +298,142 @@ class ConversationSummaryMiddleware(AgentMiddleware):
             if a:
                 conv_lines.append(f"助手: {a[:150]}")
         try:
-            return self.model_forward_fn([{"role": "user", "content": "\n".join(conv_lines)}], system_prompt=SUMMARY_SYSTEM, temperature=0.3, top_p=0.9, max_tokens=200)
+            raw = self.model_forward_fn([{"role": "user", "content": "\n".join(conv_lines)}], system_prompt=SUMMARY_SYSTEM, temperature=0.3, top_p=0.9, max_tokens=240)
+            json_start = raw.find("{")
+            json_end = raw.rfind("}")
+            if json_start != -1 and json_end > json_start:
+                data = json.loads(raw[json_start:json_end + 1])
+                return self._format_summary_dict(data, len(pairs))
         except Exception:
-            return self._rule_summarize(pairs)
+            pass
+        return self._rule_summarize(pairs)
 
-    @staticmethod
-    def _rule_summarize(pairs: List[Tuple[str, str]]) -> str:
+    @classmethod
+    def _rule_summarize(cls, pairs: List[Tuple[str, str]]) -> str:
         if not pairs:
             return ""
-        topics = []
-        for u, _ in pairs[-4:]:
+        user_goals = []
+        completed_actions = []
+        failures = []
+        open_questions = []
+
+        for u, a in pairs[-6:]:
             if u:
-                snippet = u.strip()[:50].replace("\n", " ")
+                snippet = u.strip().replace("\n", " ")[:80]
                 if snippet:
-                    topics.append(snippet)
-        summary = f"早期对话共 {len(pairs)} 轮。"
-        if topics:
-            summary += "主要话题包括：" + "；".join(topics[:3]) + "。"
-        return summary
+                    user_goals.append(snippet)
+            if a:
+                normalized = a.strip().replace("\n", " ")[:100]
+                if any(k in normalized for k in ("失败", "错误", "超时", "不存在", "无法")):
+                    failures.append(normalized)
+                elif any(k in normalized for k in ("完成", "已", "成功", "找到", "读取")):
+                    completed_actions.append(normalized)
+                else:
+                    open_questions.append(normalized)
+
+        data = {
+            "user_goals": user_goals[:3],
+            "completed_actions": completed_actions[:3],
+            "failures": failures[:3],
+            "open_questions": open_questions[:3],
+        }
+        return cls._format_summary_dict(data, len(pairs))
+
+    @staticmethod
+    def _format_summary_dict(data: Dict[str, Any], pair_count: int) -> str:
+        normalized = {
+            "turn_count": pair_count,
+            "user_goals": [str(x)[:120] for x in data.get("user_goals", []) if str(x).strip()],
+            "completed_actions": [str(x)[:120] for x in data.get("completed_actions", []) if str(x).strip()],
+            "failures": [str(x)[:120] for x in data.get("failures", []) if str(x).strip()],
+            "open_questions": [str(x)[:120] for x in data.get("open_questions", []) if str(x).strip()],
+        }
+        return json.dumps(normalized, ensure_ascii=False, indent=2)
+
+
+class ContextWindowMiddleware(AgentMiddleware):
+    """按消息预算裁剪上下文，优先保留 system、最近对话和关键工具结果。"""
+
+    def __init__(self, max_chars: int = 12000, max_messages: int = 16):
+        self.max_chars = max_chars
+        self.max_messages = max_messages
+        self.monitor = get_monitor_logger()
+
+    @staticmethod
+    def _message_size(msg: Dict[str, str]) -> int:
+        return len(msg.get("content", "")) + len(msg.get("role", "")) + 16
+
+    @staticmethod
+    def _is_critical_message(msg: Dict[str, str]) -> bool:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role == "system":
+            return True
+        if role == "user" and (
+            content.startswith("✅ 工具执行成功")
+            or content.startswith("❌")
+            or "<conversation_summary>" in content
+            or "<runtime_mode" in content
+            or "<plan_mode>" in content
+            or "<uploaded_files>" in content
+            or "<skills_context>" in content
+        ):
+            return True
+        return False
+
+    async def process_before_llm(self, messages: List[Dict[str, str]], context: Dict[str, Any]) -> List[Dict[str, str]]:
+        if len(messages) <= self.max_messages:
+            total_chars = sum(self._message_size(m) for m in messages)
+            if total_chars <= self.max_chars:
+                return messages
+
+        system_msgs = [m for m in messages if m.get("role") == "system"]
+        non_system_msgs = [m for m in messages if m.get("role") != "system"]
+        critical_msgs = [m for m in non_system_msgs[:-6] if self._is_critical_message(m)]
+        recent_msgs = non_system_msgs[-6:]
+
+        trimmed: List[Dict[str, str]] = []
+        seen_ids = set()
+        for msg in system_msgs + critical_msgs + recent_msgs:
+            msg_id = id(msg)
+            if msg_id in seen_ids:
+                continue
+            seen_ids.add(msg_id)
+            trimmed.append(msg)
+
+        total_chars = sum(self._message_size(m) for m in trimmed)
+        if total_chars > self.max_chars:
+            # 从最早的非 system 消息开始裁剪，始终保留最近 3 条和所有 system。
+            preserved_tail = trimmed[-3:] if len(trimmed) > 3 else list(trimmed)
+            preserved_tail_ids = {id(m) for m in preserved_tail}
+            compact = []
+            for msg in trimmed:
+                if msg.get("role") == "system" or id(msg) in preserved_tail_ids:
+                    compact.append(msg)
+            running_chars = sum(self._message_size(m) for m in compact)
+            for msg in reversed(trimmed):
+                if id(msg) in {id(m) for m in compact}:
+                    continue
+                msg_size = self._message_size(msg)
+                if running_chars + msg_size > self.max_chars:
+                    continue
+                compact.insert(-len(preserved_tail) if preserved_tail else len(compact), msg)
+                running_chars += msg_size
+            trimmed = compact
+            total_chars = running_chars
+
+        if len(trimmed) < len(messages):
+            context["_context_window_trimmed"] = {
+                "before_messages": len(messages),
+                "after_messages": len(trimmed),
+                "before_chars": sum(self._message_size(m) for m in messages),
+                "after_chars": total_chars,
+            }
+            self.monitor.debug(
+                f"上下文窗口裁剪: {len(messages)} -> {len(trimmed)} 条消息, "
+                f"{sum(self._message_size(m) for m in messages)} -> {total_chars} chars"
+            )
+        return trimmed
 
 
 class CompletenessMiddleware(_OnceInjectMiddleware):

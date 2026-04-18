@@ -155,11 +155,12 @@ class AdaptiveToolLearner:
         # 2. 基于任务类型匹配
         task_features = self.context_extractor.extract_text(current_task)
 
+        # 2. 基于任务类型匹配（直接使用字符串）
         for pattern in self.patterns:
             # 任务类型相似度
             type_sim = self._text_similarity(
-                task_features,
-                self.context_extractor.extract_text(pattern.task_type)
+                current_task.lower(),
+                pattern.task_type.lower()
             )
 
             # 上下文相似度

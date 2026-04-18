@@ -1,0 +1,53 @@
+{
+  "workflow_id": "wf_1776267440",
+  "status": "idle",
+  "created_at": "2026-04-15T23:37:20.642495",
+  "updated_at": "2026-04-15T23:38:17.190291",
+  "current_stage": "report",
+  "stages": {
+    "init": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:37:20.644664",
+      "completed_at": "2026-04-15T23:37:25.700246",
+      "error": null
+    },
+    "analyze": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:37:25.702453",
+      "completed_at": "2026-04-15T23:38:04.552769",
+      "error": null
+    },
+    "merge": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:38:04.553339",
+      "completed_at": "2026-04-15T23:38:09.876582",
+      "error": null
+    },
+    "report": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:38:09.877452",
+      "completed_at": "2026-04-15T23:38:17.189936",
+      "error": null
+    }
+  },
+  "artifacts": {
+    "response": "根据执行结果，工作流阶段 `process_b` 已成功执行。但是，您提到任务没有完成，这表明可能还有其他工作流阶段或任务未被执行。为了进一步处理，请您提供具体的任务列表或详细说明哪些任务尚未完成。目前，我们已知的并行触发的工作流阶段包括 `process_a` 和 `process_b`。如果需要，我们可以检查这些阶段是否都已经按顺序执行完毕。",
+    "tool_calls": [],
+    "parallel_triggered": [
+      "process_a",
+      "process_b"
+    ]
+  },
+  "user_input": "我的任务没有做完",
+  "runtime_context": {
+    "run_mode": "plan",
+    "plan_mode": false,
+    "uploaded_files": [],
+    "selected_skills": [],
+    "intent_reasons": [
+      "LLM: 用户提到了未完成的任务，暗示需要规划或执行下一步行动。 | 规则: 匹配0个模式"
+    ]
+  },
+  "pending_interaction_stage": null,
+  "pending_interaction_config": null
+}

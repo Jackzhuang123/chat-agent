@@ -1,0 +1,53 @@
+{
+  "workflow_id": "wf_1776267499",
+  "status": "idle",
+  "created_at": "2026-04-15T23:38:19.381835",
+  "updated_at": "2026-04-15T23:38:44.122416",
+  "current_stage": "report",
+  "stages": {
+    "init": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:38:19.383782",
+      "completed_at": "2026-04-15T23:38:23.163180",
+      "error": null
+    },
+    "analyze": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:38:23.163999",
+      "completed_at": "2026-04-15T23:38:32.270466",
+      "error": null
+    },
+    "merge": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:38:32.271119",
+      "completed_at": "2026-04-15T23:38:38.893351",
+      "error": null
+    },
+    "report": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:38:38.894325",
+      "completed_at": "2026-04-15T23:38:44.122058",
+      "error": null
+    }
+  },
+  "artifacts": {
+    "response": "根据您的要求，我已经执行了工作流阶段 `process_b`，并且根据之前的记录，`process_b` 阶段已经成功执行，输出为 \"process_b executed\"。然而，关于您提到的任务没有完成的问题，目前没有足够的信息来确定具体是哪个阶段没有完成。根据上下文信息，`process_a` 和 `process_b` 都已经被触发。如果 `process_b` 已经成功执行，那么可能需要检查 `process_a` 或者其他未被提及的工作流阶段。\n\n请提供更多关于未完成的任务的具体信息，以便我能够进一步协助您解决问题。",
+    "tool_calls": [],
+    "parallel_triggered": [
+      "process_a",
+      "process_b"
+    ]
+  },
+  "user_input": "我的任务没有做完",
+  "runtime_context": {
+    "run_mode": "plan",
+    "plan_mode": false,
+    "uploaded_files": [],
+    "selected_skills": [],
+    "intent_reasons": [
+      "LLM: 用户表达了对未完成任务的陈述，暗示需要规划和执行任务。 | 规则: 匹配0个模式"
+    ]
+  },
+  "pending_interaction_stage": null,
+  "pending_interaction_config": null
+}

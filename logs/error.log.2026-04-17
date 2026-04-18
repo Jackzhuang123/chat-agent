@@ -1,0 +1,1060 @@
+2026-04-17 10:14:34 | INFO     | monitor:432 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 10:14:35 | INFO     | monitor:254 | 收到用户消息，session=82hpcjtj, 消息预览: 你好
+2026-04-17 10:14:35 | DEBUG    | monitor:74 | RAG路由开始，输入: 你好
+2026-04-17 10:14:35 | DEBUG    | monitor:85 | 检索到 2 条历史证据
+2026-04-17 10:14:35 | INFO     | monitor:92 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 10:14:37 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.95) - 用户输入了简单的问候语，没有具体的功能或服务请求，属于常规的聊天互动。
+2026-04-17 10:14:37 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.95, 计划模式: False
+2026-04-17 10:14:37 | INFO     | monitor:483 | LangGraphAgent.run 开始，输入长度: 2
+2026-04-17 10:14:37 | ERROR    | monitor:503 | Agent 执行异常: '_AsyncGeneratorContextManager' object has no attribute 'get_next_version'
+2026-04-17 10:14:37 | INFO     | monitor:527 | 请求处理完成，总耗时 0.01s
+2026-04-17 10:14:37 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 7.574s
+2026-04-17 10:34:13 | INFO     | monitor:433 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 10:34:15 | INFO     | monitor:254 | 收到用户消息，session=t0f4pglp, 消息预览: 你好
+2026-04-17 10:34:15 | DEBUG    | monitor:74 | RAG路由开始，输入: 你好
+2026-04-17 10:34:16 | DEBUG    | monitor:85 | 检索到 2 条历史证据
+2026-04-17 10:34:16 | INFO     | monitor:92 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 10:34:18 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.95) - 用户输入了简单的问候语，没有具体的功能或指令需求，属于常规的聊天互动。
+2026-04-17 10:34:18 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.95, 计划模式: False
+2026-04-17 10:34:18 | INFO     | monitor:495 | LangGraphAgent.run 开始，输入长度: 2
+2026-04-17 10:34:18 | DEBUG    | monitor:473 | 正在初始化异步 SQLite 检查点...
+2026-04-17 10:34:18 | DEBUG    | monitor:478 | 异步检查点初始化完成
+2026-04-17 10:34:18 | ERROR    | monitor:503 | Agent 执行异常: 'Connection' object has no attribute 'is_alive'
+2026-04-17 10:34:18 | INFO     | monitor:527 | 请求处理完成，总耗时 0.02s
+2026-04-17 10:34:18 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 9.846s
+2026-04-17 10:42:38 | INFO     | monitor:433 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 10:42:38 | INFO     | monitor:254 | 收到用户消息，session=hpx48d8v, 消息预览: 你好
+2026-04-17 10:42:38 | DEBUG    | monitor:74 | RAG路由开始，输入: 你好
+2026-04-17 10:42:38 | DEBUG    | monitor:85 | 检索到 2 条历史证据
+2026-04-17 10:42:38 | INFO     | monitor:92 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 10:42:40 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.95) - 用户输入'你好'，这是一个典型的打招呼的聊天行为，没有明显的工具、技能、计划或混合意图的指示。
+2026-04-17 10:42:40 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.95, 计划模式: False
+2026-04-17 10:42:40 | INFO     | monitor:483 | LangGraphAgent.run 开始，输入长度: 2
+2026-04-17 10:42:40 | ERROR    | monitor:503 | Agent 执行异常: No synchronous function provided to "agent".
+Either initialize with a synchronous function or invoke via the async API (ainvoke, astream, etc.)
+2026-04-17 10:42:40 | INFO     | monitor:527 | 请求处理完成，总耗时 0.01s
+2026-04-17 10:42:40 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 6.564s
+2026-04-17 11:50:21 | INFO     | monitor:434 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 11:50:22 | INFO     | monitor:254 | 收到用户消息，session=vkovbqdo, 消息预览: 你好
+2026-04-17 11:50:22 | DEBUG    | monitor:74 | RAG路由开始，输入: 你好
+2026-04-17 11:50:22 | DEBUG    | monitor:85 | 检索到 2 条历史证据
+2026-04-17 11:50:22 | INFO     | monitor:92 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 11:50:24 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.95) - 用户输入了简单的问候语，这通常表明用户希望进行日常交流或聊天，没有明确要求工具、技能、计划或混合服务。
+2026-04-17 11:50:24 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.95, 计划模式: False
+2026-04-17 11:50:24 | INFO     | monitor:496 | LangGraphAgent.run 开始，输入长度: 2
+2026-04-17 11:50:24 | DEBUG    | monitor:440 | 正在初始化异步 SQLite 检查点...
+2026-04-17 11:50:24 | DEBUG    | monitor:446 | 异步检查点初始化完成
+2026-04-17 11:50:24 | ERROR    | monitor:503 | Agent 执行异常: 'Connection' object has no attribute 'is_alive'
+2026-04-17 11:50:24 | INFO     | monitor:527 | 请求处理完成，总耗时 0.01s
+2026-04-17 11:50:24 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 8.723s
+2026-04-17 12:01:02 | INFO     | monitor:433 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 12:01:02 | INFO     | monitor:254 | 收到用户消息，session=4igc6sdi, 消息预览: 你好
+2026-04-17 12:01:02 | DEBUG    | monitor:74 | RAG路由开始，输入: 你好
+2026-04-17 12:01:02 | DEBUG    | monitor:85 | 检索到 2 条历史证据
+2026-04-17 12:01:02 | INFO     | monitor:92 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 12:01:04 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.95) - 用户输入了简单的问候语，这是典型的聊天场景，没有明确要求执行工具操作、展示技能、制定计划或混合使用以上功能。
+2026-04-17 12:01:04 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.95, 计划模式: False
+2026-04-17 12:01:04 | INFO     | monitor:492 | LangGraphAgent.run 开始，输入长度: 2
+2026-04-17 12:01:04 | DEBUG    | monitor:438 | 正在初始化异步 SQLite 检查点...
+2026-04-17 12:01:04 | DEBUG    | monitor:442 | 异步检查点初始化完成
+2026-04-17 12:01:04 | ERROR    | monitor:503 | Agent 执行异常: '_AsyncGeneratorContextManager' object has no attribute 'get_next_version'
+2026-04-17 12:01:04 | INFO     | monitor:527 | 请求处理完成，总耗时 0.01s
+2026-04-17 12:01:04 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 7.507s
+2026-04-17 12:04:23 | INFO     | monitor:434 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 12:04:23 | INFO     | monitor:254 | 收到用户消息，session=cddqnhi5, 消息预览: 你好
+2026-04-17 12:04:23 | DEBUG    | monitor:74 | RAG路由开始，输入: 你好
+2026-04-17 12:04:23 | DEBUG    | monitor:85 | 检索到 2 条历史证据
+2026-04-17 12:04:23 | INFO     | monitor:92 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 12:04:25 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.95) - 用户输入了简单的问候语，这通常表示想要进行社交交流，而不是请求具体功能或信息。
+2026-04-17 12:04:25 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.95, 计划模式: False
+2026-04-17 12:04:25 | INFO     | monitor:500 | LangGraphAgent.run 开始，输入长度: 2
+2026-04-17 12:04:25 | DEBUG    | monitor:439 | 正在初始化异步 SQLite 检查点...
+2026-04-17 12:04:25 | DEBUG    | monitor:446 | 异步检查点初始化完成
+2026-04-17 12:04:25 | ERROR    | monitor:503 | Agent 执行异常: 'Connection' object has no attribute 'is_alive'
+2026-04-17 12:04:25 | INFO     | monitor:527 | 请求处理完成，总耗时 0.02s
+2026-04-17 12:04:25 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 7.982s
+2026-04-17 12:12:12 | INFO     | monitor:434 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 12:12:12 | INFO     | monitor:254 | 收到用户消息，session=moqgwl56, 消息预览: 你好
+2026-04-17 12:12:12 | DEBUG    | monitor:74 | RAG路由开始，输入: 你好
+2026-04-17 12:12:12 | DEBUG    | monitor:85 | 检索到 2 条历史证据
+2026-04-17 12:12:12 | INFO     | monitor:92 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 12:12:13 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.95) - 用户输入了简单的问候语，没有具体要求或指令，属于常规的聊天互动。
+2026-04-17 12:12:13 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.95, 计划模式: False
+2026-04-17 12:12:13 | INFO     | monitor:500 | LangGraphAgent.run 开始，输入长度: 2
+2026-04-17 12:12:13 | DEBUG    | monitor:439 | 正在初始化异步 SQLite 检查点...
+2026-04-17 12:12:13 | DEBUG    | monitor:446 | 异步检查点初始化完成
+2026-04-17 12:12:13 | ERROR    | monitor:503 | Agent 执行异常: 'Connection' object has no attribute 'is_alive'
+2026-04-17 12:12:13 | INFO     | monitor:527 | 请求处理完成，总耗时 0.01s
+2026-04-17 12:12:13 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 6.883s
+2026-04-17 12:21:09 | INFO     | monitor:455 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 12:21:10 | INFO     | monitor:254 | 收到用户消息，session=ccie8n8s, 消息预览: 你好
+2026-04-17 12:21:10 | DEBUG    | monitor:74 | RAG路由开始，输入: 你好
+2026-04-17 12:21:10 | DEBUG    | monitor:85 | 检索到 2 条历史证据
+2026-04-17 12:21:10 | INFO     | monitor:92 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 12:21:12 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.95) - 用户输入的是简单的问候语，没有明确要求进行特定操作或功能，因此最可能的意图是进行普通聊天。
+2026-04-17 12:21:12 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.95, 计划模式: False
+2026-04-17 12:21:12 | INFO     | monitor:522 | LangGraphAgent.run 开始，输入长度: 2
+2026-04-17 12:21:12 | DEBUG    | monitor:460 | 正在初始化异步 SQLite 检查点...
+2026-04-17 12:21:12 | DEBUG    | monitor:465 | 异步检查点初始化完成
+2026-04-17 12:21:12 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=2 | retrieved_count=0 | avg_score=0.000 | elapsed_ms=43.3
+2026-04-17 12:21:12 | DEBUG    | monitor:169 | RAG 增强后消息数: 1
+2026-04-17 12:21:13 | DEBUG    | monitor:194 | LLM 响应长度: 14 字符
+2026-04-17 12:21:14 | INFO     | monitor:220 | 对话模式，直接返回最终回答
+2026-04-17 12:21:14 | DEBUG    | monitor:492 | 无工具调用，进入 finalize
+2026-04-17 12:21:14 | ERROR    | monitor:503 | Agent 执行异常: Type is not msgpack serializable: numpy.float64
+2026-04-17 12:21:14 | INFO     | monitor:527 | 请求处理完成，总耗时 2.00s
+2026-04-17 12:21:14 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 9.245s
+2026-04-17 14:03:02 | INFO     | monitor:465 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 14:03:02 | INFO     | monitor:254 | 收到用户消息，session=3nmf47bq, 消息预览: 你好
+2026-04-17 14:03:02 | DEBUG    | monitor:74 | RAG路由开始，输入: 你好
+2026-04-17 14:03:02 | DEBUG    | monitor:85 | 检索到 3 条历史证据
+2026-04-17 14:03:02 | INFO     | monitor:92 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 14:03:04 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.95) - 用户输入了简单的问候语，这通常表明用户希望进行社交互动或开始对话。
+2026-04-17 14:03:04 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.95, 计划模式: False
+2026-04-17 14:03:04 | INFO     | monitor:532 | LangGraphAgent.run 开始，输入长度: 2
+2026-04-17 14:03:04 | DEBUG    | monitor:470 | 正在初始化异步 SQLite 检查点...
+2026-04-17 14:03:04 | DEBUG    | monitor:475 | 异步检查点初始化完成
+2026-04-17 14:03:04 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=2 | retrieved_count=0 | avg_score=0.000 | elapsed_ms=45.3
+2026-04-17 14:03:04 | DEBUG    | monitor:179 | RAG 增强后消息数: 1
+2026-04-17 14:03:05 | DEBUG    | monitor:204 | LLM 响应长度: 23 字符
+2026-04-17 14:03:06 | INFO     | monitor:230 | 对话模式，直接返回最终回答
+2026-04-17 14:03:06 | DEBUG    | monitor:502 | 无工具调用，进入 finalize
+2026-04-17 14:03:06 | ERROR    | monitor:503 | Agent 执行异常: Type is not msgpack serializable: numpy.float64
+2026-04-17 14:03:06 | INFO     | monitor:527 | 请求处理完成，总耗时 1.31s
+2026-04-17 14:03:06 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 8.596s
+2026-04-17 14:16:32 | INFO     | monitor:474 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 14:16:32 | INFO     | monitor:254 | 收到用户消息，session=uk03oqvb, 消息预览: 你好
+2026-04-17 14:16:32 | DEBUG    | monitor:74 | RAG路由开始，输入: 你好
+2026-04-17 14:16:32 | DEBUG    | monitor:85 | 检索到 3 条历史证据
+2026-04-17 14:16:32 | INFO     | monitor:92 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 14:16:34 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.90) - 用户输入'你好'，这是常见的打招呼用语，通常在聊天场景中出现。
+2026-04-17 14:16:34 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.90, 计划模式: False
+2026-04-17 14:16:34 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 2
+2026-04-17 14:16:34 | DEBUG    | monitor:479 | 正在初始化异步 SQLite 检查点...
+2026-04-17 14:16:34 | DEBUG    | monitor:484 | 异步检查点初始化完成
+2026-04-17 14:16:34 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=2 | retrieved_count=0 | avg_score=0.000 | elapsed_ms=33.8
+2026-04-17 14:16:34 | DEBUG    | monitor:188 | RAG 增强后消息数: 1
+2026-04-17 14:16:35 | DEBUG    | monitor:213 | LLM 响应长度: 21 字符
+2026-04-17 14:16:35 | INFO     | monitor:239 | 对话模式，直接返回最终回答
+2026-04-17 14:16:35 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 14:16:35 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 1.40s，thread_id: uk03oqvbme
+2026-04-17 14:16:35 | INFO     | monitor:501 | Agent 执行完成，工具调用数: 0
+2026-04-17 14:16:35 | INFO     | monitor:527 | 请求处理完成，总耗时 1.40s
+2026-04-17 14:16:35 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 8.679s
+2026-04-17 14:16:56 | INFO     | monitor:254 | 收到用户消息，session=uk03oqvb, 消息预览: 1. 帮我扫描整个 core 目录，找出所有类和方法，整理成文档写入 API.md
+2. 给出周杰伦最出名的十首歌，截取片段并解释含义
+3. 阅读 session_analyzer.py 代码，进行解
+2026-04-17 14:16:56 | DEBUG    | monitor:74 | RAG路由开始，输入: 1. 帮我扫描整个 core 目录，找出所有类和方法，整理成文档写入 API.md
+2. 给出周杰伦最出名的十首歌，截取片段并解释含义
+3. 阅读 session_analyzer.py 代码，进行解
+2026-04-17 14:16:56 | DEBUG    | monitor:85 | 检索到 3 条历史证据
+2026-04-17 14:16:56 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.70) - 高度相似的历史对话
+2026-04-17 14:16:56 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.70, 计划模式: True
+2026-04-17 14:16:56 | INFO     | monitor:424 | 进入 ReAct 多 Agent 模式
+2026-04-17 14:16:56 | INFO     | monitor:381 | 多 Agent 流程开始，输入长度: 101
+2026-04-17 14:17:00 | INFO     | monitor:421 | 规划完成，步骤数: 3，复杂度: medium
+2026-04-17 14:17:00 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 347
+2026-04-17 14:17:01 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=347 | retrieved_count=2 | avg_score=0.417 | elapsed_ms=902.0
+2026-04-17 14:17:01 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.426 | tool=bash | timestamp=2026-04-14T14:05:46 | snippet=Tool: bash, Args: {'command': "grep -Ern '^class |^def ' core/ > /Users/zhuangranxin/PyCharmProjects/chat-Agent/methods.txt", 'timeout': 30}, Success: True
+2026-04-17 14:17:01 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.407 | tool=bash | timestamp=2026-04-14T05:43:06 | snippet=Tool: bash, Args: {'command': "grep -Ern '^class |^def ' core/ > /Users/zhuangranxin/PyCharmProjects/chat-Agent/API.md"}, Success: True
+2026-04-17 14:17:01 | DEBUG    | monitor:188 | RAG 增强后消息数: 2
+2026-04-17 14:17:04 | DEBUG    | monitor:213 | LLM 响应长度: 148 字符
+2026-04-17 14:17:04 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "grep -Ern \'^(class|def) \' core/ --include=\'*.py\' | sed \'s/.*\\(class\\|def\)
+2026-04-17 14:17:04 | WARNING  | monitor:884 | 响应包含工具名但解析失败，前200字符: bash
+{"command": "grep -Ern '^(class|def) ' core/ --include='*.py' | sed 's/.*\(class\|def\) \([a-zA-Z_][a-zA-Z0-9_]*\).*/\\2/' | sort -u > API.md"}
+2026-04-17 14:17:04 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.003s | 返回 []
+2026-04-17 14:17:04 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 14:17:04 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 3.42s，thread_id: uk03oqvbme
+2026-04-17 14:17:04 | WARNING  | monitor:513 | 步骤 1 执行失败 (尝试 1/2)，错误类型: no_tool_call，消息: 模型未调用任何工具
+2026-04-17 14:17:04 | INFO     | monitor:458 | 步骤 1 重试 1/2，错误类型: no_tool_call
+2026-04-17 14:17:04 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 164
+2026-04-17 14:17:04 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=164 | retrieved_count=0 | avg_score=0.000 | elapsed_ms=370.9
+2026-04-17 14:17:04 | DEBUG    | monitor:188 | RAG 增强后消息数: 1
+2026-04-17 14:17:07 | DEBUG    | monitor:213 | LLM 响应长度: 148 字符
+2026-04-17 14:17:07 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "grep -Ern \'^(class|def) \' core/ --include=\'*.py\' | sed \'s/.*\\(class\\|def\)
+2026-04-17 14:17:07 | WARNING  | monitor:884 | 响应包含工具名但解析失败，前200字符: bash
+{"command": "grep -Ern '^(class|def) ' core/ --include='*.py' | sed 's/.*\(class\|def\) \([a-zA-Z_][a-zA-Z0-9_]*\).*/\\2/' | sort -u > API.md"}
+2026-04-17 14:17:07 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 14:17:07 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 14:17:07 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 3.75s，thread_id: uk03oqvbme
+2026-04-17 14:17:07 | WARNING  | monitor:513 | 步骤 1 执行失败 (尝试 2/2)，错误类型: no_tool_call，消息: 模型未调用任何工具
+2026-04-17 14:17:07 | INFO     | monitor:458 | 步骤 1 重试 2/2，错误类型: no_tool_call
+2026-04-17 14:17:07 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 164
+2026-04-17 14:17:08 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=164 | retrieved_count=0 | avg_score=0.000 | elapsed_ms=281.8
+2026-04-17 14:17:08 | DEBUG    | monitor:188 | RAG 增强后消息数: 1
+2026-04-17 14:17:12 | DEBUG    | monitor:213 | LLM 响应长度: 148 字符
+2026-04-17 14:17:12 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "grep -Ern \'^(class|def) \' core/ --include=\'*.py\' | sed \'s/.*\\(class\\|def\)
+2026-04-17 14:17:12 | WARNING  | monitor:884 | 响应包含工具名但解析失败，前200字符: bash
+{"command": "grep -Ern '^(class|def) ' core/ --include='*.py' | sed 's/.*\(class\|def\) \([a-zA-Z_][a-zA-Z0-9_]*\).*/\\2/' | sort -u > API.md"}
+2026-04-17 14:17:12 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.002s | 返回 []
+2026-04-17 14:17:12 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 14:17:12 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 4.18s，thread_id: uk03oqvbme
+2026-04-17 14:17:12 | WARNING  | monitor:513 | 步骤 1 执行失败 (尝试 3/2)，错误类型: no_tool_call，消息: 模型未调用任何工具
+2026-04-17 14:17:12 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 386
+2026-04-17 14:17:12 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=386 | retrieved_count=2 | avg_score=0.420 | elapsed_ms=394.3
+2026-04-17 14:17:12 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.426 | tool=bash | timestamp=2026-04-14T14:05:46 | snippet=Tool: bash, Args: {'command': "grep -Ern '^class |^def ' core/ > /Users/zhuangranxin/PyCharmProjects/chat-Agent/methods.txt", 'timeout': 30}, Success: True
+2026-04-17 14:17:12 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.414 | tool=bash | timestamp=2026-04-14T05:43:06 | snippet=Tool: bash, Args: {'command': "grep -Ern '^class |^def ' core/ > /Users/zhuangranxin/PyCharmProjects/chat-Agent/API.md"}, Success: True
+2026-04-17 14:17:12 | DEBUG    | monitor:188 | RAG 增强后消息数: 2
+2026-04-17 14:17:26 | DEBUG    | monitor:213 | LLM 响应长度: 706 字符
+2026-04-17 14:17:26 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('周杰伦是华语乐坛的领军人物，以下是周杰伦最出名的十首歌及其片段和含义：\n\n1. 《青花瓷》\n   - 片段：素胚勾勒出青花笔锋浓转淡\n   - 含义：歌曲以中国传统瓷器为背景，表达了对中国传)
+2026-04-17 14:17:26 | DEBUG    | monitor:759 | 跳过自然语言长文本解析
+2026-04-17 14:17:26 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 14:17:26 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('周杰伦是华语乐坛的领军人物，以下是周杰伦最出名的十首歌及其片段和含义：\n\n1. 《青花瓷》\n   - 片段：素胚勾勒出青花笔锋浓转淡\n   - 含义：歌曲以中国传统瓷器为背景，表达了对中国传)
+2026-04-17 14:17:26 | DEBUG    | monitor:759 | 跳过自然语言长文本解析
+2026-04-17 14:17:26 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 14:17:26 | DEBUG    | monitor:296 | 未检测到工具调用且任务未完成，注入格式纠正提示
+2026-04-17 14:17:26 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 14:17:26 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 14.50s，thread_id: uk03oqvbme
+2026-04-17 14:17:26 | DEBUG    | monitor:509 | 步骤 2 成功（尝试 1 次）
+2026-04-17 14:17:26 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 778
+2026-04-17 14:17:27 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=778 | retrieved_count=1 | avg_score=0.435 | elapsed_ms=414.4
+2026-04-17 14:17:27 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.435 | tool=write_file | timestamp=2026-04-14T05:58:38 | snippet=Tool: write_file, Args: {'path': '/Users/zhuangranxin/PyCharmProjects/chat-Agent/Jay_chou_songs.md', 'content': '周杰伦是中国非常著名的歌手，他的歌曲广受欢迎，以下是周杰伦最出名的十首歌及其片段和含义：\n\n1. 《青花瓷》\n   - 片段：“素胚勾勒出青花笔锋浓转淡”\n   - 含义：这首歌以中国传统水墨画为背景，描绘了一段古典的爱情故事。\n\n2. 《七里香》\n   - 片段：“窗外的麻雀在电线杆上多嘴”\n   - 含义：这首歌讲述了一段青涩的校园爱情。\n\n3. 
+2026-04-17 14:17:27 | DEBUG    | monitor:188 | RAG 增强后消息数: 2
+2026-04-17 14:17:28 | DEBUG    | monitor:213 | LLM 响应长度: 88 字符
+2026-04-17 14:17:28 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_analyzer.py"}')
+2026-04-17 14:17:28 | DEBUG    | monitor:880 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 14:17:28 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_analyzer.py'})]
+2026-04-17 14:17:28 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_analyzer.py"}')
+2026-04-17 14:17:28 | DEBUG    | monitor:880 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 14:17:28 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_analyzer.py'})]
+2026-04-17 14:17:28 | INFO     | monitor:299 | 解析到 1 个工具调用
+2026-04-17 14:17:28 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x17be4beb0>, '/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_analyzer.py')
+2026-04-17 14:17:28 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.009s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py", "fuzzy_match": true, "original_request": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_ana
+2026-04-17 14:17:28 | DEBUG    | monitor:346 | 工具 read_file 执行成功，耗时 0.009s
+2026-04-17 14:17:28 | ERROR    | monitor:497 | 步骤 3 执行异常: 'EnhancedReflectionEngine' object has no attribute 'reflect_on_result'
+2026-04-17 14:17:28 | WARNING  | monitor:513 | 步骤 3 执行失败 (尝试 1/2)，错误类型: no_tool_call，消息: 模型未调用任何工具
+2026-04-17 14:17:28 | INFO     | monitor:458 | 步骤 3 重试 1/2，错误类型: no_tool_call
+2026-04-17 14:17:28 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 174
+2026-04-17 14:17:28 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=174 | retrieved_count=0 | avg_score=0.000 | elapsed_ms=115.9
+2026-04-17 14:17:28 | DEBUG    | monitor:188 | RAG 增强后消息数: 1
+2026-04-17 14:17:29 | DEBUG    | monitor:213 | LLM 响应长度: 41 字符
+2026-04-17 14:17:29 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "session_analyzer.py"}')
+2026-04-17 14:17:29 | DEBUG    | monitor:880 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 14:17:29 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': 'session_analyzer.py'})]
+2026-04-17 14:17:29 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "session_analyzer.py"}')
+2026-04-17 14:17:29 | DEBUG    | monitor:880 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 14:17:29 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': 'session_analyzer.py'})]
+2026-04-17 14:17:29 | INFO     | monitor:299 | 解析到 1 个工具调用
+2026-04-17 14:17:29 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x17be4beb0>, 'session_analyzer.py')
+2026-04-17 14:17:29 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.005s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py", "fuzzy_match": true, "original_request": "session_analyzer.py", "note": "原路径 \'session_analyzer.py\'
+2026-04-17 14:17:29 | DEBUG    | monitor:346 | 工具 read_file 执行成功，耗时 0.006s
+2026-04-17 14:17:29 | ERROR    | monitor:497 | 步骤 3 执行异常: 'EnhancedReflectionEngine' object has no attribute 'reflect_on_result'
+2026-04-17 14:17:29 | WARNING  | monitor:513 | 步骤 3 执行失败 (尝试 2/2)，错误类型: no_tool_call，消息: 模型未调用任何工具
+2026-04-17 14:17:29 | INFO     | monitor:458 | 步骤 3 重试 2/2，错误类型: no_tool_call
+2026-04-17 14:17:29 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 174
+2026-04-17 14:17:29 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=174 | retrieved_count=0 | avg_score=0.000 | elapsed_ms=12.6
+2026-04-17 14:17:29 | DEBUG    | monitor:188 | RAG 增强后消息数: 1
+2026-04-17 14:17:30 | DEBUG    | monitor:213 | LLM 响应长度: 41 字符
+2026-04-17 14:17:30 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "session_analyzer.py"}')
+2026-04-17 14:17:30 | DEBUG    | monitor:880 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 14:17:30 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': 'session_analyzer.py'})]
+2026-04-17 14:17:30 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "session_analyzer.py"}')
+2026-04-17 14:17:30 | DEBUG    | monitor:880 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 14:17:30 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': 'session_analyzer.py'})]
+2026-04-17 14:17:30 | INFO     | monitor:299 | 解析到 1 个工具调用
+2026-04-17 14:17:30 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x17be4beb0>, 'session_analyzer.py')
+2026-04-17 14:17:30 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.006s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py", "fuzzy_match": true, "original_request": "session_analyzer.py", "note": "原路径 \'session_analyzer.py\'
+2026-04-17 14:17:30 | DEBUG    | monitor:346 | 工具 read_file 执行成功，耗时 0.007s
+2026-04-17 14:17:30 | ERROR    | monitor:497 | 步骤 3 执行异常: 'EnhancedReflectionEngine' object has no attribute 'reflect_on_result'
+2026-04-17 14:17:30 | WARNING  | monitor:513 | 步骤 3 执行失败 (尝试 3/2)，错误类型: no_tool_call，消息: 模型未调用任何工具
+2026-04-17 14:17:55 | INFO     | monitor:574 | 多 Agent 流程完成，成功步骤: 1/3，总耗时: 59.16s
+2026-04-17 14:17:55 | INFO     | monitor:459 | 多 Agent 执行完成，成功步骤: 1/3
+2026-04-17 14:17:55 | INFO     | monitor:527 | 请求处理完成，总耗时 59.17s
+2026-04-17 14:17:55 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 59.943s
+2026-04-17 14:37:16 | INFO     | monitor:474 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 14:37:16 | INFO     | monitor:254 | 收到用户消息，session=btllnzda, 消息预览: 1. 帮我扫描整个 core 目录，找出所有类和方法，整理成文档写入 API.md
+2. 给出周杰伦最出名的十首歌，截取片段并解释含义
+3. 阅读 session_analyzer.py 代码，进行解
+2026-04-17 14:37:16 | DEBUG    | monitor:74 | RAG路由开始，输入: 1. 帮我扫描整个 core 目录，找出所有类和方法，整理成文档写入 API.md
+2. 给出周杰伦最出名的十首歌，截取片段并解释含义
+3. 阅读 session_analyzer.py 代码，进行解
+2026-04-17 14:37:16 | DEBUG    | monitor:85 | 检索到 3 条历史证据
+2026-04-17 14:37:16 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.70) - 高度相似的历史对话
+2026-04-17 14:37:16 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.70, 计划模式: True
+2026-04-17 14:37:16 | INFO     | monitor:424 | 进入 ReAct 多 Agent 模式
+2026-04-17 14:37:16 | INFO     | monitor:381 | 多 Agent 流程开始，输入长度: 101
+2026-04-17 14:37:23 | INFO     | monitor:421 | 规划完成，步骤数: 3，复杂度: medium
+2026-04-17 14:37:23 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 378
+2026-04-17 14:37:23 | DEBUG    | monitor:479 | 正在初始化异步 SQLite 检查点...
+2026-04-17 14:37:23 | DEBUG    | monitor:484 | 异步检查点初始化完成
+2026-04-17 14:37:23 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=378 | retrieved_count=3 | avg_score=0.415 | elapsed_ms=724.5
+2026-04-17 14:37:23 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.426 | tool=bash | timestamp=2026-04-14T14:05:46 | snippet=Tool: bash, Args: {'command': "grep -Ern '^class |^def ' core/ > /Users/zhuangranxin/PyCharmProjects/chat-Agent/methods.txt", 'timeout': 30}, Success: True
+2026-04-17 14:37:23 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.413 | tool=bash | timestamp=2026-04-14T10:55:36 | snippet=Tool: bash, Args: {'command': "find . -name 'session_analyzer.py' 2>/dev/null", 'timeout': 30}, Success: True
+2026-04-17 14:37:23 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #3 | score=0.406 | tool=bash | timestamp=2026-04-14T05:43:06 | snippet=Tool: bash, Args: {'command': "grep -Ern '^class |^def ' core/ > /Users/zhuangranxin/PyCharmProjects/chat-Agent/API.md"}, Success: True
+2026-04-17 14:37:23 | DEBUG    | monitor:188 | RAG 增强后消息数: 2
+2026-04-17 14:37:28 | DEBUG    | monitor:213 | LLM 响应长度: 148 字符
+2026-04-17 14:37:28 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "grep -Ern \'^(class|def) \' core/ --include=\'*.py\' | sed \'s/.*\\(class\\|def\)
+2026-04-17 14:37:28 | DEBUG    | monitor:914 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-17 14:37:28 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.002s | 返回 [('bash', {'command': "grep -Ern '^(class|def) ' core/ --include='*.py' | sed 's/.*\\(class\\|def\\) \\([a-zA-Z_][a-zA-Z0-9_]*\\).*/\\2/' | sort -u > API.md"})]
+2026-04-17 14:37:28 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "grep -Ern \'^(class|def) \' core/ --include=\'*.py\' | sed \'s/.*\\(class\\|def\)
+2026-04-17 14:37:28 | DEBUG    | monitor:914 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-17 14:37:28 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('bash', {'command': "grep -Ern '^(class|def) ' core/ --include='*.py' | sed 's/.*\\(class\\|def\\) \\([a-zA-Z_][a-zA-Z0-9_]*\\).*/\\2/' | sort -u > API.md"})]
+2026-04-17 14:37:28 | INFO     | monitor:299 | 解析到 1 个工具调用
+2026-04-17 14:37:28 | DEBUG    | monitor:346 | 工具 bash 执行成功，耗时 0.078s
+2026-04-17 14:37:29 | DEBUG    | monitor:381 | 工具结果已写入向量库: bash
+2026-04-17 14:37:31 | DEBUG    | monitor:213 | LLM 响应长度: 75 字符
+2026-04-17 14:37:31 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('【结果摘要】\n成功执行了 bash 命令，扫描了 core/ 目录下的所有 .py 文件，提取了类和方法名，并将结果重定向写入 API.md 文件中。')
+2026-04-17 14:37:31 | WARNING  | monitor:918 | 响应包含工具名但解析失败，前200字符: 【结果摘要】
+成功执行了 bash 命令，扫描了 core/ 目录下的所有 .py 文件，提取了类和方法名，并将结果重定向写入 API.md 文件中。
+2026-04-17 14:37:31 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 []
+2026-04-17 14:37:31 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 14:37:31 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 1，工具调用数: 1，耗时: 8.21s，thread_id: thread_1776407843_98ae9e
+2026-04-17 14:37:31 | DEBUG    | monitor:509 | 步骤 1 成功（尝试 1 次）
+2026-04-17 14:37:31 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 461
+2026-04-17 14:37:31 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=461 | retrieved_count=2 | avg_score=0.498 | elapsed_ms=58.6
+2026-04-17 14:37:31 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.594 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 14:37:31 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.403 | tool=bash | timestamp=2026-04-14T10:55:36 | snippet=Tool: bash, Args: {'command': "find . -name 'session_analyzer.py' 2>/dev/null", 'timeout': 30}, Success: True
+2026-04-17 14:37:31 | DEBUG    | monitor:188 | RAG 增强后消息数: 2
+2026-04-17 14:37:40 | DEBUG    | monitor:213 | LLM 响应长度: 523 字符
+2026-04-17 14:37:40 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('周杰伦是华语乐坛极具影响力的歌手，以下是他最出名的十首歌及其片段和含义：\n\n1. 《青花瓷》：歌词“素胚勾勒出青花笔锋浓转淡”描绘了一幅美丽的青花瓷画面，表达了对美好事物的向往。\n2. 《晴天)
+2026-04-17 14:37:40 | DEBUG    | monitor:793 | 跳过自然语言长文本解析
+2026-04-17 14:37:40 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 14:37:40 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('周杰伦是华语乐坛极具影响力的歌手，以下是他最出名的十首歌及其片段和含义：\n\n1. 《青花瓷》：歌词“素胚勾勒出青花笔锋浓转淡”描绘了一幅美丽的青花瓷画面，表达了对美好事物的向往。\n2. 《晴天)
+2026-04-17 14:37:40 | DEBUG    | monitor:793 | 跳过自然语言长文本解析
+2026-04-17 14:37:40 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 14:37:40 | DEBUG    | monitor:296 | 未检测到工具调用且任务未完成，注入格式纠正提示
+2026-04-17 14:37:40 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 14:37:40 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 9.50s，thread_id: thread_1776407843_98ae9e
+2026-04-17 14:37:40 | DEBUG    | monitor:509 | 步骤 2 成功（尝试 1 次）
+2026-04-17 14:37:40 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 821
+2026-04-17 14:37:41 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=821 | retrieved_count=3 | avg_score=0.478 | elapsed_ms=275.8
+2026-04-17 14:37:41 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.626 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 14:37:41 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.405 | tool=read_file | timestamp=2026-04-14T18:22:51 | snippet=Tool: read_file, Args: {'path': 'session_analyzer.py'}, Success: True
+2026-04-17 14:37:41 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #3 | score=0.404 | tool=read_file | timestamp=2026-04-14T17:16:49 | snippet=Tool: read_file, Args: {'path': 'session_analyzer.py'}, Success: True
+2026-04-17 14:37:41 | DEBUG    | monitor:188 | RAG 增强后消息数: 2
+2026-04-17 14:37:41 | DEBUG    | monitor:213 | LLM 响应长度: 41 字符
+2026-04-17 14:37:41 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "session_analyzer.py"}')
+2026-04-17 14:37:41 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 14:37:41 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': 'session_analyzer.py'})]
+2026-04-17 14:37:41 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "session_analyzer.py"}')
+2026-04-17 14:37:41 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 14:37:41 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': 'session_analyzer.py'})]
+2026-04-17 14:37:41 | INFO     | monitor:299 | 解析到 1 个工具调用
+2026-04-17 14:37:41 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x16e568fd0>, 'session_analyzer.py')
+2026-04-17 14:37:41 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.014s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py", "fuzzy_match": true, "original_request": "session_analyzer.py", "note": "原路径 \'session_analyzer.py\'
+2026-04-17 14:37:41 | DEBUG    | monitor:346 | 工具 read_file 执行成功，耗时 0.015s
+2026-04-17 14:37:42 | DEBUG    | monitor:381 | 工具结果已写入向量库: read_file
+2026-04-17 14:37:48 | DEBUG    | monitor:213 | LLM 响应长度: 659 字符
+2026-04-17 14:37:48 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('文件读取成功，以下是 session_analyzer.py 文件的内容：\n\n```\n⚠️ 系统自动生成的文件，用于分析会话数据。\n\nclass SessionAnalyzer:\n   )
+2026-04-17 14:37:48 | DEBUG    | monitor:793 | 跳过自然语言长文本解析
+2026-04-17 14:37:48 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 14:37:48 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('文件读取成功，以下是 session_analyzer.py 文件的内容：\n\n```\n⚠️ 系统自动生成的文件，用于分析会话数据。\n\nclass SessionAnalyzer:\n   )
+2026-04-17 14:37:48 | DEBUG    | monitor:793 | 跳过自然语言长文本解析
+2026-04-17 14:37:48 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 14:37:48 | INFO     | monitor:292 | 任务判定为已完成，返回最终回答
+2026-04-17 14:37:48 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 14:37:48 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 1，工具调用数: 1，耗时: 8.01s，thread_id: thread_1776407843_98ae9e
+2026-04-17 14:37:48 | DEBUG    | monitor:509 | 步骤 3 成功（尝试 1 次）
+2026-04-17 14:38:18 | INFO     | monitor:574 | 多 Agent 流程完成，成功步骤: 3/3，总耗时: 62.25s
+2026-04-17 14:38:18 | INFO     | monitor:459 | 多 Agent 执行完成，成功步骤: 3/3
+2026-04-17 14:38:18 | INFO     | monitor:527 | 请求处理完成，总耗时 62.26s
+2026-04-17 14:38:18 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 67.929s
+2026-04-17 14:39:13 | INFO     | monitor:254 | 收到用户消息，session=btllnzda, 消息预览: 今天有些头疼
+2026-04-17 14:39:13 | DEBUG    | monitor:74 | RAG路由开始，输入: 今天有些头疼
+2026-04-17 14:39:13 | DEBUG    | monitor:85 | 检索到 3 条历史证据
+2026-04-17 14:39:13 | INFO     | monitor:92 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 14:39:15 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.75) - 用户表达了个人的感受，没有具体要求执行特定任务，更偏向于聊天交流。
+2026-04-17 14:39:15 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.75, 计划模式: False
+2026-04-17 14:39:15 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 6
+2026-04-17 14:39:15 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=6 | retrieved_count=2 | avg_score=0.475 | elapsed_ms=37.6
+2026-04-17 14:39:15 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.541 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 14:39:15 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.408 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 14:39:15 | ERROR    | monitor:503 | Agent 执行异常: 'list' object has no attribute 'get'
+2026-04-17 14:39:15 | INFO     | monitor:527 | 请求处理完成，总耗时 0.04s
+2026-04-17 14:39:15 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 3.246s
+2026-04-17 14:47:28 | INFO     | monitor:474 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 14:47:30 | INFO     | monitor:254 | 收到用户消息，session=ofyar4v8, 消息预览: 今天好头痛
+2026-04-17 14:47:30 | DEBUG    | monitor:74 | RAG路由开始，输入: 今天好头痛
+2026-04-17 14:47:31 | DEBUG    | monitor:85 | 检索到 3 条历史证据
+2026-04-17 14:47:31 | INFO     | monitor:92 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 14:47:33 | INFO     | monitor:105 | RAG路由结果: chat (置信度 0.95) - 用户表达了一个身体感受，这是一个日常交流中的情感表达，不涉及特定工具、技能、计划或混合类别。
+2026-04-17 14:47:33 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.95, 计划模式: False
+2026-04-17 14:47:33 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 5
+2026-04-17 14:47:33 | DEBUG    | monitor:479 | 正在初始化异步 SQLite 检查点...
+2026-04-17 14:47:33 | DEBUG    | monitor:484 | 异步检查点初始化完成
+2026-04-17 14:47:33 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=5 | retrieved_count=1 | avg_score=0.527 | elapsed_ms=79.9
+2026-04-17 14:47:33 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.527 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 14:47:33 | DEBUG    | monitor:188 | RAG 增强后消息数: 2
+2026-04-17 14:47:34 | DEBUG    | monitor:213 | LLM 响应长度: 64 字符
+2026-04-17 14:47:35 | INFO     | monitor:239 | 对话模式，直接返回最终回答
+2026-04-17 14:47:35 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 14:47:35 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 2.43s，thread_id: ofyar4v8uzb
+2026-04-17 14:47:35 | INFO     | monitor:510 | Agent 执行完成，工具调用数: 0
+2026-04-17 14:47:35 | INFO     | monitor:536 | 请求处理完成，总耗时 2.43s
+2026-04-17 14:47:35 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 12.965s
+2026-04-17 14:47:50 | INFO     | monitor:254 | 收到用户消息，session=ofyar4v8, 消息预览: 我之前都问了什么问题
+2026-04-17 14:47:50 | DEBUG    | monitor:74 | RAG路由开始，输入: 我之前都问了什么问题
+2026-04-17 14:47:51 | DEBUG    | monitor:85 | 检索到 3 条历史证据
+2026-04-17 14:47:51 | INFO     | monitor:92 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 14:47:53 | INFO     | monitor:105 | RAG路由结果: hybrid (置信度 0.75) - 用户询问之前的问题，这既涉及到对历史会话记录的回顾（chat类别），也可能需要工具（如搜索历史记录的工具）来辅助回答，因此归类为hybrid。
+2026-04-17 14:47:53 | INFO     | monitor:349 | 意图路由结果: hybrid, 置信度: 0.75, 计划模式: False
+2026-04-17 14:47:53 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 10
+2026-04-17 14:47:53 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=10 | retrieved_count=2 | avg_score=0.507 | elapsed_ms=38.0
+2026-04-17 14:47:53 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.568 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 14:47:53 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.446 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 14:47:53 | ERROR    | monitor:512 | Agent 执行异常: 'list' object has no attribute 'get'
+2026-04-17 14:47:53 | INFO     | monitor:536 | 请求处理完成，总耗时 0.05s
+2026-04-17 14:47:53 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 3.344s
+2026-04-17 14:57:32 | INFO     | monitor:474 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 14:57:33 | INFO     | monitor:254 | 收到用户消息，session=tzgs6jji, 消息预览: 我之前都有问什么问题
+2026-04-17 14:57:33 | DEBUG    | monitor:74 | RAG路由开始，输入: 我之前都有问什么问题
+2026-04-17 14:57:33 | DEBUG    | monitor:86 | 检索到 3 条历史证据
+2026-04-17 14:57:33 | INFO     | monitor:93 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 14:57:34 | INFO     | monitor:106 | RAG路由结果: chat (置信度 0.90) - 用户询问之前的问题，表明有回顾和确认对话内容的意图，这属于常规的聊天互动。
+2026-04-17 14:57:34 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.90, 计划模式: False
+2026-04-17 14:57:34 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 10
+2026-04-17 14:57:34 | DEBUG    | monitor:479 | 正在初始化异步 SQLite 检查点...
+2026-04-17 14:57:34 | DEBUG    | monitor:484 | 异步检查点初始化完成
+2026-04-17 14:57:34 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=10 | retrieved_count=2 | avg_score=0.500 | elapsed_ms=37.7
+2026-04-17 14:57:34 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.570 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 14:57:34 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.430 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 14:57:34 | DEBUG    | monitor:188 | RAG 增强后消息数: 2
+2026-04-17 14:57:39 | DEBUG    | monitor:213 | LLM 响应长度: 195 字符
+2026-04-17 14:57:39 | INFO     | monitor:239 | 对话模式，直接返回最终回答
+2026-04-17 14:57:39 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 14:57:39 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 4.70s，thread_id: tzgs6jjibn
+2026-04-17 14:57:39 | INFO     | monitor:510 | Agent 执行完成，工具调用数: 0
+2026-04-17 14:57:39 | INFO     | monitor:536 | 请求处理完成，总耗时 4.70s
+2026-04-17 14:57:39 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 11.886s
+2026-04-17 14:57:57 | INFO     | monitor:254 | 收到用户消息，session=tzgs6jji, 消息预览: 还有什么嘛
+2026-04-17 14:57:57 | DEBUG    | monitor:74 | RAG路由开始，输入: 还有什么嘛
+2026-04-17 14:57:57 | DEBUG    | monitor:86 | 检索到 3 条历史证据
+2026-04-17 14:57:57 | INFO     | monitor:93 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 14:57:59 | INFO     | monitor:106 | RAG路由结果: chat (置信度 0.75) - 用户输入'还有什么嘛'可能是在询问当前对话或话题的更多内容，这是一种日常交流中的询问方式，属于闲聊或对话的范畴。
+2026-04-17 14:57:59 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.75, 计划模式: False
+2026-04-17 14:57:59 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 5
+2026-04-17 14:57:59 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=5 | retrieved_count=2 | avg_score=0.504 | elapsed_ms=114.3
+2026-04-17 14:57:59 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.564 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 14:57:59 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.444 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 14:57:59 | ERROR    | monitor:512 | Agent 执行异常: 'list' object has no attribute 'get'
+2026-04-17 14:57:59 | INFO     | monitor:536 | 请求处理完成，总耗时 0.14s
+2026-04-17 14:57:59 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 2.388s
+2026-04-17 15:03:21 | INFO     | monitor:254 | 收到用户消息，session=tzgs6jji, 消息预览: 重新回答
+2026-04-17 15:03:21 | DEBUG    | monitor:74 | RAG路由开始，输入: 重新回答
+2026-04-17 15:03:21 | DEBUG    | monitor:86 | 检索到 3 条历史证据
+2026-04-17 15:03:21 | INFO     | monitor:93 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 15:03:23 | INFO     | monitor:106 | RAG路由结果: chat (置信度 0.90) - 用户请求重新回答，这是一个直接与对话相关的请求。
+2026-04-17 15:03:23 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.90, 计划模式: False
+2026-04-17 15:03:23 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 4
+2026-04-17 15:03:23 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=4 | retrieved_count=2 | avg_score=0.513 | elapsed_ms=59.6
+2026-04-17 15:03:23 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.580 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 15:03:23 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.447 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 15:03:23 | ERROR    | monitor:512 | Agent 执行异常: 'list' object has no attribute 'get'
+2026-04-17 15:03:23 | INFO     | monitor:536 | 请求处理完成，总耗时 0.07s
+2026-04-17 15:03:23 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 3.235s
+2026-04-17 15:22:06 | INFO     | monitor:474 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 15:22:06 | INFO     | monitor:254 | 收到用户消息，session=kac92eh8, 消息预览: 我今天问的所有问题是什么
+2026-04-17 15:22:06 | DEBUG    | monitor:74 | RAG路由开始，输入: 我今天问的所有问题是什么
+2026-04-17 15:22:06 | DEBUG    | monitor:86 | 检索到 3 条历史证据
+2026-04-17 15:22:06 | INFO     | monitor:93 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 15:22:10 | INFO     | monitor:106 | RAG路由结果: chat (置信度 0.90) - 用户询问今天提出的问题，这属于日常对话交流，不涉及特定工具、技能或计划。
+2026-04-17 15:22:10 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.90, 计划模式: False
+2026-04-17 15:22:10 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 12
+2026-04-17 15:22:10 | DEBUG    | monitor:479 | 正在初始化异步 SQLite 检查点...
+2026-04-17 15:22:10 | DEBUG    | monitor:484 | 异步检查点初始化完成
+2026-04-17 15:22:10 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=12 | retrieved_count=2 | avg_score=0.516 | elapsed_ms=55.9
+2026-04-17 15:22:10 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.599 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 15:22:10 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.433 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 15:22:10 | DEBUG    | monitor:188 | RAG 增强后消息数: 2
+2026-04-17 15:22:14 | DEBUG    | monitor:213 | LLM 响应长度: 101 字符
+2026-04-17 15:22:14 | INFO     | monitor:239 | 对话模式，直接返回最终回答
+2026-04-17 15:22:14 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 15:22:14 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 4.30s，thread_id: kac92eh89lb
+2026-04-17 15:22:14 | INFO     | monitor:518 | Agent 执行完成，工具调用数: 0
+2026-04-17 15:22:14 | INFO     | monitor:544 | 请求处理完成，总耗时 4.30s
+2026-04-17 15:22:14 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 14.035s
+2026-04-17 15:22:40 | INFO     | monitor:254 | 收到用户消息，session=kac92eh8, 消息预览: 还可以再回顾一下嘛
+2026-04-17 15:22:40 | DEBUG    | monitor:74 | RAG路由开始，输入: 还可以再回顾一下嘛
+2026-04-17 15:22:40 | DEBUG    | monitor:86 | 检索到 3 条历史证据
+2026-04-17 15:22:40 | INFO     | monitor:93 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 15:22:43 | INFO     | monitor:106 | RAG路由结果: chat (置信度 0.90) - 用户提出回顾问题的请求，这表明用户希望进行对话交互，而非特定工具使用或技能展示。
+2026-04-17 15:22:43 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.90, 计划模式: False
+2026-04-17 15:22:43 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 9
+2026-04-17 15:22:43 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=9 | retrieved_count=2 | avg_score=0.505 | elapsed_ms=254.1
+2026-04-17 15:22:43 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.549 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 15:22:43 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.462 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 15:22:43 | DEBUG    | monitor:188 | RAG 增强后消息数: 4
+2026-04-17 15:22:45 | DEBUG    | monitor:213 | LLM 响应长度: 98 字符
+2026-04-17 15:22:45 | INFO     | monitor:239 | 对话模式，直接返回最终回答
+2026-04-17 15:22:45 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 15:22:45 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 2.31s，thread_id: kac92eh89lb
+2026-04-17 15:22:45 | INFO     | monitor:518 | Agent 执行完成，工具调用数: 0
+2026-04-17 15:22:45 | INFO     | monitor:544 | 请求处理完成，总耗时 2.32s
+2026-04-17 15:22:45 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 6.356s
+2026-04-17 15:23:52 | INFO     | monitor:254 | 收到用户消息，session=kac92eh8, 消息预览: 查找20260417_144722_482.json，解析我问了是什么问题，回答是什么
+2026-04-17 15:23:52 | DEBUG    | monitor:74 | RAG路由开始，输入: 查找20260417_144722_482.json，解析我问了是什么问题，回答是什么
+2026-04-17 15:23:52 | DEBUG    | monitor:86 | 检索到 3 条历史证据
+2026-04-17 15:23:52 | INFO     | monitor:106 | RAG路由结果: tools (置信度 0.82) - 历史中频繁使用工具 (2次)
+2026-04-17 15:23:52 | INFO     | monitor:349 | 意图路由结果: tools, 置信度: 0.82, 计划模式: False
+2026-04-17 15:23:52 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 43
+2026-04-17 15:23:52 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=43 | retrieved_count=2 | avg_score=0.607 | elapsed_ms=9.7
+2026-04-17 15:23:52 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.618 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 15:23:52 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.596 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 15:23:52 | DEBUG    | monitor:188 | RAG 增强后消息数: 6
+2026-04-17 15:23:56 | DEBUG    | monitor:213 | LLM 响应长度: 220 字符
+2026-04-17 15:23:56 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('很抱歉，但作为一个AI，我无法直接访问或检索外部文件，如您提到的 `20260417_144722_482.json`。因此，我无法解析这个文件内容或回答您在特定时间提出的问题。\n\n如果您需要解)
+2026-04-17 15:23:56 | DEBUG    | monitor:793 | 跳过自然语言长文本解析
+2026-04-17 15:23:56 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 15:23:56 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 15:23:56 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 3.70s，thread_id: kac92eh89lb
+2026-04-17 15:23:56 | INFO     | monitor:518 | Agent 执行完成，工具调用数: 0
+2026-04-17 15:23:56 | INFO     | monitor:544 | 请求处理完成，总耗时 3.71s
+2026-04-17 15:23:56 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 4.317s
+2026-04-17 15:24:13 | INFO     | monitor:254 | 收到用户消息，session=kac92eh8, 消息预览: 查找20260417_144722_482.json，解析
+2026-04-17 15:24:13 | DEBUG    | monitor:74 | RAG路由开始，输入: 查找20260417_144722_482.json，解析
+2026-04-17 15:24:13 | DEBUG    | monitor:86 | 检索到 3 条历史证据
+2026-04-17 15:24:13 | INFO     | monitor:106 | RAG路由结果: tools (置信度 0.81) - 历史中频繁使用工具 (2次)
+2026-04-17 15:24:13 | INFO     | monitor:349 | 意图路由结果: tools, 置信度: 0.81, 计划模式: False
+2026-04-17 15:24:13 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 29
+2026-04-17 15:24:13 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=29 | retrieved_count=2 | avg_score=0.588 | elapsed_ms=9.3
+2026-04-17 15:24:13 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.613 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 15:24:13 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.564 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 15:24:13 | DEBUG    | monitor:150 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-17 15:24:13 | DEBUG    | monitor:188 | RAG 增强后消息数: 6
+2026-04-17 15:24:19 | DEBUG    | monitor:213 | LLM 响应长度: 433 字符
+2026-04-17 15:24:19 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls("由于我无法直接访问外部文件或特定日期的文件，我无法直接查找或解析文件 `20260417_144722_482.json`。不过，我可以提供一个通用的方法来解析 JSON 文件。\n\n如果您有这个)
+2026-04-17 15:24:19 | DEBUG    | monitor:793 | 跳过自然语言长文本解析
+2026-04-17 15:24:19 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 15:24:19 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls("由于我无法直接访问外部文件或特定日期的文件，我无法直接查找或解析文件 `20260417_144722_482.json`。不过，我可以提供一个通用的方法来解析 JSON 文件。\n\n如果您有这个)
+2026-04-17 15:24:19 | DEBUG    | monitor:793 | 跳过自然语言长文本解析
+2026-04-17 15:24:19 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 15:24:19 | DEBUG    | monitor:296 | 未检测到工具调用且任务未完成，注入格式纠正提示
+2026-04-17 15:24:19 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 15:24:19 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 5.91s，thread_id: kac92eh89lb
+2026-04-17 15:24:19 | INFO     | monitor:518 | Agent 执行完成，工具调用数: 0
+2026-04-17 15:24:19 | INFO     | monitor:544 | 请求处理完成，总耗时 5.92s
+2026-04-17 15:24:19 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 6.438s
+2026-04-17 15:44:19 | ERROR    | monitor:170 | ui.chat_controller.ChatController.bot_response 执行失败，耗时 5.021s
+异常类型: KeyError
+异常信息: '"path"'
+堆栈跟踪:
+Traceback (most recent call last):
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/core/monitor_logger.py", line 161, in async_gen_wrapper
+    async for item in f(*args, **kwargs):
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/chat_controller.py", line 235, in bot_response
+    session_state = self.get_session_state(session_hash)
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/chat_controller.py", line 104, in get_session_state
+    agent_framework = QwenAgentFramework(
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/core/langgraph_agent.py", line 451, in __init__
+    self.system_prompt = get_system_prompt(
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/core/prompts.py", line 283, in get_system_prompt
+    return prompt_template.format(**defaults)
+KeyError: '"path"'
+
+2026-04-17 15:51:24 | INFO     | monitor:474 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 15:51:24 | INFO     | monitor:254 | 收到用户消息，session=vby0ggtf, 消息预览: 我之前有问过什么问题
+2026-04-17 15:51:24 | DEBUG    | monitor:74 | RAG路由开始，输入: 我之前有问过什么问题
+2026-04-17 15:51:24 | DEBUG    | monitor:86 | 检索到 3 条历史证据
+2026-04-17 15:51:24 | INFO     | monitor:106 | RAG路由结果: chat (置信度 0.70) - 高度相似的历史对话
+2026-04-17 15:51:24 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.70, 计划模式: False
+2026-04-17 15:51:24 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 10
+2026-04-17 15:51:24 | DEBUG    | monitor:479 | 正在初始化异步 SQLite 检查点...
+2026-04-17 15:51:24 | DEBUG    | monitor:484 | 异步检查点初始化完成
+2026-04-17 15:51:25 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=10 | retrieved_count=2 | avg_score=0.541 | elapsed_ms=11.8
+2026-04-17 15:51:25 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.597 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 15:51:25 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.486 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 15:51:25 | DEBUG    | monitor:188 | RAG 增强后消息数: 2
+2026-04-17 15:51:26 | DEBUG    | monitor:213 | LLM 响应长度: 105 字符
+2026-04-17 15:51:27 | INFO     | monitor:239 | 对话模式，直接返回最终回答
+2026-04-17 15:51:27 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 15:51:27 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 2.41s，thread_id: vby0ggtfpuh
+2026-04-17 15:51:27 | INFO     | monitor:518 | Agent 执行完成，工具调用数: 0
+2026-04-17 15:51:27 | INFO     | monitor:544 | 请求处理完成，总耗时 2.41s
+2026-04-17 15:51:27 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 8.390s
+2026-04-17 15:51:51 | INFO     | monitor:254 | 收到用户消息，session=vby0ggtf, 消息预览: 具体问题是什么
+2026-04-17 15:51:51 | DEBUG    | monitor:74 | RAG路由开始，输入: 具体问题是什么
+2026-04-17 15:51:51 | DEBUG    | monitor:86 | 检索到 3 条历史证据
+2026-04-17 15:51:51 | INFO     | monitor:93 | 置信度 0.50 低于阈值，调用 LLM 二次确认
+2026-04-17 15:51:52 | INFO     | monitor:106 | RAG路由结果: chat (置信度 0.95) - 用户输入了一个具体问题，这通常表示用户在寻求信息或帮助，因此归类为聊天意图。
+2026-04-17 15:51:52 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.95, 计划模式: False
+2026-04-17 15:51:52 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 7
+2026-04-17 15:51:52 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=7 | retrieved_count=2 | avg_score=0.518 | elapsed_ms=73.7
+2026-04-17 15:51:52 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.553 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 15:51:52 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.483 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 15:51:52 | DEBUG    | monitor:188 | RAG 增强后消息数: 4
+2026-04-17 15:51:55 | DEBUG    | monitor:213 | LLM 响应长度: 100 字符
+2026-04-17 15:51:55 | INFO     | monitor:239 | 对话模式，直接返回最终回答
+2026-04-17 15:51:55 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 15:51:55 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 3.16s，thread_id: vby0ggtfpuh
+2026-04-17 15:51:55 | INFO     | monitor:518 | Agent 执行完成，工具调用数: 0
+2026-04-17 15:51:55 | INFO     | monitor:544 | 请求处理完成，总耗时 3.17s
+2026-04-17 15:51:55 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 5.220s
+2026-04-17 15:53:17 | INFO     | monitor:254 | 收到用户消息，session=vby0ggtf, 消息预览: 还有其他问题嘛
+2026-04-17 15:53:17 | DEBUG    | monitor:74 | RAG路由开始，输入: 还有其他问题嘛
+2026-04-17 15:53:17 | DEBUG    | monitor:86 | 检索到 3 条历史证据
+2026-04-17 15:53:17 | INFO     | monitor:106 | RAG路由结果: chat (置信度 0.70) - 高度相似的历史对话
+2026-04-17 15:53:17 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.70, 计划模式: False
+2026-04-17 15:53:17 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 7
+2026-04-17 15:53:17 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=7 | retrieved_count=2 | avg_score=0.535 | elapsed_ms=14.9
+2026-04-17 15:53:17 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.578 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 15:53:17 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.493 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 15:53:17 | DEBUG    | monitor:188 | RAG 增强后消息数: 6
+2026-04-17 15:53:19 | DEBUG    | monitor:213 | LLM 响应长度: 28 字符
+2026-04-17 15:53:19 | INFO     | monitor:239 | 对话模式，直接返回最终回答
+2026-04-17 15:53:19 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 15:53:19 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 1.64s，thread_id: vby0ggtfpuh
+2026-04-17 15:53:19 | INFO     | monitor:518 | Agent 执行完成，工具调用数: 0
+2026-04-17 15:53:19 | INFO     | monitor:544 | 请求处理完成，总耗时 1.64s
+2026-04-17 15:53:19 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 2.079s
+2026-04-17 15:54:25 | INFO     | monitor:254 | 收到用户消息，session=vby0ggtf, 消息预览: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 15:54:25 | DEBUG    | monitor:74 | RAG路由开始，输入: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 15:54:25 | DEBUG    | monitor:86 | 检索到 3 条历史证据
+2026-04-17 15:54:25 | INFO     | monitor:106 | RAG路由结果: chat (置信度 0.70) - 高度相似的历史对话
+2026-04-17 15:54:25 | INFO     | monitor:349 | 意图路由结果: chat, 置信度: 0.70, 计划模式: False
+2026-04-17 15:54:25 | INFO     | monitor:541 | LangGraphAgent.run 开始，输入长度: 34
+2026-04-17 15:54:25 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=34 | retrieved_count=2 | avg_score=0.608 | elapsed_ms=9.0
+2026-04-17 15:54:25 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.615 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 15:54:25 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.602 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 15:54:25 | DEBUG    | monitor:150 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-17 15:54:25 | DEBUG    | monitor:188 | RAG 增强后消息数: 6
+2026-04-17 15:54:27 | DEBUG    | monitor:213 | LLM 响应长度: 68 字符
+2026-04-17 15:54:28 | INFO     | monitor:239 | 对话模式，直接返回最终回答
+2026-04-17 15:54:28 | DEBUG    | monitor:511 | 无工具调用，进入 finalize
+2026-04-17 15:54:28 | INFO     | monitor:590 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 2.37s，thread_id: vby0ggtfpuh
+2026-04-17 15:54:28 | INFO     | monitor:518 | Agent 执行完成，工具调用数: 0
+2026-04-17 15:54:28 | INFO     | monitor:544 | 请求处理完成，总耗时 2.37s
+2026-04-17 15:54:28 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 2.992s
+2026-04-17 16:15:51 | INFO     | monitor:507 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 16:15:51 | INFO     | monitor:254 | 收到用户消息，session=mvr0xp2p, 消息预览: 我之前有问过什么问题
+2026-04-17 16:15:51 | DEBUG    | monitor:69 | RAG路由开始，输入: 我之前有问过什么问题
+2026-04-17 16:15:51 | INFO     | monitor:85 | 前置规则命中：历史回顾请求 → memory_query
+2026-04-17 16:15:51 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 5.358s
+2026-04-17 16:17:03 | INFO     | monitor:254 | 收到用户消息，session=mvr0xp2p, 消息预览: 还有其他的嘛
+2026-04-17 16:17:03 | DEBUG    | monitor:69 | RAG路由开始，输入: 还有其他的嘛
+2026-04-17 16:17:03 | DEBUG    | monitor:104 | 检索到 3 条历史证据
+2026-04-17 16:17:03 | INFO     | monitor:112 | 置信度 0.70 低于/等于阈值，调用 LLM 二次确认
+2026-04-17 16:17:06 | INFO     | monitor:125 | RAG路由结果: memory_query (置信度 0.75) - 用户在询问之前的问题，表现出查询记忆的意图。
+2026-04-17 16:17:06 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 3.100s
+2026-04-17 16:17:39 | INFO     | monitor:254 | 收到用户消息，session=mvr0xp2p, 消息预览: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 16:17:39 | DEBUG    | monitor:69 | RAG路由开始，输入: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 16:17:39 | INFO     | monitor:74 | 前置规则命中：显式文件操作 → tools
+2026-04-17 16:17:39 | INFO     | monitor:366 | 意图路由结果: tools, 置信度: 0.99, 计划模式: False
+2026-04-17 16:17:39 | INFO     | monitor:574 | LangGraphAgent.run 开始，输入长度: 34
+2026-04-17 16:17:39 | DEBUG    | monitor:512 | 正在初始化异步 SQLite 检查点...
+2026-04-17 16:17:39 | DEBUG    | monitor:517 | 异步检查点初始化完成
+2026-04-17 16:17:39 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=34 | retrieved_count=2 | avg_score=0.607 | elapsed_ms=37.9
+2026-04-17 16:17:39 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.613 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 16:17:39 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.600 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 16:17:39 | DEBUG    | monitor:188 | RAG 增强后消息数: 6
+2026-04-17 16:17:41 | DEBUG    | monitor:213 | LLM 响应长度: 46 字符
+2026-04-17 16:17:41 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 16:17:41 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 16:17:41 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 16:17:41 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 16:17:41 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 16:17:41 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 16:17:41 | INFO     | monitor:299 | 解析到 1 个工具调用
+2026-04-17 16:17:41 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x308639ac0>, '20260417_144722_482.json')
+2026-04-17 16:17:41 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.007s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260417_144722_482.json", "fuzzy_match": true, "original_request": "20260417_144722_482.json", "note": "原路径 \'2
+2026-04-17 16:17:41 | DEBUG    | monitor:347 | 工具 read_file 执行成功，耗时 0.008s
+2026-04-17 16:17:41 | DEBUG    | monitor:403 | 已将文件 /Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260417_144722_482.json 摘要存入向量记忆
+2026-04-17 16:17:41 | DEBUG    | monitor:414 | 工具结果已写入向量库: read_file
+2026-04-17 16:17:42 | DEBUG    | monitor:213 | LLM 响应长度: 18 字符
+2026-04-17 16:17:42 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('您之前询问了关于近期反思记录的问题。')
+2026-04-17 16:17:42 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.040s | 返回 []
+2026-04-17 16:17:43 | DEBUG    | monitor:544 | 无工具调用，进入 finalize
+2026-04-17 16:17:43 | INFO     | monitor:623 | LangGraphAgent.run 完成，迭代: 1，工具调用数: 1，耗时: 3.47s，thread_id: mvr0xp2pns
+2026-04-17 16:17:43 | INFO     | monitor:535 | Agent 执行完成，工具调用数: 1
+2026-04-17 16:17:43 | INFO     | monitor:561 | 请求处理完成，总耗时 3.48s
+2026-04-17 16:17:43 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 3.858s
+2026-04-17 16:28:59 | INFO     | monitor:254 | 收到用户消息，session=mvr0xp2p, 消息预览: 内容是什么
+2026-04-17 16:28:59 | DEBUG    | monitor:69 | RAG路由开始，输入: 内容是什么
+2026-04-17 16:28:59 | DEBUG    | monitor:104 | 检索到 3 条历史证据
+2026-04-17 16:28:59 | INFO     | monitor:112 | 置信度 0.50 低于/等于阈值，调用 LLM 二次确认
+2026-04-17 16:29:02 | INFO     | monitor:125 | RAG路由结果: memory_query (置信度 0.75) - 用户提到之前有问过问题，这表明用户可能希望查询历史记录，属于记忆查询的范畴。
+2026-04-17 16:29:02 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 3.541s
+2026-04-17 16:29:14 | INFO     | monitor:254 | 收到用户消息，session=mvr0xp2p, 消息预览: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 16:29:14 | DEBUG    | monitor:69 | RAG路由开始，输入: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 16:29:14 | INFO     | monitor:74 | 前置规则命中：显式文件操作 → tools
+2026-04-17 16:29:14 | INFO     | monitor:366 | 意图路由结果: tools, 置信度: 0.99, 计划模式: False
+2026-04-17 16:29:14 | INFO     | monitor:574 | LangGraphAgent.run 开始，输入长度: 34
+2026-04-17 16:29:14 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=34 | retrieved_count=2 | avg_score=0.606 | elapsed_ms=19.2
+2026-04-17 16:29:14 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.613 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 16:29:14 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.599 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 16:29:14 | DEBUG    | monitor:150 | 滑动窗口保留 0 条工具Observation，最近 5 条消息
+2026-04-17 16:29:14 | DEBUG    | monitor:188 | RAG 增强后消息数: 6
+2026-04-17 16:29:16 | DEBUG    | monitor:213 | LLM 响应长度: 46 字符
+2026-04-17 16:29:16 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 16:29:16 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 16:29:16 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.002s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 16:29:16 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 16:29:16 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 16:29:16 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 16:29:16 | INFO     | monitor:299 | 解析到 1 个工具调用
+2026-04-17 16:29:16 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x308639ac0>, '20260417_144722_482.json')
+2026-04-17 16:29:16 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.012s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260417_144722_482.json", "fuzzy_match": true, "original_request": "20260417_144722_482.json", "note": "原路径 \'2
+2026-04-17 16:29:16 | DEBUG    | monitor:347 | 工具 read_file 执行成功，耗时 0.013s
+2026-04-17 16:29:16 | DEBUG    | monitor:403 | 已将文件 /Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260417_144722_482.json 摘要存入向量记忆
+2026-04-17 16:29:16 | DEBUG    | monitor:414 | 工具结果已写入向量库: read_file
+2026-04-17 16:29:18 | DEBUG    | monitor:213 | LLM 响应长度: 116 字符
+2026-04-17 16:29:18 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('您之前询问的问题记录在我找到的最新日志文件中，以下是您的问题摘要：\n\n1. 您询问了关于近期反思记录的内容。\n2. 您可能还提出了其他问题，但这些信息没有在日志中详细记录。\n\n如果您需要更)
+2026-04-17 16:29:18 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 16:29:18 | DEBUG    | monitor:544 | 无工具调用，进入 finalize
+2026-04-17 16:29:18 | INFO     | monitor:623 | LangGraphAgent.run 完成，迭代: 1，工具调用数: 1，耗时: 4.01s，thread_id: mvr0xp2pns
+2026-04-17 16:29:18 | INFO     | monitor:535 | Agent 执行完成，工具调用数: 1
+2026-04-17 16:29:18 | INFO     | monitor:561 | 请求处理完成，总耗时 4.01s
+2026-04-17 16:29:18 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 4.434s
+2026-04-17 16:48:11 | INFO     | monitor:524 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 16:48:11 | INFO     | monitor:254 | 收到用户消息，session=52ho5fzm, 消息预览: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 16:48:11 | DEBUG    | monitor:69 | RAG路由开始，输入: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 16:48:11 | INFO     | monitor:74 | 前置规则命中：显式文件操作 → tools
+2026-04-17 16:48:11 | INFO     | monitor:366 | 意图路由结果: tools, 置信度: 0.99, 计划模式: False
+2026-04-17 16:48:11 | INFO     | monitor:591 | LangGraphAgent.run 开始，输入长度: 34
+2026-04-17 16:48:11 | DEBUG    | monitor:529 | 正在初始化异步 SQLite 检查点...
+2026-04-17 16:48:11 | DEBUG    | monitor:534 | 异步检查点初始化完成
+2026-04-17 16:48:11 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=34 | retrieved_count=2 | avg_score=0.605 | elapsed_ms=33.7
+2026-04-17 16:48:11 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.611 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 16:48:11 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.598 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 16:48:11 | DEBUG    | monitor:188 | RAG 增强后消息数: 2
+2026-04-17 16:48:13 | DEBUG    | monitor:213 | LLM 响应长度: 46 字符
+2026-04-17 16:48:13 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 16:48:13 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 16:48:13 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 16:48:13 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 16:48:13 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 16:48:13 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 16:48:13 | INFO     | monitor:299 | 解析到 1 个工具调用
+2026-04-17 16:48:13 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x17604ec70>, '20260417_144722_482.json')
+2026-04-17 16:48:13 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.004s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260417_144722_482.json", "fuzzy_match": true, "original_request": "20260417_144722_482.json", "note": "原路径 \'2
+2026-04-17 16:48:13 | DEBUG    | monitor:347 | 工具 read_file 执行成功，耗时 0.004s
+2026-04-17 16:48:13 | DEBUG    | monitor:403 | 已将文件 /Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260417_144722_482.json 摘要存入向量记忆
+2026-04-17 16:48:13 | DEBUG    | monitor:414 | 工具结果已写入向量库: read_file
+2026-04-17 16:48:15 | DEBUG    | monitor:213 | LLM 响应长度: 101 字符
+2026-04-17 16:48:15 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('您之前询问了关于头痛的问题。根据会话记录，您提到“今天好头痛”，而智能助手建议您适当休息，保持良好的作息习惯，并注意饮食健康。如果头痛持续不适，可以适当使用一些缓解头痛的药物，或者咨询医生进行专业治)
+2026-04-17 16:48:15 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 16:48:15 | DEBUG    | monitor:561 | 无工具调用，进入 finalize
+2026-04-17 16:48:15 | INFO     | monitor:640 | LangGraphAgent.run 完成，迭代: 1，工具调用数: 1，耗时: 3.56s，thread_id: 52ho5fzmf3g
+2026-04-17 16:48:15 | INFO     | monitor:535 | Agent 执行完成，工具调用数: 1
+2026-04-17 16:48:15 | INFO     | monitor:561 | 请求处理完成，总耗时 3.56s
+2026-04-17 16:48:15 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 8.990s
+2026-04-17 17:32:39 | INFO     | monitor:515 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 17:32:40 | INFO     | monitor:254 | 收到用户消息，session=rphxshz8, 消息预览: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 17:32:40 | DEBUG    | monitor:69 | RAG路由开始，输入: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 17:32:40 | INFO     | monitor:74 | 前置规则命中：显式文件操作 → tools
+2026-04-17 17:32:40 | INFO     | monitor:366 | 意图路由结果: tools, 置信度: 0.99, 计划模式: False
+2026-04-17 17:32:40 | INFO     | monitor:582 | LangGraphAgent.run 开始，输入长度: 34
+2026-04-17 17:32:40 | DEBUG    | monitor:520 | 正在初始化异步 SQLite 检查点...
+2026-04-17 17:32:40 | DEBUG    | monitor:525 | 异步检查点初始化完成
+2026-04-17 17:32:40 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=34 | retrieved_count=2 | avg_score=0.602 | elapsed_ms=31.6
+2026-04-17 17:32:40 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.608 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 17:32:40 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.595 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 17:32:40 | DEBUG    | monitor:184 | RAG 增强后消息数: 2
+2026-04-17 17:32:41 | DEBUG    | monitor:209 | LLM 响应长度: 46 字符
+2026-04-17 17:32:41 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 17:32:41 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 17:32:41 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 17:32:41 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 17:32:41 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 17:32:41 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 17:32:41 | INFO     | monitor:292 | 解析到 1 个工具调用
+2026-04-17 17:32:41 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x17ac79220>, '20260417_144722_482.json')
+2026-04-17 17:32:48 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 6.823s | 返回 '{"success": false, "error": "文件不存在: 20260417_144722_482.json", "searched_name": "20260417_144722_482.json", "hint": "在工作目录和全局搜索中均未找到 \'20260417_144722_482.json\'。⚠️ 请立即用 bash find 全局搜索，不要放弃：\\n  bash
+2026-04-17 17:32:48 | DEBUG    | monitor:341 | 工具 read_file 执行失败，耗时 6.824s
+2026-04-17 17:32:48 | DEBUG    | monitor:402 | 工具结果已写入向量库: read_file
+2026-04-17 17:32:50 | DEBUG    | monitor:209 | LLM 响应长度: 71 字符
+2026-04-17 17:32:50 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "find . -name \'20260417_144722_482.json\' 2>/dev/null"}')
+2026-04-17 17:32:50 | DEBUG    | monitor:914 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-17 17:32:50 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('bash', {'command': "find . -name '20260417_144722_482.json' 2>/dev/null"})]
+2026-04-17 17:32:50 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "find . -name \'20260417_144722_482.json\' 2>/dev/null"}')
+2026-04-17 17:32:50 | DEBUG    | monitor:914 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-17 17:32:50 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('bash', {'command': "find . -name '20260417_144722_482.json' 2>/dev/null"})]
+2026-04-17 17:32:50 | INFO     | monitor:292 | 解析到 1 个工具调用
+2026-04-17 17:32:51 | DEBUG    | monitor:341 | 工具 bash 执行成功，耗时 0.858s
+2026-04-17 17:32:51 | DEBUG    | monitor:402 | 工具结果已写入向量库: bash
+2026-04-17 17:32:54 | DEBUG    | monitor:209 | LLM 响应长度: 40 字符
+2026-04-17 17:32:54 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('文件 20260417_144722_482.json 在当前工作目录下不存在。')
+2026-04-17 17:32:54 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 17:32:54 | DEBUG    | monitor:552 | 无工具调用，进入 finalize
+2026-04-17 17:32:54 | INFO     | monitor:631 | LangGraphAgent.run 完成，迭代: 2，工具调用数: 1，耗时: 14.53s，thread_id: rphxshz82bs
+2026-04-17 17:32:54 | INFO     | monitor:535 | Agent 执行完成，工具调用数: 1
+2026-04-17 17:32:54 | INFO     | monitor:561 | 请求处理完成，总耗时 14.53s
+2026-04-17 17:32:54 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 19.968s
+2026-04-17 17:38:13 | INFO     | monitor:520 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 17:38:13 | INFO     | monitor:254 | 收到用户消息，session=vwm7ajc8, 消息预览: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 17:38:13 | DEBUG    | monitor:69 | RAG路由开始，输入: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 17:38:13 | INFO     | monitor:74 | 前置规则命中：显式文件操作 → tools
+2026-04-17 17:38:13 | INFO     | monitor:366 | 意图路由结果: tools, 置信度: 0.99, 计划模式: False
+2026-04-17 17:38:13 | INFO     | monitor:587 | LangGraphAgent.run 开始，输入长度: 34
+2026-04-17 17:38:13 | DEBUG    | monitor:525 | 正在初始化异步 SQLite 检查点...
+2026-04-17 17:38:13 | DEBUG    | monitor:530 | 异步检查点初始化完成
+2026-04-17 17:38:13 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=34 | retrieved_count=3 | avg_score=0.755 | elapsed_ms=51.4
+2026-04-17 17:38:13 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.872 | tool=read_file | timestamp=2026-04-17T17:32:48 | snippet=工具: read_file 参数: {   "path": "20260417_144722_482.json" } 成功: False 错误: 文件不存在: 20260417_144722_482.json
+2026-04-17 17:38:13 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.800 | tool=bash | timestamp=2026-04-17T17:32:51 | snippet=工具: bash 参数: {   "command": "find . -name '20260417_144722_482.json' 2>/dev/null" } 成功: True
+2026-04-17 17:38:13 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #3 | score=0.595 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 17:38:13 | DEBUG    | monitor:184 | RAG 增强后消息数: 2
+2026-04-17 17:38:14 | DEBUG    | monitor:209 | LLM 响应长度: 46 字符
+2026-04-17 17:38:14 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 17:38:14 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 17:38:14 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 17:38:14 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 17:38:14 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 17:38:14 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 17:38:14 | INFO     | monitor:297 | 解析到 1 个工具调用
+2026-04-17 17:38:14 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x17fc65d60>, '20260417_144722_482.json')
+2026-04-17 17:38:25 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 10.161s | 返回 '{"success": false, "error": "文件不存在: 20260417_144722_482.json", "searched_name": "20260417_144722_482.json", "hint": "在工作目录和全局搜索中均未找到 \'20260417_144722_482.json\'。⚠️ 请立即用 bash find 全局搜索，不要放弃：\\n  bash
+2026-04-17 17:38:25 | DEBUG    | monitor:346 | 工具 read_file 执行失败，耗时 10.163s
+2026-04-17 17:38:25 | DEBUG    | monitor:407 | 工具结果已写入向量库: read_file
+2026-04-17 17:38:30 | DEBUG    | monitor:209 | LLM 响应长度: 71 字符
+2026-04-17 17:38:30 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "find . -name \'20260417_144722_482.json\' 2>/dev/null"}')
+2026-04-17 17:38:30 | DEBUG    | monitor:914 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-17 17:38:30 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('bash', {'command': "find . -name '20260417_144722_482.json' 2>/dev/null"})]
+2026-04-17 17:38:30 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "find . -name \'20260417_144722_482.json\' 2>/dev/null"}')
+2026-04-17 17:38:30 | DEBUG    | monitor:914 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-17 17:38:30 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('bash', {'command': "find . -name '20260417_144722_482.json' 2>/dev/null"})]
+2026-04-17 17:38:30 | INFO     | monitor:297 | 解析到 1 个工具调用
+2026-04-17 17:38:31 | DEBUG    | monitor:346 | 工具 bash 执行成功，耗时 0.922s
+2026-04-17 17:38:31 | DEBUG    | monitor:407 | 工具结果已写入向量库: bash
+2026-04-17 17:38:33 | DEBUG    | monitor:209 | LLM 响应长度: 40 字符
+2026-04-17 17:38:33 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('文件 20260417_144722_482.json 在当前工作目录下不存在。')
+2026-04-17 17:38:33 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.020s | 返回 []
+2026-04-17 17:38:33 | DEBUG    | monitor:557 | 无工具调用，进入 finalize
+2026-04-17 17:38:33 | INFO     | monitor:636 | LangGraphAgent.run 完成，迭代: 2，工具调用数: 1，耗时: 19.55s，thread_id: vwm7ajc8s9
+2026-04-17 17:38:33 | INFO     | monitor:535 | Agent 执行完成，工具调用数: 1
+2026-04-17 17:38:33 | INFO     | monitor:561 | 请求处理完成，总耗时 19.55s
+2026-04-17 17:38:33 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 25.085s
+2026-04-17 17:43:31 | INFO     | monitor:521 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 17:43:31 | INFO     | monitor:254 | 收到用户消息，session=6n6fy5g9, 消息预览: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 17:43:31 | DEBUG    | monitor:69 | RAG路由开始，输入: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 17:43:32 | INFO     | monitor:74 | 前置规则命中：显式文件操作 → tools
+2026-04-17 17:43:32 | INFO     | monitor:366 | 意图路由结果: tools, 置信度: 0.99, 计划模式: False
+2026-04-17 17:43:32 | INFO     | monitor:588 | LangGraphAgent.run 开始，输入长度: 34
+2026-04-17 17:43:32 | DEBUG    | monitor:526 | 正在初始化异步 SQLite 检查点...
+2026-04-17 17:43:32 | DEBUG    | monitor:531 | 异步检查点初始化完成
+2026-04-17 17:43:32 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=34 | retrieved_count=3 | avg_score=0.755 | elapsed_ms=35.5
+2026-04-17 17:43:32 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.871 | tool=read_file | timestamp=2026-04-17T17:32:48 | snippet=工具: read_file 参数: {   "path": "20260417_144722_482.json" } 成功: False 错误: 文件不存在: 20260417_144722_482.json
+2026-04-17 17:43:32 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.799 | tool=bash | timestamp=2026-04-17T17:32:51 | snippet=工具: bash 参数: {   "command": "find . -name '20260417_144722_482.json' 2>/dev/null" } 成功: True
+2026-04-17 17:43:32 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #3 | score=0.595 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 17:43:32 | DEBUG    | monitor:184 | RAG 增强后消息数: 2
+2026-04-17 17:43:33 | DEBUG    | monitor:209 | LLM 响应长度: 46 字符
+2026-04-17 17:43:33 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 17:43:33 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 17:43:33 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 17:43:33 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 17:43:33 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 17:43:33 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 17:43:33 | INFO     | monitor:298 | 解析到 1 个工具调用
+2026-04-17 17:43:33 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x170565c70>, '20260417_144722_482.json')
+2026-04-17 17:43:38 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 5.072s | 返回 '{"success": false, "error": "文件不存在: 20260417_144722_482.json", "searched_name": "20260417_144722_482.json", "hint": "在工作目录和全局搜索中均未找到 \'20260417_144722_482.json\'。⚠️ 请立即用 bash find 全局搜索，不要放弃：\\n  bash
+2026-04-17 17:43:38 | DEBUG    | monitor:347 | 工具 read_file 执行失败，耗时 5.073s
+2026-04-17 17:43:38 | DEBUG    | monitor:408 | 工具结果已写入向量库: read_file
+2026-04-17 17:43:39 | DEBUG    | monitor:209 | LLM 响应长度: 71 字符
+2026-04-17 17:43:39 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "find . -name \'20260417_144722_482.json\' 2>/dev/null"}')
+2026-04-17 17:43:39 | DEBUG    | monitor:914 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-17 17:43:39 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('bash', {'command': "find . -name '20260417_144722_482.json' 2>/dev/null"})]
+2026-04-17 17:43:39 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "find . -name \'20260417_144722_482.json\' 2>/dev/null"}')
+2026-04-17 17:43:39 | DEBUG    | monitor:914 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-17 17:43:39 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('bash', {'command': "find . -name '20260417_144722_482.json' 2>/dev/null"})]
+2026-04-17 17:43:39 | INFO     | monitor:298 | 解析到 1 个工具调用
+2026-04-17 17:43:40 | DEBUG    | monitor:347 | 工具 bash 执行成功，耗时 0.734s
+2026-04-17 17:43:40 | DEBUG    | monitor:408 | 工具结果已写入向量库: bash
+2026-04-17 17:43:42 | DEBUG    | monitor:209 | LLM 响应长度: 40 字符
+2026-04-17 17:43:42 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('文件 20260417_144722_482.json 在当前工作目录中不存在。')
+2026-04-17 17:43:42 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 17:43:42 | DEBUG    | monitor:558 | 无工具调用，进入 finalize
+2026-04-17 17:43:42 | INFO     | monitor:637 | LangGraphAgent.run 完成，迭代: 2，工具调用数: 1，耗时: 10.37s，thread_id: 6n6fy5g9ih6
+2026-04-17 17:43:42 | INFO     | monitor:535 | Agent 执行完成，工具调用数: 1
+2026-04-17 17:43:42 | INFO     | monitor:561 | 请求处理完成，总耗时 10.37s
+2026-04-17 17:43:42 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 15.722s
+2026-04-17 17:45:15 | INFO     | monitor:254 | 收到用户消息，session=6n6fy5g9, 消息预览: 你好
+2026-04-17 17:45:15 | DEBUG    | monitor:69 | RAG路由开始，输入: 你好
+2026-04-17 17:45:15 | DEBUG    | monitor:104 | 检索到 3 条历史证据
+2026-04-17 17:45:15 | INFO     | monitor:112 | 置信度 0.70 低于/等于阈值，调用 LLM 二次确认
+2026-04-17 17:45:18 | INFO     | monitor:125 | RAG路由结果: chat (置信度 0.95) - 用户输入了简单的问候语'你好'，这是典型的日常交流行为，不涉及具体工具、技能、计划或记忆查询的明确需求。
+2026-04-17 17:45:18 | INFO     | monitor:366 | 意图路由结果: chat, 置信度: 0.95, 计划模式: False
+2026-04-17 17:45:18 | INFO     | monitor:588 | LangGraphAgent.run 开始，输入长度: 2
+2026-04-17 17:45:18 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=2 | retrieved_count=3 | avg_score=0.487 | elapsed_ms=269.1
+2026-04-17 17:45:18 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.543 | tool=bash | timestamp=2026-04-17T14:37:29 | snippet=工具: bash 参数: {} 成功: True
+2026-04-17 17:45:18 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.468 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 17:45:18 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #3 | score=0.448 | tool=read_file | timestamp=2026-04-17T17:32:48 | snippet=工具: read_file 参数: {   "path": "20260417_144722_482.json" } 成功: False 错误: 文件不存在: 20260417_144722_482.json
+2026-04-17 17:45:18 | DEBUG    | monitor:184 | RAG 增强后消息数: 4
+2026-04-17 17:45:19 | DEBUG    | monitor:209 | LLM 响应长度: 14 字符
+2026-04-17 17:45:19 | INFO     | monitor:235 | 对话模式，直接返回最终回答
+2026-04-17 17:45:19 | DEBUG    | monitor:558 | 无工具调用，进入 finalize
+2026-04-17 17:45:19 | INFO     | monitor:637 | LangGraphAgent.run 完成，迭代: 0，工具调用数: 0，耗时: 1.59s，thread_id: 6n6fy5g9ih6
+2026-04-17 17:45:19 | INFO     | monitor:535 | Agent 执行完成，工具调用数: 0
+2026-04-17 17:45:19 | INFO     | monitor:561 | 请求处理完成，总耗时 1.60s
+2026-04-17 17:45:19 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 5.099s
+2026-04-17 17:48:55 | INFO     | monitor:521 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 17:48:55 | INFO     | monitor:254 | 收到用户消息，session=1hb1mpkp, 消息预览: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 17:48:55 | DEBUG    | monitor:69 | RAG路由开始，输入: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 17:48:55 | INFO     | monitor:74 | 前置规则命中：显式文件操作 → tools
+2026-04-17 17:48:55 | INFO     | monitor:366 | 意图路由结果: tools, 置信度: 0.99, 计划模式: False
+2026-04-17 17:48:55 | INFO     | monitor:588 | LangGraphAgent.run 开始，输入长度: 34
+2026-04-17 17:48:55 | DEBUG    | monitor:526 | 正在初始化异步 SQLite 检查点...
+2026-04-17 17:48:55 | DEBUG    | monitor:531 | 异步检查点初始化完成
+2026-04-17 17:48:55 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=34 | retrieved_count=3 | avg_score=0.768 | elapsed_ms=31.1
+2026-04-17 17:48:55 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.891 | tool=read_file | timestamp=2026-04-17T17:32:48 | snippet=工具: read_file 参数: {   "path": "20260417_144722_482.json" } 成功: False 错误: 文件不存在: 20260417_144722_482.json
+2026-04-17 17:48:55 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.819 | tool=bash | timestamp=2026-04-17T17:32:51 | snippet=工具: bash 参数: {   "command": "find . -name '20260417_144722_482.json' 2>/dev/null" } 成功: True
+2026-04-17 17:48:55 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #3 | score=0.594 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 17:48:55 | DEBUG    | monitor:184 | RAG 增强后消息数: 2
+2026-04-17 17:48:58 | DEBUG    | monitor:209 | LLM 响应长度: 46 字符
+2026-04-17 17:48:58 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 17:48:58 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 17:48:58 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 17:48:58 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 17:48:58 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 17:48:58 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 17:48:58 | INFO     | monitor:298 | 解析到 1 个工具调用
+2026-04-17 17:48:58 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x3089bfdf0>, '20260417_144722_482.json')
+2026-04-17 17:49:03 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 4.935s | 返回 '{"success": false, "error": "文件不存在: 20260417_144722_482.json", "searched_name": "20260417_144722_482.json", "hint": "在工作目录和全局搜索中均未找到 \'20260417_144722_482.json\'。⚠️ 请立即用 bash find 全局搜索，不要放弃：\\n  bash
+2026-04-17 17:49:03 | DEBUG    | monitor:347 | 工具 read_file 执行失败，耗时 4.936s
+2026-04-17 17:49:04 | DEBUG    | monitor:408 | 工具结果已写入向量库: read_file
+2026-04-17 17:49:05 | DEBUG    | monitor:209 | LLM 响应长度: 71 字符
+2026-04-17 17:49:05 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "find . -name \'20260417_144722_482.json\' 2>/dev/null"}')
+2026-04-17 17:49:05 | DEBUG    | monitor:914 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-17 17:49:05 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('bash', {'command': "find . -name '20260417_144722_482.json' 2>/dev/null"})]
+2026-04-17 17:49:05 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "find . -name \'20260417_144722_482.json\' 2>/dev/null"}')
+2026-04-17 17:49:05 | DEBUG    | monitor:914 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-17 17:49:05 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('bash', {'command': "find . -name '20260417_144722_482.json' 2>/dev/null"})]
+2026-04-17 17:49:05 | INFO     | monitor:298 | 解析到 1 个工具调用
+2026-04-17 17:49:06 | DEBUG    | monitor:347 | 工具 bash 执行成功，耗时 0.774s
+2026-04-17 17:49:06 | DEBUG    | monitor:408 | 工具结果已写入向量库: bash
+2026-04-17 17:49:08 | DEBUG    | monitor:209 | LLM 响应长度: 40 字符
+2026-04-17 17:49:08 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('文件 20260417_144722_482.json 在当前工作目录下不存在。')
+2026-04-17 17:49:08 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.002s | 返回 []
+2026-04-17 17:49:08 | DEBUG    | monitor:558 | 无工具调用，进入 finalize
+2026-04-17 17:49:08 | INFO     | monitor:637 | LangGraphAgent.run 完成，迭代: 2，工具调用数: 1，耗时: 12.72s，thread_id: 1hb1mpkpxnnh
+2026-04-17 17:49:08 | INFO     | monitor:535 | Agent 执行完成，工具调用数: 1
+2026-04-17 17:49:08 | INFO     | monitor:561 | 请求处理完成，总耗时 12.72s
+2026-04-17 17:49:08 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 17.945s
+2026-04-17 17:58:38 | INFO     | monitor:254 | 收到用户消息，session=1hb1mpkp, 消息预览: 查找20260417_164806_442.json，解析我问的问题
+2026-04-17 17:58:38 | DEBUG    | monitor:69 | RAG路由开始，输入: 查找20260417_164806_442.json，解析我问的问题
+2026-04-17 17:58:38 | INFO     | monitor:74 | 前置规则命中：显式文件操作 → tools
+2026-04-17 17:58:38 | INFO     | monitor:366 | 意图路由结果: tools, 置信度: 0.99, 计划模式: False
+2026-04-17 17:58:38 | INFO     | monitor:588 | LangGraphAgent.run 开始，输入长度: 34
+2026-04-17 17:58:38 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=34 | retrieved_count=3 | avg_score=0.761 | elapsed_ms=30.2
+2026-04-17 17:58:38 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.879 | tool=read_file | timestamp=2026-04-17T17:32:48 | snippet=工具: read_file 参数: {   "path": "20260417_144722_482.json" } 成功: False 错误: 文件不存在: 20260417_144722_482.json
+2026-04-17 17:58:38 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.809 | tool=bash | timestamp=2026-04-17T17:32:51 | snippet=工具: bash 参数: {   "command": "find . -name '20260417_144722_482.json' 2>/dev/null" } 成功: True
+2026-04-17 17:58:38 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #3 | score=0.594 | tool=read_file | timestamp=2026-04-17T14:37:41 | snippet=工具: read_file 参数: {} 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化、JSON编辑和深度分析功能 """  import json  
+2026-04-17 17:58:38 | DEBUG    | monitor:184 | RAG 增强后消息数: 4
+2026-04-17 17:58:40 | DEBUG    | monitor:209 | LLM 响应长度: 46 字符
+2026-04-17 17:58:40 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_164806_442.json"}')
+2026-04-17 17:58:40 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 17:58:40 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '20260417_164806_442.json'})]
+2026-04-17 17:58:40 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_164806_442.json"}')
+2026-04-17 17:58:40 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 17:58:40 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '20260417_164806_442.json'})]
+2026-04-17 17:58:40 | INFO     | monitor:298 | 解析到 1 个工具调用
+2026-04-17 17:58:40 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x3089bfdf0>, '20260417_164806_442.json')
+2026-04-17 17:58:40 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.009s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260417_164806_442.json", "fuzzy_match": true, "original_request": "20260417_164806_442.json", "note": "原路径 \'2
+2026-04-17 17:58:40 | DEBUG    | monitor:347 | 工具 read_file 执行成功，耗时 0.010s
+2026-04-17 17:58:41 | DEBUG    | monitor:397 | 已将文件 /Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260417_164806_442.json 摘要存入向量记忆
+2026-04-17 17:58:41 | DEBUG    | monitor:408 | 工具结果已写入向量库: read_file
+2026-04-17 17:58:42 | DEBUG    | monitor:209 | LLM 响应长度: 34 字符
+2026-04-17 17:58:42 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('查找20260417_144722_482.json，解析我问的问题')
+2026-04-17 17:58:42 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 17:58:42 | DEBUG    | monitor:558 | 无工具调用，进入 finalize
+2026-04-17 17:58:42 | INFO     | monitor:637 | LangGraphAgent.run 完成，迭代: 1，工具调用数: 1，耗时: 3.49s，thread_id: 1hb1mpkpxnnh
+2026-04-17 17:58:42 | INFO     | monitor:535 | Agent 执行完成，工具调用数: 1
+2026-04-17 17:58:42 | INFO     | monitor:561 | 请求处理完成，总耗时 3.49s
+2026-04-17 17:58:42 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 4.122s
+2026-04-17 18:15:54 | INFO     | monitor:537 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 18:15:54 | INFO     | monitor:254 | 收到用户消息，session=k9twoak7, 消息预览: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 18:15:54 | DEBUG    | monitor:69 | RAG路由开始，输入: 查找20260417_144722_482.json，解析我问的问题
+2026-04-17 18:15:54 | INFO     | monitor:74 | 前置规则命中：显式文件操作 → tools
+2026-04-17 18:15:54 | INFO     | monitor:366 | 意图路由结果: tools, 置信度: 0.99, 计划模式: False
+2026-04-17 18:15:54 | INFO     | monitor:604 | LangGraphAgent.run 开始，输入长度: 34
+2026-04-17 18:15:54 | DEBUG    | monitor:542 | 正在初始化异步 SQLite 检查点...
+2026-04-17 18:15:54 | DEBUG    | monitor:547 | 异步检查点初始化完成
+2026-04-17 18:15:54 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=34 | retrieved_count=0 | avg_score=0.000 | elapsed_ms=40.5
+2026-04-17 18:15:54 | DEBUG    | monitor:184 | RAG 增强后消息数: 1
+2026-04-17 18:15:55 | DEBUG    | monitor:209 | LLM 响应长度: 46 字符
+2026-04-17 18:15:55 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 18:15:55 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 18:15:55 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 18:15:55 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_144722_482.json"}')
+2026-04-17 18:15:55 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 18:15:55 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '20260417_144722_482.json'})]
+2026-04-17 18:15:55 | INFO     | monitor:298 | 解析到 1 个工具调用
+2026-04-17 18:15:55 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x17aebaf10>, '20260417_144722_482.json')
+2026-04-17 18:16:00 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 5.126s | 返回 '{"success": false, "error": "文件不存在: 20260417_144722_482.json", "searched_name": "20260417_144722_482.json", "hint": "在工作目录和全局搜索中均未找到 \'20260417_144722_482.json\'。⚠️ 请立即用 bash find 全局搜索，不要放弃：\\n  bash
+2026-04-17 18:16:00 | DEBUG    | monitor:347 | 工具 read_file 执行失败，耗时 5.127s
+2026-04-17 18:16:01 | DEBUG    | monitor:408 | 工具结果已写入向量库: read_file
+2026-04-17 18:16:02 | DEBUG    | monitor:209 | LLM 响应长度: 71 字符
+2026-04-17 18:16:02 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "find . -name \'20260417_144722_482.json\' 2>/dev/null"}')
+2026-04-17 18:16:02 | DEBUG    | monitor:914 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-17 18:16:02 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('bash', {'command': "find . -name '20260417_144722_482.json' 2>/dev/null"})]
+2026-04-17 18:16:02 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "find . -name \'20260417_144722_482.json\' 2>/dev/null"}')
+2026-04-17 18:16:02 | DEBUG    | monitor:914 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-17 18:16:02 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('bash', {'command': "find . -name '20260417_144722_482.json' 2>/dev/null"})]
+2026-04-17 18:16:02 | INFO     | monitor:298 | 解析到 1 个工具调用
+2026-04-17 18:16:03 | DEBUG    | monitor:347 | 工具 bash 执行成功，耗时 0.778s
+2026-04-17 18:16:03 | DEBUG    | monitor:408 | 工具结果已写入向量库: bash
+2026-04-17 18:16:04 | DEBUG    | monitor:209 | LLM 响应长度: 40 字符
+2026-04-17 18:16:04 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('文件 20260417_144722_482.json 在当前工作目录下不存在。')
+2026-04-17 18:16:04 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 18:16:04 | DEBUG    | monitor:574 | 无工具调用，进入 finalize
+2026-04-17 18:16:04 | INFO     | monitor:653 | LangGraphAgent.run 完成，迭代: 2，工具调用数: 1，耗时: 10.38s，thread_id: k9twoak78te
+2026-04-17 18:16:04 | INFO     | monitor:535 | Agent 执行完成，工具调用数: 1
+2026-04-17 18:16:04 | INFO     | monitor:561 | 请求处理完成，总耗时 10.38s
+2026-04-17 18:16:04 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 16.930s
+2026-04-17 18:19:13 | INFO     | monitor:537 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 18:19:13 | INFO     | monitor:254 | 收到用户消息，session=bdmjgw4f, 消息预览: 查找20260417_164806_442.json，解析我问的问题
+2026-04-17 18:19:13 | DEBUG    | monitor:69 | RAG路由开始，输入: 查找20260417_164806_442.json，解析我问的问题
+2026-04-17 18:19:13 | INFO     | monitor:74 | 前置规则命中：显式文件操作 → tools
+2026-04-17 18:19:13 | INFO     | monitor:366 | 意图路由结果: tools, 置信度: 0.99, 计划模式: False
+2026-04-17 18:19:13 | INFO     | monitor:604 | LangGraphAgent.run 开始，输入长度: 34
+2026-04-17 18:19:13 | DEBUG    | monitor:542 | 正在初始化异步 SQLite 检查点...
+2026-04-17 18:19:13 | DEBUG    | monitor:547 | 异步检查点初始化完成
+2026-04-17 18:19:13 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=34 | retrieved_count=2 | avg_score=0.816 | elapsed_ms=29.9
+2026-04-17 18:19:13 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.851 | tool=read_file | timestamp=2026-04-17T18:16:01 | snippet=工具: read_file 参数: {   "path": "20260417_144722_482.json" } 成功: False 错误: 文件不存在: 20260417_144722_482.json
+2026-04-17 18:19:13 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.780 | tool=bash | timestamp=2026-04-17T18:16:03 | snippet=工具: bash 参数: {   "command": "find . -name '20260417_144722_482.json' 2>/dev/null" } 成功: True
+2026-04-17 18:19:13 | DEBUG    | monitor:184 | RAG 增强后消息数: 2
+2026-04-17 18:19:14 | DEBUG    | monitor:209 | LLM 响应长度: 46 字符
+2026-04-17 18:19:14 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_164806_442.json"}')
+2026-04-17 18:19:14 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 18:19:14 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('read_file', {'path': '20260417_164806_442.json'})]
+2026-04-17 18:19:14 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_164806_442.json"}')
+2026-04-17 18:19:14 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 18:19:14 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '20260417_164806_442.json'})]
+2026-04-17 18:19:14 | INFO     | monitor:298 | 解析到 1 个工具调用
+2026-04-17 18:19:14 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x17ad2e130>, '20260417_164806_442.json')
+2026-04-17 18:19:14 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.004s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260417_164806_442.json", "fuzzy_match": true, "original_request": "20260417_164806_442.json", "note": "原路径 \'2
+2026-04-17 18:19:14 | DEBUG    | monitor:347 | 工具 read_file 执行成功，耗时 0.005s
+2026-04-17 18:19:15 | DEBUG    | monitor:397 | 已将文件 /Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260417_164806_442.json 摘要存入向量记忆
+2026-04-17 18:19:15 | DEBUG    | monitor:408 | 工具结果已写入向量库: read_file
+2026-04-17 18:19:18 | DEBUG    | monitor:209 | LLM 响应长度: 34 字符
+2026-04-17 18:19:18 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('查找20260417_144722_482.json，解析我问的问题')
+2026-04-17 18:19:18 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.002s | 返回 []
+2026-04-17 18:19:18 | DEBUG    | monitor:574 | 无工具调用，进入 finalize
+2026-04-17 18:19:18 | INFO     | monitor:653 | LangGraphAgent.run 完成，迭代: 1，工具调用数: 1，耗时: 5.02s，thread_id: bdmjgw4fs3o
+2026-04-17 18:19:18 | INFO     | monitor:535 | Agent 执行完成，工具调用数: 1
+2026-04-17 18:19:18 | INFO     | monitor:561 | 请求处理完成，总耗时 5.03s
+2026-04-17 18:19:18 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 10.158s
+2026-04-17 18:25:29 | INFO     | monitor:549 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-17 18:25:30 | INFO     | monitor:254 | 收到用户消息，session=35w90l84, 消息预览: 查找20260417_164806_442.json，解析我问的问题
+2026-04-17 18:25:30 | DEBUG    | monitor:69 | RAG路由开始，输入: 查找20260417_164806_442.json，解析我问的问题
+2026-04-17 18:25:30 | INFO     | monitor:74 | 前置规则命中：显式文件操作 → tools
+2026-04-17 18:25:30 | INFO     | monitor:366 | 意图路由结果: tools, 置信度: 0.99, 计划模式: False
+2026-04-17 18:25:30 | INFO     | monitor:620 | LangGraphAgent.run 开始，输入长度: 34
+2026-04-17 18:25:30 | DEBUG    | monitor:554 | 正在初始化异步 SQLite 检查点...
+2026-04-17 18:25:30 | DEBUG    | monitor:559 | 异步检查点初始化完成
+2026-04-17 18:25:30 | DEBUG    | monitor:239 | [rag_retrieval] RAG 检索完成 | query_len=34 | retrieved_count=3 | avg_score=0.819 | elapsed_ms=34.1
+2026-04-17 18:25:30 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #1 | score=0.860 | tool=read_file | timestamp=2026-04-17T18:16:01 | snippet=工具: read_file 参数: {   "path": "20260417_144722_482.json" } 成功: False 错误: 文件不存在: 20260417_144722_482.json
+2026-04-17 18:25:30 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #2 | score=0.807 | tool=read_file | timestamp=2026-04-17T18:19:15 | snippet=工具: read_file 参数: {   "path": "20260417_164806_442.json" } 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 '20260417_164806_442.json' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260417_164806_442.json ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  {   "session_id": "20260417_164806_442", 
+2026-04-17 18:25:30 | DEBUG    | monitor:239 | [rag_evidence_detail] 证据 #3 | score=0.790 | tool=bash | timestamp=2026-04-17T18:16:03 | snippet=工具: bash 参数: {   "command": "find . -name '20260417_144722_482.json' 2>/dev/null" } 成功: True
+2026-04-17 18:25:30 | DEBUG    | monitor:182 | RAG 增强后消息数: 2
+2026-04-17 18:25:31 | DEBUG    | monitor:207 | LLM 响应长度: 46 字符
+2026-04-17 18:25:31 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_164806_442.json"}')
+2026-04-17 18:25:31 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 18:25:31 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('read_file', {'path': '20260417_164806_442.json'})]
+2026-04-17 18:25:31 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "20260417_164806_442.json"}')
+2026-04-17 18:25:31 | DEBUG    | monitor:914 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-17 18:25:31 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': '20260417_164806_442.json'})]
+2026-04-17 18:25:31 | INFO     | monitor:296 | 解析到 1 个工具调用
+2026-04-17 18:25:31 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x1799fa280>, '20260417_164806_442.json')
+2026-04-17 18:25:31 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.004s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260417_164806_442.json", "fuzzy_match": true, "original_request": "20260417_164806_442.json", "note": "原路径 \'2
+2026-04-17 18:25:31 | DEBUG    | monitor:345 | 工具 read_file 执行成功，耗时 0.004s
+2026-04-17 18:25:31 | DEBUG    | monitor:395 | 已将文件 /Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260417_164806_442.json 摘要存入向量记忆
+2026-04-17 18:25:31 | DEBUG    | monitor:406 | 工具结果已写入向量库: read_file
+2026-04-17 18:25:34 | DEBUG    | monitor:207 | LLM 响应长度: 34 字符
+2026-04-17 18:25:34 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('查找20260417_144722_482.json，解析我问的问题')
+2026-04-17 18:25:34 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 18:25:34 | DEBUG    | monitor:270 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('查找20260417_144722_482.json，解析我问的问题')
+2026-04-17 18:25:34 | DEBUG    | monitor:276 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-17 18:25:34 | INFO     | monitor:286 | 模型返回自然语言回答，直接作为最终输出
+2026-04-17 18:25:34 | DEBUG    | monitor:584 | 已有最终回答，进入 finalize
+2026-04-17 18:25:34 | INFO     | monitor:669 | LangGraphAgent.run 完成，迭代: 1，工具调用数: 1，耗时: 4.08s，thread_id: 35w90l84ous
+2026-04-17 18:25:34 | INFO     | monitor:535 | Agent 执行完成，工具调用数: 1
+2026-04-17 18:25:34 | INFO     | monitor:561 | 请求处理完成，总耗时 4.09s
+2026-04-17 18:25:34 | INFO     | monitor:164 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 9.697s

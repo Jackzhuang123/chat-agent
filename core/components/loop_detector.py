@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 from typing import Dict, List, TYPE_CHECKING
+from core.monitor_logger import get_monitor_logger, log_event
 
 if TYPE_CHECKING:
     from core.state_manager import SessionContext
@@ -30,13 +31,26 @@ def detect_loop(session: "SessionContext", max_same: int = 3) -> bool:
             return f"execute_python|hash={code_hash}"
         return f"{tool}|{h.get('args', '')}"
 
-    if len(session.tool_history) < max_same:
+    current_chain_id = getattr(session, "current_tool_chain_id", None)
+    if current_chain_id:
+        scoped_history = [h for h in session.tool_history if h.get("chain_id") == current_chain_id]
+    else:
+        scoped_history = list(session.tool_history)
+
+    if len(scoped_history) < max_same:
         return False
 
-    recent_window = session.tool_history[-12:]
+    recent_window = scoped_history[-12:]
     recent = recent_window[-max_same:]
     first_key = _make_key(recent[0])
     if all(_make_key(h) == first_key for h in recent):
+        log_event(
+            event_type="loop_detected",
+            message="连续相同工具调用",
+            tool=recent[0].get("tool"),
+            args_key=first_key,
+            consecutive_count=len(recent),
+        )
         return True
 
     tool_counts: Dict[str, int] = {}
@@ -52,8 +66,21 @@ def detect_loop(session: "SessionContext", max_same: int = 3) -> bool:
         if cnt >= 8:
             if tool == "execute_python":
                 if len(set(py_hashes)) <= 3:
+                    log_event(
+                        event_type="loop_detected",
+                        message="高频 execute_python 调用",
+                        tool=tool,
+                        count=cnt,
+                        unique_hashes=len(set(py_hashes)),
+                    )
                     return True
             else:
+                log_event(
+                    event_type="loop_detected",
+                    message="高频工具调用",
+                    tool=tool,
+                    count=cnt,
+                )
                 return True
 
     if hasattr(session, 'raw_response_cache') and len(session.raw_response_cache) >= 4:
@@ -68,5 +95,10 @@ def detect_loop(session: "SessionContext", max_same: int = 3) -> bool:
                 fingerprint = re.sub(r'\s+', ' ', after).strip()
                 thought_patterns.append(f"{tname}|{fingerprint}")
         if len(thought_patterns) >= 4 and len(set(thought_patterns[-4:])) <= 2:
+            log_event(
+                event_type="loop_detected",
+                message="thought 重复模式",
+                recent_patterns=thought_patterns[-4:],
+            )
             return True
     return False

@@ -6,7 +6,6 @@ core 模块 - Agent 核心系统
 # EnhancedParallelExecutor 保留供外部引用，但已无实际业务逻辑依赖。
 from typing import Set as _Set
 
-from .components import DeepReflectionEngine
 # ── 从各自独立模块导入（不再依赖 agent_framework_legacy）──────────────────
 from .langgraph_agent import LangGraphAgent as QwenAgentFramework  # 向后兼容别名
 from .model_forward import create_qwen_model_forward
@@ -41,6 +40,7 @@ from .agent_middlewares import (
     UploadedFilesMiddleware,
     ToolResultGuardMiddleware,
     ConversationSummaryMiddleware,
+    ContextWindowMiddleware,
     CompletenessMiddleware,
     AskUserQuestionMiddleware,
     CompletionStatusMiddleware,
@@ -49,9 +49,6 @@ from .agent_middlewares import (
 )
 from .agent_skills import SkillManager, SkillInjector, create_example_skills
 from .agent_tools import ToolExecutor, ToolParser, ToolRegistry, create_web_search_tool_placeholder
-from .interaction import format_interaction_prompt, parse_interaction_response
-from .interactive import format_interactive_prompt, parse_interactive_response as parse_interactive_response_raw
-from .mode_router import PreciseModeRouter, IntentType, IntentResult
 from .langgraph_agent import LangGraphAgent
 from .multi_agent import (
     MultiAgentOrchestrator,
@@ -60,24 +57,17 @@ from .multi_agent import (
     ExecutorAgent,
     ReviewerAgent,
 )
-from .phase_runner import PhaseRunner
-from .plugin_executor import execute_plugin, PluginResult
-from .plugin_registry import PluginRegistry
 from .state_manager import WorkflowStateManager
 from .streaming_framework import StreamingFramework, create_streaming_wrapper
 from .tool_enforcement_middleware import ToolEnforcementMiddleware
 from .tool_learner import AdaptiveToolLearner
 from .vector_memory import VectorMemory, LocalEmbeddingProvider
-from .workflow_dag import WorkflowDAG, EXAMPLE_CONFIG
-# 新增模块
-from .workflow_orchestrator import WorkflowOrchestrator
 
 __all__ = [
     # Framework
     "QwenAgentFramework",
     "ParallelConfig",
     "EnhancedParallelExecutor",
-    "DeepReflectionEngine",
     "READ_ONLY_TOOLS",
     "register_read_only_tool",
     "create_qwen_model_forward",
@@ -89,6 +79,7 @@ __all__ = [
     "UploadedFilesMiddleware",
     "ToolResultGuardMiddleware",
     "ConversationSummaryMiddleware",
+    "ContextWindowMiddleware",
     "CompletenessMiddleware",
     "AskUserQuestionMiddleware",
     "CompletionStatusMiddleware",
@@ -105,9 +96,6 @@ __all__ = [
     "ToolRegistry",
     "create_web_search_tool_placeholder",
     # Routing
-    "PreciseModeRouter",
-    "IntentType",
-    "IntentResult",
     # Multi-Agent
     "MultiAgentOrchestrator",
     "ReActMultiAgentOrchestrator",
@@ -121,18 +109,5 @@ __all__ = [
     "AdaptiveToolLearner",
     "VectorMemory",
     "LocalEmbeddingProvider",
-    # New workflow modules
-    "WorkflowOrchestrator",
-    "WorkflowStateManager",
-    "format_interaction_prompt",
-    "parse_interaction_response",
-    "format_interactive_prompt",
-    "parse_interactive_response_raw",
-    "PluginRegistry",
-    "execute_plugin",
-    "PluginResult",
-    "PhaseRunner",
-    "WorkflowDAG",
-    "EXAMPLE_CONFIG",
     "LangGraphAgent",
 ]

@@ -13,7 +13,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from core.monitor_logger import get_monitor_logger, log_startup, log_shutdown
+from core.monitor_logger import get_monitor_logger, log_startup, log_shutdown,set_log_level
 
 import gradio as gr
 
@@ -848,6 +848,7 @@ if __name__ == "__main__":
     monitor.info(f"启动 Gradio 服务，端口 {port}")
 
     try:
+        set_log_level("DEBUG")  # 开启 DEBUG 级别日志
         demo.launch(
             server_name="0.0.0.0",
             server_port=port,

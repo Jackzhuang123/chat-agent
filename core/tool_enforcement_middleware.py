@@ -96,40 +96,47 @@ class ToolEnforcementMiddleware(AgentMiddleware):
         return messages
 
     async def process_after_llm(self, response: str, context: Dict) -> str:
-        """检查模型输出是否包含工具调用。
-
-        注意：优先使用 ToolParser 的完整解析逻辑（含容错），仅在确实没有任何
-        工具调用迹象时才触发重试，避免因格式检查过严误杀合法输出。
-        """
         run_mode = context.get("run_mode", "chat")
         if run_mode != "tools":
             return response
 
-        # 使用完整解析器检查（与框架主循环保持一致）
         tool_calls = ToolParser.parse_tool_calls(response)
 
-        # 若解析到工具调用，重置重试计数器
         if tool_calls:
             context["_tool_enforcement_retry"] = 0
             context["_needs_retry"] = False
             return response
 
-        # ---- 无工具调用 ----
-        # 先判断是否已是"任务完成"状态的自然语言回答（不应强制重试）
-        finish_signals = ("完成", "已完成", "总结", "综上", "结论", "以上", "如下", "好的", "以下是",
-                          "done", "finished", "complete")
-        is_likely_finished = any(s in response[:100] for s in finish_signals)
-
-        # 若看起来是任务结束的总结，放行（交给主循环的 _looks_finished 处理）
-        if is_likely_finished:
+        # 模糊问题判断
+        user_input = context.get("user_input", "")
+        fuzzy_indicators = (
+            len(user_input.strip()) < 15,
+            any(w in user_input for w in ["具体", "详细", "再", "然后", "接着", "继续", "之前", "刚刚"]),
+            not any(kw in user_input for kw in
+                    ["文件", "读取", "写入", "扫描", "执行", "bash", "read", "write", "代码", "目录", "运行"]),
+        )
+        if all(fuzzy_indicators):
+            # 模糊且无明确操作词 → 允许自然语言回答
             context["_needs_retry"] = False
             return response
 
-        # 检测是否为知识问答子任务的合理回答（混合任务场景）
+        # 检测是否为知识问答子任务的合理回答
         if self._is_knowledge_qa_response(response, context):
             context["_knowledge_qa_detected"] = True
-            # 记录检测时的迭代号，使该标志仅在本迭代内有效
             context["_knowledge_qa_detected_iter"] = context.get("iteration", 0)
+            context["_needs_retry"] = False
+            return response
+
+        # 新增：检测模型是否已经给出了合理的自然语言回答
+        # 如果响应看起来是一个完整的句子/回答（而不是工具调用意图），允许直接返回
+        if self._looks_like_final_answer(response):
+            context["_needs_retry"] = False
+            return response
+
+        # 新增：检查迭代次数，如果已经执行过工具，允许模型给出总结性回答
+        iteration = context.get("iteration", 0)
+        if iteration > 0:
+            # 已经有过工具执行，模型可能在总结结果
             context["_needs_retry"] = False
             return response
 
@@ -148,10 +155,34 @@ class ToolEnforcementMiddleware(AgentMiddleware):
             )
             return response + warning
         else:
-            # 已达最大重试次数，标记失败但不再追加错误提示（避免污染上下文）
             context["_tool_enforcement_failed"] = True
             context["_needs_retry"] = False
             return response
+
+    def _looks_like_final_answer(self, response: str) -> bool:
+        """判断响应是否看起来像最终回答而不是工具调用意图"""
+        # 如果响应包含明显的工具调用格式尝试，返回 False
+        tool_format_indicators = [
+            '{"', '"}', '"command"', '"path"', '"code"',
+            '\\n{',  'read_file\\n', 'bash\\n', 'execute_python\\n',
+        ]
+        response_lower = response.lower()
+        for indicator in tool_format_indicators:
+            if indicator.lower() in response_lower:
+                return False
+
+        # 如果响应是一个完整的句子（包含句号或感叹号），可能是最终回答
+        if any(p in response for p in ['。', '！', '？', '.', '!', '?']):
+            # 检查句子长度，短句子可能是简单的确认
+            if len(response) > 10:
+                return True
+
+        # 如果响应包含解释性词语，可能是最终回答
+        explanation_words = ['文件', '不存在', '找不到', '无法', '没有', '完成', '成功', '失败', '结果']
+        if any(w in response for w in explanation_words):
+            return True
+
+        return False
 
 
 

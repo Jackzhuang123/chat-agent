@@ -1,0 +1,53 @@
+{
+  "workflow_id": "wf_1776267656",
+  "status": "idle",
+  "created_at": "2026-04-15T23:40:56.654770",
+  "updated_at": "2026-04-15T23:41:18.401041",
+  "current_stage": "report",
+  "stages": {
+    "init": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:40:56.656322",
+      "completed_at": "2026-04-15T23:41:01.997819",
+      "error": null
+    },
+    "analyze": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:41:01.999393",
+      "completed_at": "2026-04-15T23:41:11.990961",
+      "error": null
+    },
+    "merge": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:41:11.991859",
+      "completed_at": "2026-04-15T23:41:15.532172",
+      "error": null
+    },
+    "report": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:41:15.533625",
+      "completed_at": "2026-04-15T23:41:18.400671",
+      "error": null
+    }
+  },
+  "artifacts": {
+    "response": "根据您的要求，以下是您之前提出的问题回顾：\n\n1. 您曾要求执行工作流阶段：init。\n2. 您还询问了如何回顾之前所有提出的问题。\n\n如果您有其他问题或需要进一步的帮助，请告诉我。同时，并行触发的工具包括process_a和process_b。",
+    "tool_calls": [],
+    "parallel_triggered": [
+      "process_a",
+      "process_b"
+    ]
+  },
+  "user_input": "回顾之前所有我提的问题",
+  "runtime_context": {
+    "run_mode": "plan",
+    "plan_mode": false,
+    "uploaded_files": [],
+    "selected_skills": [],
+    "intent_reasons": [
+      "LLM: 用户意图表达了对之前提问的回顾，涉及回顾和回顾相关任务规划 | 规则: 匹配0个模式"
+    ]
+  },
+  "pending_interaction_stage": null,
+  "pending_interaction_config": null
+}

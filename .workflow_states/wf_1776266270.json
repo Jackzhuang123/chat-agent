@@ -1,0 +1,64 @@
+{
+  "workflow_id": "wf_1776266270",
+  "status": "idle",
+  "created_at": "2026-04-15T23:17:50.048634",
+  "updated_at": "2026-04-15T23:19:15.113570",
+  "current_stage": "report",
+  "stages": {
+    "init": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:17:50.050342",
+      "completed_at": "2026-04-15T23:18:22.167521",
+      "error": null
+    },
+    "analyze": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:18:22.179299",
+      "completed_at": "2026-04-15T23:19:00.427860",
+      "error": null
+    },
+    "merge": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:19:00.428244",
+      "completed_at": "2026-04-15T23:19:05.735659",
+      "error": null
+    },
+    "report": {
+      "status": "completed",
+      "started_at": "2026-04-15T23:19:05.742375",
+      "completed_at": "2026-04-15T23:19:15.113256",
+      "error": null
+    }
+  },
+  "artifacts": {
+    "response": "⚠️ 工具调用格式纠正后仍未解析成功。\n请重试并严格使用：工具名独占一行 + JSON 参数。\n\n模型回复:\n了解了，我将重新调整工具调用格式。现在我将使用 `bash` 来查找与 `report` 阶段相关的未完成任务。\n\n执行命令：`bash -c \"grep -r 'report' /Users/zhuangranxin/PyCharmProjects/chat-Agent/workflow.log\"`bash\ngrep -r 'report' /Users/zhuangranxin/PyCharmProjects/chat-Agent/workflow.log",
+    "tool_calls": [
+      {
+        "tool": "execute_python",
+        "result": {
+          "success": false,
+          "error": "缺少必需参数 'code'",
+          "tool": "execute_python",
+          "timestamp": "2026-04-15T15:19:07Z"
+        },
+        "success": false
+      }
+    ],
+    "parallel_triggered": [
+      "process_a",
+      "process_b"
+    ]
+  },
+  "user_input": "那第三个呢，如果没有完成重新完成",
+  "runtime_context": {
+    "run_mode": "plan",
+    "plan_mode": false,
+    "uploaded_files": [],
+    "selected_skills": [],
+    "intent_reasons": [
+      "LLM: 用户提出了需要重新执行某个步骤的任务 | 规则: 匹配0个模式"
+    ]
+  },
+  "pending_interaction_stage": null,
+  "pending_interaction_config": null
+}
