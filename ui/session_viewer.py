@@ -131,7 +131,7 @@ def create_session_viewer():
                         ])
                     return data
 
-                def on_session_select(evt):
+                def on_session_select(evt: gr.SelectData):
                     """选中会话时的回调"""
                     if evt and len(evt.index) > 0:
                         row_idx = evt.index[0]
@@ -151,14 +151,16 @@ def create_session_viewer():
                 # 会话表格选择事件
                 sessions_table.select(
                     on_session_select,
-                    outputs=selected_session_id
+                    outputs=selected_session_id,
+                    queue=False
                 )
 
-                refresh_btn.click(refresh_sessions, outputs=sessions_table)
+                refresh_btn.click(refresh_sessions, outputs=sessions_table, queue=False)
                 delete_session_btn.click(
                     delete_selected_session,
                     inputs=selected_session_id,
-                    outputs=[delete_result_msg, sessions_table]
+                    outputs=[delete_result_msg, sessions_table],
+                    queue=False
                 )
 
             # ===== Tab 2: 会话详情 =====
@@ -357,7 +359,8 @@ def create_session_viewer():
                 view_session_btn.click(
                     show_session_details,
                     inputs=selected_session_id,
-                    outputs=[stat_msgs, stat_calls, stat_duration, stat_tokens, messages_html, calls_html]
+                    outputs=[stat_msgs, stat_calls, stat_duration, stat_tokens, messages_html, calls_html],
+                    queue=False
                 )
 
             # ===== Tab 3: 数据导出 =====
@@ -413,7 +416,7 @@ def create_session_viewer():
                 )
 
         # 页面加载时自动填充会话列表
-        demo.load(refresh_sessions, outputs=sessions_table)
+        demo.load(refresh_sessions, outputs=sessions_table, queue=False)
 
     return demo
 
@@ -437,11 +440,15 @@ if __name__ == "__main__":
     print(f"✅ 会话查看器运行在端口 {port}")
 
     demo = create_session_viewer()
-    demo.launch(
-        server_name="0.0.0.0",
+    _, local_url, _ = demo.launch(
+        server_name="127.0.0.1",
         server_port=port,
-        inbrowser=True,
+        inbrowser=False,
         share=False,
-        show_error=True
+        show_error=True,
+        _frontend=False,
+        prevent_thread_lock=True
     )
-
+    demo.startup_events()
+    print(f"✅ 会话查看器本地服务已启动: {local_url}")
+    demo.block_thread()

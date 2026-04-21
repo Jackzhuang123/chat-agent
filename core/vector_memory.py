@@ -16,6 +16,7 @@
 
 import hashlib
 import json
+import os
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime
@@ -63,9 +64,17 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         self.max_cache_size = max_cache_size
         try:
             from sentence_transformers import SentenceTransformer
-            self.model = SentenceTransformer(model_name)
+            allow_download = os.environ.get("CHAT_AGENT_ALLOW_MODEL_DOWNLOAD", "").strip() == "1"
+            if allow_download:
+                self.model = SentenceTransformer(model_name)
+            else:
+                # 默认仅使用本地缓存，避免启动阶段因外网不可达而长时间阻塞或失败。
+                self.model = SentenceTransformer(model_name, local_files_only=True)
             self.dimension = self.model.get_sentence_embedding_dimension()
-            print(f"✅ 使用 SentenceTransformer 模型: {model_name}")
+            if allow_download:
+                print(f"✅ 使用 SentenceTransformer 模型: {model_name}")
+            else:
+                print(f"✅ 使用本地缓存的 SentenceTransformer 模型: {model_name}")
         except Exception as e:
             # 降级到 TF-IDF 哈希
             self.model = None

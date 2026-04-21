@@ -796,7 +796,8 @@ class LangGraphAgent:
         await self._ensure_graph()
 
         if thread_id is None:
-            thread_id = session.current_tool_chain_id or f"thread_{int(start)}_{uuid.uuid4().hex[:6]}"
+            # 每次 run 默认生成新的执行链，避免跨请求复用旧工具历史，误触发循环检测。
+            thread_id = f"thread_{int(start)}_{uuid.uuid4().hex[:6]}"
         session.current_tool_chain_id = thread_id
 
         messages = self._build_messages(user_input, history)

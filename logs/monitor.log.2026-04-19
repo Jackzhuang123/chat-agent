@@ -1,0 +1,458 @@
+2026-04-19 00:03:06 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x1054df4f0>, '/var/folders/k5/jjx79b892xv8_sgttsfr1bkh0000gn/T/tmp1z18mqip/sample.py')
+2026-04-19 00:03:06 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.000s | 返回 '{"success": true, "path": "/var/folders/k5/jjx79b892xv8_sgttsfr1bkh0000gn/T/tmp1z18mqip/sample.py", "content": "import os\\n\\nclass Demo:\\n    def method_one(self):\\n        return 1\\n\\ndef top_
+2026-04-19 00:04:59 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x103bd9bb0>, '/var/folders/k5/jjx79b892xv8_sgttsfr1bkh0000gn/T/tmpnrt_rihj/sample.py')
+2026-04-19 00:04:59 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.000s | 返回 '{"success": true, "path": "/var/folders/k5/jjx79b892xv8_sgttsfr1bkh0000gn/T/tmpnrt_rihj/sample.py", "content": "import os\\n\\nclass Demo:\\n    def method_one(self):\\n        return 1\\n\\ndef top_
+2026-04-19 00:06:19 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 00:06:19 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 00:06:19 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 00:06:19 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 00:06:19 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7860
+2026-04-19 00:06:40 | INFO     | monitor:699 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-19 00:06:40 | INFO     | monitor:271 | 收到用户消息，trace_id=req_a4cac0dcbce9, session=twqpu3y8, 消息预览: 1. 帮我扫描整个 core 目录，找出所有类和方法，整理成文档写入 API.md
+2. 给出周杰伦最出名的十首歌，截取片段并解释含义
+3. 阅读session_analyzer.py代码，进行解释
+2026-04-19 00:06:40 | INFO     | monitor:245 | [request_received] 收到用户请求 | trace_id=req_a4cac0dcbce9 | session=twqpu3y8 | user_len=99 | has_uploads=False
+2026-04-19 00:06:40 | DEBUG    | monitor:70 | RAG路由开始，输入: 1. 帮我扫描整个 core 目录，找出所有类和方法，整理成文档写入 API.md
+2. 给出周杰伦最出名的十首歌，截取片段并解释含义
+3. 阅读session_analyzer.py代码，进行解释
+2026-04-19 00:06:40 | INFO     | monitor:87 | 前置规则命中：显式文件操作 → tools
+2026-04-19 00:06:40 | INFO     | monitor:390 | 意图路由结果: tools, 置信度: 0.99, 计划模式: True
+2026-04-19 00:06:40 | INFO     | monitor:245 | [intent_route] 完成意图路由 | trace_id=req_a4cac0dcbce9 | session=twqpu3y8 | run_mode=tools | confidence=0.99 | plan_mode=True | auto_plan=True | skills=-
+2026-04-19 00:06:40 | INFO     | monitor:477 | 进入 ReAct 多 Agent 模式
+2026-04-19 00:06:40 | INFO     | monitor:382 | 多 Agent 流程开始，trace_id=req_a4cac0dcbce9, 输入长度: 99
+2026-04-19 00:06:40 | INFO     | monitor:245 | [multi_agent_started] 多 Agent 流程开始 | trace_id=req_a4cac0dcbce9 | input_len=99
+2026-04-19 00:06:46 | INFO     | monitor:428 | 规划完成，步骤数: 3，复杂度: medium
+2026-04-19 00:06:46 | INFO     | monitor:245 | [multi_agent_plan_ready] 多 Agent 规划完成 | trace_id=req_a4cac0dcbce9 | complexity=medium | steps=3
+2026-04-19 00:06:46 | INFO     | monitor:782 | LangGraphAgent.run 开始，trace_id=-, 输入长度: 347
+2026-04-19 00:06:46 | DEBUG    | monitor:715 | 正在初始化异步 SQLite 检查点...
+2026-04-19 00:06:46 | DEBUG    | monitor:720 | 异步检查点初始化完成
+2026-04-19 00:06:46 | INFO     | monitor:245 | [agent_run_started] LangGraphAgent 开始执行 | trace_id=- | thread_id=req_a4cac0dcbce9_step1_try0 | run_mode=tools | plan_mode=False
+2026-04-19 00:06:46 | INFO     | monitor:274 | 检测到明确文件读取请求，跳过历史 RAG 注入
+2026-04-19 00:06:46 | INFO     | monitor:245 | [agent_llm_call] 开始调用 LLM | trace_id=- | iteration=0 | run_mode=tools | message_count=3 | system_prompt_mode=tools
+2026-04-19 00:06:50 | DEBUG    | monitor:319 | LLM 响应长度: 147 字符
+2026-04-19 00:06:50 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "grep -Ern \'^(class|def) \' core/ --include=\'*.py\' | sed \'s/.*\\(class\\|def\)
+2026-04-19 00:06:50 | DEBUG    | monitor:979 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-19 00:06:50 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('bash', {'command': "grep -Ern '^(class|def) ' core/ --include='*.py' | sed 's/.*\\(class\\|def\\) \\([a-zA-Z_][a-zA-Z0-9_]*\\).*/\\2/' | sort -u > API.md"})]
+2026-04-19 00:06:50 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "grep -Ern \'^(class|def) \' core/ --include=\'*.py\' | sed \'s/.*\\(class\\|def\)
+2026-04-19 00:06:50 | DEBUG    | monitor:979 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-19 00:06:50 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('bash', {'command': "grep -Ern '^(class|def) ' core/ --include='*.py' | sed 's/.*\\(class\\|def\\) \\([a-zA-Z_][a-zA-Z0-9_]*\\).*/\\2/' | sort -u > API.md"})]
+2026-04-19 00:06:50 | INFO     | monitor:415 | 解析到 1 个工具调用
+2026-04-19 00:06:50 | INFO     | monitor:245 | [agent_tool_calls_parsed] 模型输出已解析为工具调用 | trace_id=- | iteration=0 | tool_count=1
+2026-04-19 00:06:50 | INFO     | monitor:245 | [tool_started] 开始执行工具 | trace_id=- | tool=bash | args={"command": "grep -Ern '^(class|def) ' core/ --include='*.py' | sed 's/.*\\(class\\|def\\) \\([a-zA-Z_][a-zA-Z0-9_]*\\).*/\\2/' | sort -u > API.md"}
+2026-04-19 00:06:50 | DEBUG    | monitor:479 | 工具 bash 执行成功，耗时 0.060s
+2026-04-19 00:06:50 | INFO     | monitor:245 | [tool_completed] 工具执行完成 | trace_id=- | tool=bash | success=True | exec_ms=60.2 | ledger={"confirmed_facts": 1, "file_facts": 0, "failed_actions": 0, "open_questions": 0}
+2026-04-19 00:06:50 | DEBUG    | monitor:551 | 工具结果已写入向量库: bash
+2026-04-19 00:06:50 | INFO     | monitor:245 | [agent_llm_call] 开始调用 LLM | trace_id=- | iteration=1 | run_mode=tools | message_count=3 | system_prompt_mode=tools
+2026-04-19 00:06:57 | DEBUG    | monitor:319 | LLM 响应长度: 318 字符
+2026-04-19 00:06:57 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls("成功执行了bash命令，扫描了core/目录下的所有Python文件，提取了类和方法定义，并将结果重定向写入API.md文件中。具体命令如下：\n\n```bash\ngrep -Ern '^(cl)
+2026-04-19 00:06:57 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:06:57 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:06:57 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls("成功执行了bash命令，扫描了core/目录下的所有Python文件，提取了类和方法定义，并将结果重定向写入API.md文件中。具体命令如下：\n\n```bash\ngrep -Ern '^(cl)
+2026-04-19 00:06:57 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:06:57 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:06:57 | WARNING  | monitor:358 | 检测到工具调用意图但解析失败，尝试格式纠正
+2026-04-19 00:07:00 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "grep -Ern \'^(class|def) \' core/ --include=\'*.py\' | sed \'s/.*\\\\(class\\\\|)
+2026-04-19 00:07:00 | DEBUG    | monitor:979 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-19 00:07:00 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('bash', {'command': "grep -Ern '^(class|def) ' core/ --include='*.py' | sed 's/.*\\(class\\|def\\) \\([a-zA-Z_][a-zA-Z0-9_]*\\).*/\\2/' | sort -u > API.md"})]
+2026-04-19 00:07:00 | INFO     | monitor:381 | 格式纠正成功，解析到工具调用
+2026-04-19 00:07:00 | INFO     | monitor:245 | [tool_started] 开始执行工具 | trace_id=- | tool=bash | args={"command": "grep -Ern '^(class|def) ' core/ --include='*.py' | sed 's/.*\\(class\\|def\\) \\([a-zA-Z_][a-zA-Z0-9_]*\\).*/\\2/' | sort -u > API.md"}
+2026-04-19 00:07:00 | DEBUG    | monitor:479 | 工具 bash 执行成功，耗时 0.031s
+2026-04-19 00:07:00 | INFO     | monitor:245 | [tool_completed] 工具执行完成 | trace_id=- | tool=bash | success=True | exec_ms=30.8 | ledger={"confirmed_facts": 1, "file_facts": 0, "failed_actions": 0, "open_questions": 0}
+2026-04-19 00:07:00 | DEBUG    | monitor:551 | 工具结果已写入向量库: bash
+2026-04-19 00:07:00 | INFO     | monitor:245 | [agent_llm_call] 开始调用 LLM | trace_id=- | iteration=2 | run_mode=tools | message_count=3 | system_prompt_mode=tools
+2026-04-19 00:07:02 | DEBUG    | monitor:319 | LLM 响应长度: 41 字符
+2026-04-19 00:07:02 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('已成功扫描 core/ 目录并提取类和方法，结果已重定向写入 API.md 文件。')
+2026-04-19 00:07:02 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:07:02 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('已成功扫描 core/ 目录并提取类和方法，结果已重定向写入 API.md 文件。')
+2026-04-19 00:07:02 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:07:02 | INFO     | monitor:405 | 模型返回自然语言回答，直接作为最终输出
+2026-04-19 00:07:02 | DEBUG    | monitor:745 | 已有最终回答，进入 finalize
+2026-04-19 00:07:02 | INFO     | monitor:840 | LangGraphAgent.run 完成，trace_id=-, 迭代: 2，工具调用数: 1，耗时: 16.04s，thread_id: req_a4cac0dcbce9_step1_try0
+2026-04-19 00:07:02 | INFO     | monitor:245 | [agent_run_completed] LangGraphAgent 执行完成 | trace_id=- | thread_id=req_a4cac0dcbce9_step1_try0 | iterations=2 | tool_results=1 | duration_s=16.04 | final_response_len=41 | ledger={"confirmed_facts": 1, "file_facts": 0, "failed_actions": 0, "open_questions": 0}
+2026-04-19 00:07:02 | DEBUG    | monitor:525 | 步骤 1 成功（尝试 1 次）
+2026-04-19 00:07:02 | INFO     | monitor:245 | [multi_agent_step_completed] 步骤执行成功 | trace_id=req_a4cac0dcbce9 | step_id=1 | tool_hint=bash | retries=0 | tool_calls=1
+2026-04-19 00:07:02 | INFO     | monitor:782 | LangGraphAgent.run 开始，trace_id=-, 输入长度: 548
+2026-04-19 00:07:02 | INFO     | monitor:245 | [agent_run_started] LangGraphAgent 开始执行 | trace_id=- | thread_id=req_a4cac0dcbce9_step2_try0 | run_mode=tools | plan_mode=False
+2026-04-19 00:07:02 | INFO     | monitor:274 | 检测到明确文件读取请求，跳过历史 RAG 注入
+2026-04-19 00:07:02 | INFO     | monitor:245 | [agent_llm_call] 开始调用 LLM | trace_id=- | iteration=0 | run_mode=tools | message_count=4 | system_prompt_mode=tools
+2026-04-19 00:07:19 | DEBUG    | monitor:319 | LLM 响应长度: 783 字符
+2026-04-19 00:07:19 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('周杰伦是华语乐坛极具影响力的歌手之一，以下是他最出名的十首歌及其片段和含义：\n\n1. 《青花瓷》\n   - 片段：“素胚勾勒出青花笔锋浓转”\n   - 含义：这首歌以中国传统文化为背景，描绘)
+2026-04-19 00:07:19 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:07:19 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:07:19 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('周杰伦是华语乐坛极具影响力的歌手之一，以下是他最出名的十首歌及其片段和含义：\n\n1. 《青花瓷》\n   - 片段：“素胚勾勒出青花笔锋浓转”\n   - 含义：这首歌以中国传统文化为背景，描绘)
+2026-04-19 00:07:19 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:07:19 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:07:20 | INFO     | monitor:405 | 模型返回自然语言回答，直接作为最终输出
+2026-04-19 00:07:20 | DEBUG    | monitor:745 | 已有最终回答，进入 finalize
+2026-04-19 00:07:20 | INFO     | monitor:840 | LangGraphAgent.run 完成，trace_id=-, 迭代: 0，工具调用数: 0，耗时: 17.20s，thread_id: req_a4cac0dcbce9_step2_try0
+2026-04-19 00:07:20 | INFO     | monitor:245 | [agent_run_completed] LangGraphAgent 执行完成 | trace_id=- | thread_id=req_a4cac0dcbce9_step2_try0 | iterations=0 | tool_results=0 | duration_s=17.20 | final_response_len=783 | ledger={"confirmed_facts": 1, "file_facts": 0, "failed_actions": 0, "open_questions": 0}
+2026-04-19 00:07:20 | DEBUG    | monitor:525 | 步骤 2 成功（尝试 1 次）
+2026-04-19 00:07:20 | INFO     | monitor:245 | [multi_agent_step_completed] 步骤执行成功 | trace_id=req_a4cac0dcbce9 | step_id=2 | tool_hint=none | retries=0 | tool_calls=0
+2026-04-19 00:07:20 | INFO     | monitor:782 | LangGraphAgent.run 开始，trace_id=-, 输入长度: 783
+2026-04-19 00:07:20 | INFO     | monitor:245 | [agent_run_started] LangGraphAgent 开始执行 | trace_id=- | thread_id=req_a4cac0dcbce9_step3_try0 | run_mode=tools | plan_mode=False
+2026-04-19 00:07:20 | INFO     | monitor:274 | 检测到明确文件读取请求，跳过历史 RAG 注入
+2026-04-19 00:07:20 | INFO     | monitor:245 | [agent_llm_call] 开始调用 LLM | trace_id=- | iteration=0 | run_mode=tools | message_count=4 | system_prompt_mode=tools
+2026-04-19 00:07:22 | DEBUG    | monitor:319 | LLM 响应长度: 41 字符
+2026-04-19 00:07:22 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "session_analyzer.py"}')
+2026-04-19 00:07:22 | DEBUG    | monitor:979 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-19 00:07:22 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('read_file', {'path': 'session_analyzer.py'})]
+2026-04-19 00:07:22 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "session_analyzer.py"}')
+2026-04-19 00:07:22 | DEBUG    | monitor:979 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-19 00:07:22 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': 'session_analyzer.py'})]
+2026-04-19 00:07:22 | INFO     | monitor:415 | 解析到 1 个工具调用
+2026-04-19 00:07:22 | INFO     | monitor:245 | [agent_tool_calls_parsed] 模型输出已解析为工具调用 | trace_id=- | iteration=0 | tool_count=1
+2026-04-19 00:07:22 | INFO     | monitor:245 | [tool_started] 开始执行工具 | trace_id=- | tool=read_file | args={"path": "session_analyzer.py"}
+2026-04-19 00:07:22 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x306c7aaf0>, 'session_analyzer.py')
+2026-04-19 00:07:22 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.010s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py", "content": "⚠️ 系统自动纠正：你请求的路径 \'session_analyzer.py\' 不存在。\\n✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmPr
+2026-04-19 00:07:22 | DEBUG    | monitor:479 | 工具 read_file 执行成功，耗时 0.011s
+2026-04-19 00:07:22 | INFO     | monitor:245 | [tool_completed] 工具执行完成 | trace_id=- | tool=read_file | success=True | exec_ms=10.8 | ledger={"confirmed_facts": 2, "file_facts": 1, "failed_actions": 0, "open_questions": 0}
+2026-04-19 00:07:22 | DEBUG    | monitor:540 | 已将文件 /Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py 摘要存入向量记忆
+2026-04-19 00:07:22 | DEBUG    | monitor:551 | 工具结果已写入向量库: read_file
+2026-04-19 00:07:22 | INFO     | monitor:245 | [agent_llm_call] 开始调用 LLM | trace_id=- | iteration=1 | run_mode=tools | message_count=3 | system_prompt_mode=tools
+2026-04-19 00:07:29 | DEBUG    | monitor:319 | LLM 响应长度: 371 字符
+2026-04-19 00:07:29 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('文件内容显示，`session_analyzer.py` 是一个用于创建高级会话分析界面的Python脚本。该脚本使用Gradio库来构建用户界面，并提供了会话总览、JSON编辑和深度分析功能。以下)
+2026-04-19 00:07:29 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:07:29 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:07:29 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('文件内容显示，`session_analyzer.py` 是一个用于创建高级会话分析界面的Python脚本。该脚本使用Gradio库来构建用户界面，并提供了会话总览、JSON编辑和深度分析功能。以下)
+2026-04-19 00:07:29 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:07:29 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:07:29 | INFO     | monitor:405 | 模型返回自然语言回答，直接作为最终输出
+2026-04-19 00:07:29 | DEBUG    | monitor:745 | 已有最终回答，进入 finalize
+2026-04-19 00:07:29 | INFO     | monitor:840 | LangGraphAgent.run 完成，trace_id=-, 迭代: 1，工具调用数: 1，耗时: 9.56s，thread_id: req_a4cac0dcbce9_step3_try0
+2026-04-19 00:07:29 | INFO     | monitor:245 | [agent_run_completed] LangGraphAgent 执行完成 | trace_id=- | thread_id=req_a4cac0dcbce9_step3_try0 | iterations=1 | tool_results=1 | duration_s=9.56 | final_response_len=371 | ledger={"confirmed_facts": 2, "file_facts": 1, "failed_actions": 0, "open_questions": 0}
+2026-04-19 00:07:29 | DEBUG    | monitor:525 | 步骤 3 成功（尝试 1 次）
+2026-04-19 00:07:29 | INFO     | monitor:245 | [multi_agent_step_completed] 步骤执行成功 | trace_id=req_a4cac0dcbce9 | step_id=3 | tool_hint=read_file | retries=0 | tool_calls=1
+2026-04-19 00:07:53 | INFO     | monitor:245 | [multi_agent_final_artifact] 生成结构化最终产物 | trace_id=- | final_facts=2 | unresolved=0 | evidence=3
+2026-04-19 00:07:53 | INFO     | monitor:609 | 多 Agent 流程完成，成功步骤: 3/3，总耗时: 73.07s
+2026-04-19 00:07:53 | INFO     | monitor:245 | [multi_agent_completed] 多 Agent 流程完成 | trace_id=req_a4cac0dcbce9 | steps_total=3 | steps_success=3 | final_facts=2 | unresolved=0 | duration_s=73.07
+2026-04-19 00:07:53 | INFO     | monitor:519 | 多 Agent 执行完成，成功步骤: 3/3
+2026-04-19 00:07:53 | INFO     | monitor:245 | [request_completed] 多 Agent 请求完成 | trace_id=req_a4cac0dcbce9 | session=twqpu3y8 | mode=tools | steps_total=3 | steps_success=3 | duration_s=73.07
+2026-04-19 00:07:53 | INFO     | monitor:655 | 请求处理完成，trace_id=req_a4cac0dcbce9, 总耗时 73.08s
+2026-04-19 00:07:53 | INFO     | monitor:170 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 85.327s
+2026-04-19 00:14:31 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x101e1fe20>, '/var/folders/k5/jjx79b892xv8_sgttsfr1bkh0000gn/T/tmpmwr010lf/sample.py')
+2026-04-19 00:14:31 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.000s | 返回 '{"success": true, "path": "/var/folders/k5/jjx79b892xv8_sgttsfr1bkh0000gn/T/tmpmwr010lf/sample.py", "content": "import os\\n\\nclass Demo:\\n    def method_one(self):\\n        return 1\\n\\ndef top_
+2026-04-19 00:16:42 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x101d15820>, '/var/folders/k5/jjx79b892xv8_sgttsfr1bkh0000gn/T/tmpm08kzl6i/sample.py')
+2026-04-19 00:16:42 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.000s | 返回 '{"success": true, "path": "/var/folders/k5/jjx79b892xv8_sgttsfr1bkh0000gn/T/tmpm08kzl6i/sample.py", "content": "import os\\n\\nclass Demo:\\n    def method_one(self):\\n        return 1\\n\\ndef top_
+2026-04-19 00:17:50 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 00:17:50 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 00:17:50 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 00:17:50 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 00:17:50 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7860
+2026-04-19 00:18:05 | INFO     | monitor:710 | LangGraphAgent 初始化完成，Checkpoint DB: checkpoints.db
+2026-04-19 00:18:05 | INFO     | monitor:271 | 收到用户消息，trace_id=req_20e101acf62b, session=67ldwsqw, 消息预览: 1. 帮我扫描整个 core 目录，找出所有类和方法，整理成文档写入 API.md
+2. 给出周杰伦最出名的十首歌，截取片段并解释含义
+3. 阅读session_analyzer.py代码，进行解释
+2026-04-19 00:18:05 | INFO     | monitor:245 | [request_received] 收到用户请求 | trace_id=req_20e101acf62b | session=67ldwsqw | user_len=99 | has_uploads=False
+2026-04-19 00:18:05 | DEBUG    | monitor:70 | RAG路由开始，输入: 1. 帮我扫描整个 core 目录，找出所有类和方法，整理成文档写入 API.md
+2. 给出周杰伦最出名的十首歌，截取片段并解释含义
+3. 阅读session_analyzer.py代码，进行解释
+2026-04-19 00:18:05 | INFO     | monitor:87 | 前置规则命中：显式文件操作 → tools
+2026-04-19 00:18:05 | INFO     | monitor:390 | 意图路由结果: tools, 置信度: 0.99, 计划模式: True
+2026-04-19 00:18:05 | INFO     | monitor:245 | [intent_route] 完成意图路由 | trace_id=req_20e101acf62b | session=67ldwsqw | run_mode=tools | confidence=0.99 | plan_mode=True | auto_plan=True | skills=-
+2026-04-19 00:18:05 | INFO     | monitor:477 | 进入 ReAct 多 Agent 模式
+2026-04-19 00:18:05 | INFO     | monitor:382 | 多 Agent 流程开始，trace_id=req_20e101acf62b, 输入长度: 99
+2026-04-19 00:18:05 | INFO     | monitor:245 | [multi_agent_started] 多 Agent 流程开始 | trace_id=req_20e101acf62b | input_len=99
+2026-04-19 00:18:15 | INFO     | monitor:428 | 规划完成，步骤数: 3，复杂度: medium
+2026-04-19 00:18:15 | INFO     | monitor:245 | [multi_agent_plan_ready] 多 Agent 规划完成 | trace_id=req_20e101acf62b | complexity=medium | steps=3
+2026-04-19 00:18:15 | INFO     | monitor:793 | LangGraphAgent.run 开始，trace_id=-, 输入长度: 347
+2026-04-19 00:18:15 | DEBUG    | monitor:726 | 正在初始化异步 SQLite 检查点...
+2026-04-19 00:18:15 | DEBUG    | monitor:731 | 异步检查点初始化完成
+2026-04-19 00:18:15 | INFO     | monitor:245 | [agent_run_started] LangGraphAgent 开始执行 | trace_id=- | thread_id=req_20e101acf62b_step1_try0 | run_mode=tools | plan_mode=False
+2026-04-19 00:18:15 | INFO     | monitor:275 | 检测到明确文件读取请求，跳过历史 RAG 注入
+2026-04-19 00:18:15 | INFO     | monitor:245 | [agent_llm_call] 开始调用 LLM | trace_id=- | iteration=0 | run_mode=tools | message_count=3 | system_prompt_mode=tools
+2026-04-19 00:18:18 | DEBUG    | monitor:320 | LLM 响应长度: 147 字符
+2026-04-19 00:18:18 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "grep -Ern \'^(class|def) \' core/ --include=\'*.py\' | sed \'s/.*\\(class\\|def\)
+2026-04-19 00:18:18 | DEBUG    | monitor:979 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-19 00:18:18 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.001s | 返回 [('bash', {'command': "grep -Ern '^(class|def) ' core/ --include='*.py' | sed 's/.*\\(class\\|def\\) \\([a-zA-Z_][a-zA-Z0-9_]*\\).*/\\2/' | sort -u > API.md"})]
+2026-04-19 00:18:18 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('bash\n{"command": "grep -Ern \'^(class|def) \' core/ --include=\'*.py\' | sed \'s/.*\\(class\\|def\)
+2026-04-19 00:18:18 | DEBUG    | monitor:979 | 解析工具调用成功: bash (工具名+JSON格式)
+2026-04-19 00:18:18 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('bash', {'command': "grep -Ern '^(class|def) ' core/ --include='*.py' | sed 's/.*\\(class\\|def\\) \\([a-zA-Z_][a-zA-Z0-9_]*\\).*/\\2/' | sort -u > API.md"})]
+2026-04-19 00:18:18 | INFO     | monitor:426 | 解析到 1 个工具调用
+2026-04-19 00:18:18 | INFO     | monitor:245 | [agent_tool_calls_parsed] 模型输出已解析为工具调用 | trace_id=- | iteration=0 | tool_count=1
+2026-04-19 00:18:18 | INFO     | monitor:245 | [tool_started] 开始执行工具 | trace_id=- | tool=bash | args={"command": "grep -Ern '^(class|def) ' core/ --include='*.py' | sed 's/.*\\(class\\|def\\) \\([a-zA-Z_][a-zA-Z0-9_]*\\).*/\\2/' | sort -u > API.md"}
+2026-04-19 00:18:18 | DEBUG    | monitor:490 | 工具 bash 执行成功，耗时 0.059s
+2026-04-19 00:18:18 | INFO     | monitor:245 | [tool_completed] 工具执行完成 | trace_id=- | tool=bash | success=True | exec_ms=58.8 | ledger={"confirmed_facts": 1, "file_facts": 0, "failed_actions": 0, "open_questions": 0}
+2026-04-19 00:18:18 | DEBUG    | monitor:562 | 工具结果已写入向量库: bash
+2026-04-19 00:18:18 | INFO     | monitor:245 | [agent_llm_call] 开始调用 LLM | trace_id=- | iteration=1 | run_mode=tools | message_count=3 | system_prompt_mode=tools
+2026-04-19 00:18:23 | DEBUG    | monitor:320 | LLM 响应长度: 313 字符
+2026-04-19 00:18:23 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls("成功执行了bash命令，扫描了core/目录下的所有Python文件，提取了类和方法定义，并将结果重定向写入API.md文件中。具体命令如下：\n\n```bash\ngrep -Ern '^(cl)
+2026-04-19 00:18:23 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:18:23 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:18:23 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls("成功执行了bash命令，扫描了core/目录下的所有Python文件，提取了类和方法定义，并将结果重定向写入API.md文件中。具体命令如下：\n\n```bash\ngrep -Ern '^(cl)
+2026-04-19 00:18:23 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:18:23 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:18:23 | INFO     | monitor:407 | 当前链路已有成功工具结果，含工具名的自然语言将按结果总结处理，不再触发格式纠正
+2026-04-19 00:18:23 | INFO     | monitor:416 | 模型返回自然语言回答，直接作为最终输出
+2026-04-19 00:18:23 | DEBUG    | monitor:756 | 已有最终回答，进入 finalize
+2026-04-19 00:18:24 | INFO     | monitor:851 | LangGraphAgent.run 完成，trace_id=-, 迭代: 1，工具调用数: 1，耗时: 8.83s，thread_id: req_20e101acf62b_step1_try0
+2026-04-19 00:18:24 | INFO     | monitor:245 | [agent_run_completed] LangGraphAgent 执行完成 | trace_id=- | thread_id=req_20e101acf62b_step1_try0 | iterations=1 | tool_results=1 | duration_s=8.83 | final_response_len=313 | ledger={"confirmed_facts": 1, "file_facts": 0, "failed_actions": 0, "open_questions": 0}
+2026-04-19 00:18:24 | DEBUG    | monitor:525 | 步骤 1 成功（尝试 1 次）
+2026-04-19 00:18:24 | INFO     | monitor:245 | [multi_agent_step_completed] 步骤执行成功 | trace_id=req_20e101acf62b | step_id=1 | tool_hint=bash | retries=0 | tool_calls=1
+2026-04-19 00:18:24 | INFO     | monitor:793 | LangGraphAgent.run 开始，trace_id=-, 输入长度: 548
+2026-04-19 00:18:24 | INFO     | monitor:245 | [agent_run_started] LangGraphAgent 开始执行 | trace_id=- | thread_id=req_20e101acf62b_step2_try0 | run_mode=tools | plan_mode=False
+2026-04-19 00:18:24 | INFO     | monitor:275 | 检测到明确文件读取请求，跳过历史 RAG 注入
+2026-04-19 00:18:24 | INFO     | monitor:245 | [agent_llm_call] 开始调用 LLM | trace_id=- | iteration=0 | run_mode=tools | message_count=4 | system_prompt_mode=tools
+2026-04-19 00:18:37 | DEBUG    | monitor:320 | LLM 响应长度: 688 字符
+2026-04-19 00:18:37 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('周杰伦是华语乐坛极具影响力的歌手之一，以下是他最出名的十首歌及其片段和含义：\n\n1. 《青花瓷》\n   - 片段：“素胚勾勒出青花笔锋浓转”\n   - 含义：歌词描绘了青花瓷的美丽和制作过程)
+2026-04-19 00:18:37 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:18:37 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:18:37 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('周杰伦是华语乐坛极具影响力的歌手之一，以下是他最出名的十首歌及其片段和含义：\n\n1. 《青花瓷》\n   - 片段：“素胚勾勒出青花笔锋浓转”\n   - 含义：歌词描绘了青花瓷的美丽和制作过程)
+2026-04-19 00:18:37 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:18:37 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:18:37 | INFO     | monitor:416 | 模型返回自然语言回答，直接作为最终输出
+2026-04-19 00:18:37 | DEBUG    | monitor:756 | 已有最终回答，进入 finalize
+2026-04-19 00:18:37 | INFO     | monitor:851 | LangGraphAgent.run 完成，trace_id=-, 迭代: 0，工具调用数: 0，耗时: 13.34s，thread_id: req_20e101acf62b_step2_try0
+2026-04-19 00:18:37 | INFO     | monitor:245 | [agent_run_completed] LangGraphAgent 执行完成 | trace_id=- | thread_id=req_20e101acf62b_step2_try0 | iterations=0 | tool_results=0 | duration_s=13.34 | final_response_len=688 | ledger={"confirmed_facts": 1, "file_facts": 0, "failed_actions": 0, "open_questions": 0}
+2026-04-19 00:18:37 | WARNING  | monitor:538 | 步骤 2 执行失败 (尝试 1/2)，错误类型: knowledge_unverified，消息: 这是高风险知识题，但回答在无证据情况下给出了过于具体的结论
+2026-04-19 00:18:37 | INFO     | monitor:245 | [multi_agent_step_failed] 步骤执行失败 | trace_id=req_20e101acf62b | step_id=2 | tool_hint=none | retries=1 | error_type=knowledge_unverified
+2026-04-19 00:18:37 | INFO     | monitor:472 | 步骤 2 重试 1/2，错误类型: knowledge_unverified
+2026-04-19 00:18:37 | INFO     | monitor:793 | LangGraphAgent.run 开始，trace_id=-, 输入长度: 271
+2026-04-19 00:18:37 | INFO     | monitor:245 | [agent_run_started] LangGraphAgent 开始执行 | trace_id=- | thread_id=req_20e101acf62b_step2_try1 | run_mode=tools | plan_mode=False
+2026-04-19 00:18:37 | DEBUG    | monitor:245 | [rag_retrieval_plan] 确定 RAG 检索类型 | query_len=271 | query_types=tool_execution,user_question,assistant_response | filter_tool_types=
+2026-04-19 00:18:37 | DEBUG    | monitor:245 | [rag_retrieval] RAG 检索完成 | query_len=271 | retrieved_count=3 | avg_score=0.524 | elapsed_ms=114.8
+2026-04-19 00:18:37 | DEBUG    | monitor:245 | [rag_evidence_detail] 证据 #1 | score=0.475 | tool=read_file | timestamp=2026-04-19T00:07:22 | snippet=工具: read_file 参数: {   "path": "session_analyzer.py" } 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化
+2026-04-19 00:18:37 | DEBUG    | monitor:245 | [rag_evidence_detail] 证据 #2 | score=0.465 | tool=read_file | timestamp=2026-04-18T23:57:28 | snippet=工具: read_file 参数: {   "path": "20260330_190340_005.json" } 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 '20260330_190340_005.json' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260330_190340_005.json ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  {   "session_id": "20260330_190340_005", 
+2026-04-19 00:18:37 | DEBUG    | monitor:245 | [rag_evidence_detail] 证据 #3 | score=0.633 | tool=unknown | timestamp=2026-04-18T23:58:18 | snippet=User: 以下是您在2026年3月30日19:03:40至19:06:40的会话中提出的问题：  1. 帮我扫描整个 core 目录，找出所有类和方法，整理成文档写入 API.md 2. 给出周杰伦最出名的十首歌，截取片段并解释含义 3. 阅读session_analyzer.py代码，进行解释
+2026-04-19 00:18:37 | DEBUG    | monitor:245 | [rag_retrieval_plan] 确定 RAG 检索类型 | query_len=271 | query_types=tool_execution,user_question,assistant_response | filter_tool_types=
+2026-04-19 00:18:37 | DEBUG    | monitor:282 | RAG 增强后消息数: 2
+2026-04-19 00:18:37 | INFO     | monitor:245 | [agent_llm_call] 开始调用 LLM | trace_id=- | iteration=0 | run_mode=tools | message_count=5 | system_prompt_mode=tools
+2026-04-19 00:18:46 | DEBUG    | monitor:320 | LLM 响应长度: 381 字符
+2026-04-19 00:18:46 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('周杰伦是华语乐坛极具影响力的歌手之一，以下是他一些著名的歌曲及其可能具有的含义，但请注意，由于缺乏具体证据，以下信息可能不完全准确：\n\n1. 《青花瓷》\n   - 片段：“素胚勾勒出青花笔锋浓)
+2026-04-19 00:18:46 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:18:46 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:18:46 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('周杰伦是华语乐坛极具影响力的歌手之一，以下是他一些著名的歌曲及其可能具有的含义，但请注意，由于缺乏具体证据，以下信息可能不完全准确：\n\n1. 《青花瓷》\n   - 片段：“素胚勾勒出青花笔锋浓)
+2026-04-19 00:18:46 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:18:46 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:18:46 | INFO     | monitor:416 | 模型返回自然语言回答，直接作为最终输出
+2026-04-19 00:18:46 | DEBUG    | monitor:756 | 已有最终回答，进入 finalize
+2026-04-19 00:18:46 | INFO     | monitor:851 | LangGraphAgent.run 完成，trace_id=-, 迭代: 0，工具调用数: 0，耗时: 8.92s，thread_id: req_20e101acf62b_step2_try1
+2026-04-19 00:18:46 | INFO     | monitor:245 | [agent_run_completed] LangGraphAgent 执行完成 | trace_id=- | thread_id=req_20e101acf62b_step2_try1 | iterations=0 | tool_results=0 | duration_s=8.92 | final_response_len=381 | ledger={"confirmed_facts": 1, "file_facts": 0, "failed_actions": 0, "open_questions": 0}
+2026-04-19 00:18:46 | WARNING  | monitor:538 | 步骤 2 执行失败 (尝试 2/2)，错误类型: knowledge_unverified，消息: 这是高风险知识题，但回答在无证据情况下给出了过于具体的结论
+2026-04-19 00:18:46 | INFO     | monitor:245 | [multi_agent_step_failed] 步骤执行失败 | trace_id=req_20e101acf62b | step_id=2 | tool_hint=none | retries=2 | error_type=knowledge_unverified
+2026-04-19 00:18:46 | INFO     | monitor:472 | 步骤 2 重试 2/2，错误类型: knowledge_unverified
+2026-04-19 00:18:46 | INFO     | monitor:793 | LangGraphAgent.run 开始，trace_id=-, 输入长度: 271
+2026-04-19 00:18:46 | INFO     | monitor:245 | [agent_run_started] LangGraphAgent 开始执行 | trace_id=- | thread_id=req_20e101acf62b_step2_try2 | run_mode=tools | plan_mode=False
+2026-04-19 00:18:46 | DEBUG    | monitor:245 | [rag_retrieval_plan] 确定 RAG 检索类型 | query_len=271 | query_types=tool_execution,user_question,assistant_response | filter_tool_types=
+2026-04-19 00:18:46 | DEBUG    | monitor:245 | [rag_retrieval] RAG 检索完成 | query_len=271 | retrieved_count=3 | avg_score=0.533 | elapsed_ms=16.0
+2026-04-19 00:18:46 | DEBUG    | monitor:245 | [rag_evidence_detail] 证据 #1 | score=0.483 | tool=read_file | timestamp=2026-04-19T00:07:22 | snippet=工具: read_file 参数: {   "path": "session_analyzer.py" } 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 'session_analyzer.py' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  #!/usr/bin/env python # -*- coding: utf-8 -*- """ 高级会话分析页面 - 提供可视化
+2026-04-19 00:18:46 | DEBUG    | monitor:245 | [rag_evidence_detail] 证据 #2 | score=0.473 | tool=read_file | timestamp=2026-04-18T23:57:28 | snippet=工具: read_file 参数: {   "path": "20260330_190340_005.json" } 成功: True 输出: ⚠️ 系统自动纠正：你请求的路径 '20260330_190340_005.json' 不存在。 ✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmProjects/chat-Agent/session_logs/20260330_190340_005.json ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  {   "session_id": "20260330_190340_005", 
+2026-04-19 00:18:46 | DEBUG    | monitor:245 | [rag_evidence_detail] 证据 #3 | score=0.642 | tool=unknown | timestamp=2026-04-18T23:58:18 | snippet=User: 以下是您在2026年3月30日19:03:40至19:06:40的会话中提出的问题：  1. 帮我扫描整个 core 目录，找出所有类和方法，整理成文档写入 API.md 2. 给出周杰伦最出名的十首歌，截取片段并解释含义 3. 阅读session_analyzer.py代码，进行解释
+2026-04-19 00:18:46 | DEBUG    | monitor:245 | [rag_retrieval_plan] 确定 RAG 检索类型 | query_len=271 | query_types=tool_execution,user_question,assistant_response | filter_tool_types=
+2026-04-19 00:18:46 | DEBUG    | monitor:282 | RAG 增强后消息数: 2
+2026-04-19 00:18:46 | INFO     | monitor:245 | [agent_llm_call] 开始调用 LLM | trace_id=- | iteration=0 | run_mode=tools | message_count=5 | system_prompt_mode=tools
+2026-04-19 00:18:54 | DEBUG    | monitor:320 | LLM 响应长度: 366 字符
+2026-04-19 00:18:54 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('周杰伦是华语乐坛极具影响力的歌手之一，以下是他一些著名的歌曲及其可能具有的含义，但请注意，由于缺乏具体证据，以下信息可能不完全准确：\n\n1. 《青花瓷》\n   - 片段：“素胚勾勒出青花笔锋浓)
+2026-04-19 00:18:54 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:18:54 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:18:54 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('周杰伦是华语乐坛极具影响力的歌手之一，以下是他一些著名的歌曲及其可能具有的含义，但请注意，由于缺乏具体证据，以下信息可能不完全准确：\n\n1. 《青花瓷》\n   - 片段：“素胚勾勒出青花笔锋浓)
+2026-04-19 00:18:54 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:18:54 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:18:54 | INFO     | monitor:416 | 模型返回自然语言回答，直接作为最终输出
+2026-04-19 00:18:54 | DEBUG    | monitor:756 | 已有最终回答，进入 finalize
+2026-04-19 00:18:54 | INFO     | monitor:851 | LangGraphAgent.run 完成，trace_id=-, 迭代: 0，工具调用数: 0，耗时: 8.44s，thread_id: req_20e101acf62b_step2_try2
+2026-04-19 00:18:54 | INFO     | monitor:245 | [agent_run_completed] LangGraphAgent 执行完成 | trace_id=- | thread_id=req_20e101acf62b_step2_try2 | iterations=0 | tool_results=0 | duration_s=8.44 | final_response_len=366 | ledger={"confirmed_facts": 1, "file_facts": 0, "failed_actions": 0, "open_questions": 0}
+2026-04-19 00:18:54 | WARNING  | monitor:538 | 步骤 2 执行失败 (尝试 3/2)，错误类型: knowledge_unverified，消息: 这是高风险知识题，但回答在无证据情况下给出了过于具体的结论
+2026-04-19 00:18:54 | INFO     | monitor:245 | [multi_agent_step_failed] 步骤执行失败 | trace_id=req_20e101acf62b | step_id=2 | tool_hint=none | retries=3 | error_type=knowledge_unverified
+2026-04-19 00:18:54 | INFO     | monitor:793 | LangGraphAgent.run 开始，trace_id=-, 输入长度: 485
+2026-04-19 00:18:54 | INFO     | monitor:245 | [agent_run_started] LangGraphAgent 开始执行 | trace_id=- | thread_id=req_20e101acf62b_step3_try0 | run_mode=tools | plan_mode=False
+2026-04-19 00:18:54 | INFO     | monitor:275 | 检测到明确文件读取请求，跳过历史 RAG 注入
+2026-04-19 00:18:54 | INFO     | monitor:245 | [agent_llm_call] 开始调用 LLM | trace_id=- | iteration=0 | run_mode=tools | message_count=4 | system_prompt_mode=tools
+2026-04-19 00:18:55 | DEBUG    | monitor:320 | LLM 响应长度: 41 字符
+2026-04-19 00:18:55 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "session_analyzer.py"}')
+2026-04-19 00:18:55 | DEBUG    | monitor:979 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-19 00:18:55 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': 'session_analyzer.py'})]
+2026-04-19 00:18:55 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('read_file\n{"path": "session_analyzer.py"}')
+2026-04-19 00:18:55 | DEBUG    | monitor:979 | 解析工具调用成功: read_file (工具名+JSON格式)
+2026-04-19 00:18:55 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 [('read_file', {'path': 'session_analyzer.py'})]
+2026-04-19 00:18:55 | INFO     | monitor:426 | 解析到 1 个工具调用
+2026-04-19 00:18:55 | INFO     | monitor:245 | [agent_tool_calls_parsed] 模型输出已解析为工具调用 | trace_id=- | iteration=0 | tool_count=1
+2026-04-19 00:18:55 | INFO     | monitor:245 | [tool_started] 开始执行工具 | trace_id=- | tool=read_file | args={"path": "session_analyzer.py"}
+2026-04-19 00:18:55 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x16f83eeb0>, 'session_analyzer.py')
+2026-04-19 00:18:55 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.021s | 返回 '{"success": true, "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py", "content": "⚠️ 系统自动纠正：你请求的路径 \'session_analyzer.py\' 不存在。\\n✅ 实际读取的文件为：/Users/zhuangranxin/PyCharmPr
+2026-04-19 00:18:55 | DEBUG    | monitor:490 | 工具 read_file 执行成功，耗时 0.023s
+2026-04-19 00:18:55 | INFO     | monitor:245 | [tool_completed] 工具执行完成 | trace_id=- | tool=read_file | success=True | exec_ms=23.3 | ledger={"confirmed_facts": 2, "file_facts": 1, "failed_actions": 0, "open_questions": 0}
+2026-04-19 00:18:55 | DEBUG    | monitor:551 | 已将文件 /Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py 摘要存入向量记忆
+2026-04-19 00:18:56 | DEBUG    | monitor:562 | 工具结果已写入向量库: read_file
+2026-04-19 00:18:56 | INFO     | monitor:245 | [agent_llm_call] 开始调用 LLM | trace_id=- | iteration=1 | run_mode=tools | message_count=3 | system_prompt_mode=tools
+2026-04-19 00:19:05 | DEBUG    | monitor:320 | LLM 响应长度: 388 字符
+2026-04-19 00:19:05 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('文件内容显示，`session_analyzer.py` 是一个用于创建高级会话分析界面的 Python 脚本。该脚本使用了 Gradio 库来构建用户界面，并集成了会话日志的功能。以下是脚本的主要)
+2026-04-19 00:19:05 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:19:05 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:19:05 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('文件内容显示，`session_analyzer.py` 是一个用于创建高级会话分析界面的 Python 脚本。该脚本使用了 Gradio 库来构建用户界面，并集成了会话日志的功能。以下是脚本的主要)
+2026-04-19 00:19:05 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:19:05 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:19:05 | INFO     | monitor:407 | 当前链路已有成功工具结果，含工具名的自然语言将按结果总结处理，不再触发格式纠正
+2026-04-19 00:19:05 | INFO     | monitor:416 | 模型返回自然语言回答，直接作为最终输出
+2026-04-19 00:19:05 | DEBUG    | monitor:756 | 已有最终回答，进入 finalize
+2026-04-19 00:19:05 | INFO     | monitor:851 | LangGraphAgent.run 完成，trace_id=-, 迭代: 1，工具调用数: 1，耗时: 11.03s，thread_id: req_20e101acf62b_step3_try0
+2026-04-19 00:19:05 | INFO     | monitor:245 | [agent_run_completed] LangGraphAgent 执行完成 | trace_id=- | thread_id=req_20e101acf62b_step3_try0 | iterations=1 | tool_results=1 | duration_s=11.03 | final_response_len=388 | ledger={"confirmed_facts": 2, "file_facts": 1, "failed_actions": 0, "open_questions": 0}
+2026-04-19 00:19:05 | DEBUG    | monitor:525 | 步骤 3 成功（尝试 1 次）
+2026-04-19 00:19:05 | INFO     | monitor:245 | [multi_agent_step_completed] 步骤执行成功 | trace_id=req_20e101acf62b | step_id=3 | tool_hint=read_file | retries=0 | tool_calls=1
+2026-04-19 00:19:10 | INFO     | monitor:1233 | 检测到文件已读取但未解释，触发自动补救: ['/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/session_analyzer.py']
+2026-04-19 00:19:10 | INFO     | monitor:793 | LangGraphAgent.run 开始，trace_id=-, 输入长度: 112
+2026-04-19 00:19:10 | INFO     | monitor:245 | [agent_run_started] LangGraphAgent 开始执行 | trace_id=- | thread_id=-_rescue | run_mode=tools | plan_mode=False
+2026-04-19 00:19:10 | INFO     | monitor:275 | 检测到明确文件读取请求，跳过历史 RAG 注入
+2026-04-19 00:19:10 | INFO     | monitor:245 | [agent_llm_call] 开始调用 LLM | trace_id=- | iteration=0 | run_mode=tools | message_count=4 | system_prompt_mode=tools
+2026-04-19 00:19:21 | DEBUG    | monitor:320 | LLM 响应长度: 1098 字符
+2026-04-19 00:19:21 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('文件内容如下：\n\n```python\nimport os\nimport json\n\nclass SessionAnalyzer:\n    def __init__(self, data)
+2026-04-19 00:19:21 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:19:21 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:19:21 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolParser.parse_tool_calls('文件内容如下：\n\n```python\nimport os\nimport json\n\nclass SessionAnalyzer:\n    def __init__(self, data)
+2026-04-19 00:19:21 | DEBUG    | monitor:858 | 跳过自然语言长文本解析
+2026-04-19 00:19:21 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolParser.parse_tool_calls | 耗时 0.000s | 返回 []
+2026-04-19 00:19:21 | INFO     | monitor:416 | 模型返回自然语言回答，直接作为最终输出
+2026-04-19 00:19:21 | DEBUG    | monitor:756 | 已有最终回答，进入 finalize
+2026-04-19 00:19:21 | INFO     | monitor:851 | LangGraphAgent.run 完成，trace_id=-, 迭代: 0，工具调用数: 0，耗时: 11.15s，thread_id: -_rescue
+2026-04-19 00:19:21 | INFO     | monitor:245 | [agent_run_completed] LangGraphAgent 执行完成 | trace_id=- | thread_id=-_rescue | iterations=0 | tool_results=0 | duration_s=11.15 | final_response_len=1098 | ledger={"confirmed_facts": 2, "file_facts": 1, "failed_actions": 0, "open_questions": 0}
+2026-04-19 00:19:21 | INFO     | monitor:1253 | 补救步骤成功，已生成代码解释
+2026-04-19 00:19:34 | INFO     | monitor:245 | [multi_agent_final_artifact] 生成结构化最终产物 | trace_id=- | final_facts=2 | unresolved=0 | evidence=3
+2026-04-19 00:19:34 | INFO     | monitor:609 | 多 Agent 流程完成，成功步骤: 3/4，总耗时: 89.34s
+2026-04-19 00:19:34 | INFO     | monitor:245 | [multi_agent_completed] 多 Agent 流程完成 | trace_id=req_20e101acf62b | steps_total=4 | steps_success=3 | final_facts=2 | unresolved=0 | duration_s=89.34
+2026-04-19 00:19:34 | INFO     | monitor:519 | 多 Agent 执行完成，成功步骤: 3/4
+2026-04-19 00:19:34 | INFO     | monitor:245 | [request_completed] 多 Agent 请求完成 | trace_id=req_20e101acf62b | session=67ldwsqw | mode=tools | steps_total=4 | steps_success=3 | duration_s=89.34
+2026-04-19 00:19:34 | INFO     | monitor:655 | 请求处理完成，trace_id=req_20e101acf62b, 总耗时 89.34s
+2026-04-19 00:19:34 | INFO     | monitor:170 | ui.chat_controller.ChatController.bot_response 执行完成，耗时 100.123s
+2026-04-19 00:23:59 | DEBUG    | monitor:276 | → 进入 core.agent_tools.ToolExecutor._read_file(<core.agent_tools.ToolExecutor object at 0x10307ee80>, '/var/folders/k5/jjx79b892xv8_sgttsfr1bkh0000gn/T/tmpkscs97zb/sample.py')
+2026-04-19 00:23:59 | DEBUG    | monitor:282 | ← 退出 core.agent_tools.ToolExecutor._read_file | 耗时 0.000s | 返回 '{"success": true, "path": "/var/folders/k5/jjx79b892xv8_sgttsfr1bkh0000gn/T/tmpkscs97zb/sample.py", "content": "import os\\n\\nclass Demo:\\n    def method_one(self):\\n        return 1\\n\\ndef top_
+2026-04-19 09:27:35 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 09:27:35 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 09:27:35 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 09:27:35 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 09:27:35 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7860
+2026-04-19 09:27:39 | ERROR    | monitor:861 | Gradio 服务启动失败
+Traceback (most recent call last):
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/web_agent_with_skills.py", line 852, in <module>
+    demo.launch(
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/.venv/lib/python3.9/site-packages/gradio/blocks.py", line 2465, in launch
+    raise ValueError(
+ValueError: When localhost is not accessible, a shareable link must be created. Please set share=True or check your proxy settings to allow access to localhost.
+2026-04-19 09:27:39 | INFO     | monitor:258 | Web Agent with Skills 关闭
+2026-04-19 09:33:34 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 09:33:34 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 09:33:34 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 09:33:34 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 09:33:34 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7860
+2026-04-19 09:33:39 | WARNING  | monitor:870 | 检测到 localhost 可达性检查失败，自动切换为 share 模式重试。
+2026-04-19 09:37:26 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 09:37:26 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 09:37:26 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 09:37:26 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 09:37:26 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7860
+2026-04-19 09:37:31 | WARNING  | monitor:870 | 检测到 localhost 可达性检查失败，自动切换为 share 模式重试。
+2026-04-19 09:39:46 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 09:39:46 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 09:39:46 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 09:39:46 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 09:39:46 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7860
+2026-04-19 09:39:51 | WARNING  | monitor:870 | 检测到 localhost 可达性检查失败，自动切换为 share 模式重试。
+2026-04-19 09:42:08 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 09:42:08 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 09:42:08 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 09:42:08 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7861
+2026-04-19 09:42:08 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7861
+2026-04-19 09:42:13 | WARNING  | monitor:870 | 检测到 localhost 可达性检查失败，自动切换为 share 模式重试。
+2026-04-19 09:44:48 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 09:44:48 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 09:44:48 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 09:44:48 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7862
+2026-04-19 09:44:48 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7862
+2026-04-19 09:47:03 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 09:47:03 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 09:47:03 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 09:47:04 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 09:47:04 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7860
+2026-04-19 09:54:05 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 09:54:05 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 09:54:05 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 09:54:05 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 09:54:05 | INFO     | monitor:848 | 启动 Gradio 服务，端口 7860
+2026-04-19 09:58:55 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 09:58:55 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 09:58:56 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 09:58:56 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 09:58:56 | INFO     | monitor:854 | 启动 Gradio 服务，端口 7860
+2026-04-19 10:01:45 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 10:01:45 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 10:01:45 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 10:01:46 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 10:01:46 | INFO     | monitor:854 | 启动 Gradio 服务，端口 7860
+2026-04-19 10:04:05 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 10:04:05 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 10:04:05 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 10:04:05 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 10:04:05 | INFO     | monitor:854 | 启动 Gradio 服务，端口 7860
+2026-04-19 10:09:53 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 10:09:53 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 10:09:53 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 10:09:53 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 10:09:53 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 10:09:53 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 10:14:43 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 10:14:43 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 10:14:44 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 10:14:44 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 10:14:44 | INFO     | monitor:854 | 启动 Gradio 服务，端口 7860
+2026-04-19 10:16:48 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 10:16:48 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 10:16:49 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 10:16:49 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7861
+2026-04-19 10:16:49 | INFO     | monitor:854 | 启动 Gradio 服务，端口 7861
+2026-04-19 10:21:33 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 10:21:33 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 10:21:33 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 10:21:33 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 10:21:33 | INFO     | monitor:854 | 启动 Gradio 服务，端口 7860
+2026-04-19 10:27:26 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 10:27:26 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 10:27:26 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 10:27:26 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 10:27:26 | INFO     | monitor:854 | 启动 Gradio 服务，端口 7860
+2026-04-19 10:27:27 | INFO     | monitor:874 | Gradio 本地服务已启动: http://127.0.0.1:7860/
+2026-04-19 10:30:33 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 10:30:33 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 10:30:33 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 10:30:33 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 10:30:33 | INFO     | monitor:854 | 启动 Gradio 服务，端口 7860
+2026-04-19 10:30:33 | INFO     | monitor:874 | Gradio 本地服务已启动: http://127.0.0.1:7860/
+2026-04-19 10:41:44 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 10:41:44 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 10:41:44 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 10:41:44 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 10:41:44 | INFO     | monitor:854 | 启动 Gradio 服务，端口 7860
+2026-04-19 10:41:45 | INFO     | monitor:874 | Gradio 本地服务已启动: http://127.0.0.1:7860/
+2026-04-19 10:44:36 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 10:44:36 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 10:44:36 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 10:44:36 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 10:44:36 | INFO     | monitor:854 | 启动 Gradio 服务，端口 7860
+2026-04-19 10:44:37 | INFO     | monitor:874 | Gradio 本地服务已启动: http://127.0.0.1:7860/
+2026-04-19 10:58:45 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 10:58:45 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 10:58:46 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 10:58:46 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 10:58:46 | INFO     | monitor:852 | 启动 Gradio 服务，端口 7860
+2026-04-19 10:58:46 | ERROR    | monitor:874 | Gradio 服务启动失败
+Traceback (most recent call last):
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/web_agent_with_skills.py", line 868, in <module>
+    _, local_url, _ = demo.launch(**launch_options)
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/.venv/lib/python3.9/site-packages/gradio/blocks.py", line 2371, in launch
+    ) = http_server.start_server(
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/.venv/lib/python3.9/site-packages/gradio/http_server.py", line 154, in start_server
+    raise OSError(
+OSError: Cannot find empty port in range: 7860-7860. You can specify a different port by setting the GRADIO_SERVER_PORT environment variable or passing the `server_port` parameter to `launch()`.
+2026-04-19 10:58:46 | INFO     | monitor:258 | Web Agent with Skills 关闭
+2026-04-19 11:00:49 | INFO     | monitor:90 | 初始化 Skills 系统...
+2026-04-19 11:00:49 | INFO     | monitor:95 | 发现 4 个技能
+2026-04-19 11:00:49 | INFO     | monitor:82 | GLM-4-Flash 已自动启用
+2026-04-19 11:00:49 | INFO     | monitor:254 | Web Agent with Skills 启动，监听端口 7860
+2026-04-19 11:00:49 | INFO     | monitor:852 | 启动 Gradio 服务，端口 7860
+2026-04-19 11:00:49 | ERROR    | monitor:874 | Gradio 服务启动失败
+Traceback (most recent call last):
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/ui/web_agent_with_skills.py", line 868, in <module>
+    _, local_url, _ = demo.launch(**launch_options)
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/.venv/lib/python3.9/site-packages/gradio/blocks.py", line 2371, in launch
+    ) = http_server.start_server(
+  File "/Users/zhuangranxin/PyCharmProjects/chat-Agent/.venv/lib/python3.9/site-packages/gradio/http_server.py", line 154, in start_server
+    raise OSError(
+OSError: Cannot find empty port in range: 7860-7860. You can specify a different port by setting the GRADIO_SERVER_PORT environment variable or passing the `server_port` parameter to `launch()`.
+2026-04-19 11:00:49 | INFO     | monitor:258 | Web Agent with Skills 关闭

@@ -575,6 +575,7 @@ class ChatController:
                     if bot_msg:
                         formatted_history.append({"role": "assistant", "content": bot_msg})
 
+                request_thread_id = f"{session_hash}_{trace_id}"
                 res = await agent_framework.run(
                     user_input=user_message + pdf_info,
                     session=session_context,
@@ -583,7 +584,7 @@ class ChatController:
                     temperature=actual_temp,
                     top_p=top_p_val,
                     max_tokens=actual_max_tokens,
-                    thread_id=session_hash,
+                    thread_id=request_thread_id,
                 )
                 final_response = res["response"]
                 if isinstance(res.get("tool_calls"), list):

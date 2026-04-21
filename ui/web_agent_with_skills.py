@@ -773,23 +773,29 @@ def create_ui_with_skills():
             controller.on_engine_change,
             inputs=[model_engine],
             outputs=[glm_status],
+            queue=False,
         )
         glm_model_choice.change(
             controller.on_model_change,
             inputs=[glm_model_choice],
             outputs=[glm_status],
+            queue=False,
         )
 
-        msg.submit(user_input, [msg, chatbot], [msg, chatbot]).then(
+        msg.submit(user_input, [msg, chatbot], [msg, chatbot], queue=False).then(
             controller.handle_message_with_workflow_resume,
             [chatbot, system_prompt, temperature, top_p, max_tokens, plan_mode, pdf_file],
-            [chatbot, current_mode_display]
+            [chatbot, current_mode_display],
+            concurrency_limit=2,
         )
-        send_btn.click(user_input, [msg, chatbot], [msg, chatbot]).then(
+        send_btn.click(user_input, [msg, chatbot], [msg, chatbot], queue=False).then(
             controller.handle_message_with_workflow_resume,
             [chatbot, system_prompt, temperature, top_p, max_tokens, plan_mode, pdf_file],
-            [chatbot, current_mode_display]
+            [chatbot, current_mode_display],
+            concurrency_limit=2,
         )
+
+        demo.queue(default_concurrency_limit=4, status_update_rate="auto")
 
     return demo
 
@@ -840,8 +846,6 @@ if __name__ == "__main__":
     port = find_free_port()
     print(f"✅ 使用端口: {port}")
 
-    os.environ['GRADIO_DISABLE_API'] = '1'
-
     monitor = get_monitor_logger()
     port = find_free_port()
     log_startup("Web Agent with Skills", port=port)
@@ -849,14 +853,23 @@ if __name__ == "__main__":
 
     try:
         set_log_level("DEBUG")  # 开启 DEBUG 级别日志
-        demo.launch(
-            server_name="0.0.0.0",
+
+        # 某些代理或网络环境会导致 Gradio 对 localhost 的自检误判。
+        # 这里固定为本地启动，并关闭该前端自检，避免误判后切换到 share 模式。
+        launch_options = dict(
+            server_name=os.getenv("GRADIO_SERVER_NAME", "127.0.0.1"),
             server_port=port,
-            inbrowser=True,
+            inbrowser=False,
             share=False,
             show_error=True,
-            show_api=False
+            show_api=False,
+            prevent_thread_lock=True
         )
+        _, local_url, _ = demo.launch(**launch_options)
+        print(f"✅ 主应用本地服务已启动: {local_url}")
+        demo.startup_events()
+        monitor.info(f"Gradio 本地服务已启动: {local_url}")
+        demo.block_thread()
     except Exception as e:
         monitor.exception("Gradio 服务启动失败")
         raise

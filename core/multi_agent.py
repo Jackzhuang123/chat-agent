@@ -4,6 +4,7 @@
 优化点：
 - Planner 要求 LLM 直接输出 tool_input JSON，Executor 直接使用，避免正则解析错误。
 - 保留原有的步骤级重试、纠错提示、证据提取、最终补救等完整功能。
+- 最终回答经友好化处理，对用户无技术细节干扰。
 """
 
 import inspect
@@ -346,6 +347,7 @@ class ReActMultiAgentOrchestrator:
       - 根据错误类型生成针对性纠错提示（包括 execute_python 代码语法错误、空输出等）
       - 提取工具执行证据供后续步骤和最终回答使用
       - 最终回答前自动检测并补救未完成的关键任务
+      - 最终回答经友好化处理，对用户无技术细节干扰
     """
 
     MAX_STEP_RETRIES = 2
@@ -603,7 +605,8 @@ class ReActMultiAgentOrchestrator:
             session, accumulated_context,
             temperature=temperature, top_p=top_p, max_tokens=max_tokens
         )
-        final_response = final_artifact.get("final_response", "")
+        # 将结构化产物转换为用户友好的自然语言回答
+        final_response = self._format_friendly_response(final_artifact, step_results)
 
         duration = time.time() - start_time
         self.monitor.info(
@@ -976,34 +979,6 @@ class ReActMultiAgentOrchestrator:
             return ""
         return text[:limit] + ("..." if len(text) > limit else "")
 
-    def _summarize_step_result_for_template(self, step: Dict[str, Any]) -> str:
-        response = self._shorten_text(step.get("response", ""), limit=320)
-        if step.get("success"):
-            tool_calls = step.get("tool_calls", []) or []
-            successful_calls = [tc for tc in tool_calls if tc.get("success")]
-            if successful_calls:
-                tc = successful_calls[-1]
-                tool = tc.get("tool")
-                result = tc.get("result", {}) or {}
-                if tool == "bash":
-                    command = str(tc.get("args", {}).get("command", "")).strip()
-                    redirect_match = re.search(r'>\s*([^\s]+)', command)
-                    if redirect_match:
-                        return f"结果已写入 {redirect_match.group(1)}。"
-                    stdout = self._shorten_text(result.get("stdout", ""), limit=220)
-                    return stdout or "命令已执行完成。"
-                if tool == "read_file":
-                    path = str(result.get("path", "")).strip()
-                    return response or (f"已读取并分析文件 {path}。" if path else "文件已读取完成。")
-                return response or f"工具 {tool} 已执行成功。"
-            return response or "任务已执行完成。"
-
-        error_info = step.get("error_info") or {}
-        message = str(error_info.get("message", "") or step.get("response", "")).strip()
-        hint = str(error_info.get("hint", "")).strip()
-        combined = "；".join(part for part in [message, hint] if part)
-        return self._shorten_text(combined or "任务执行失败。", limit=320)
-
     def _build_task_results(self, step_results: List[Dict]) -> List[str]:
         task_results = []
         for idx, step in enumerate(step_results, start=1):
@@ -1017,30 +992,18 @@ class ReActMultiAgentOrchestrator:
 
     @staticmethod
     def _render_final_response_template(artifact: Dict[str, Any]) -> str:
+        """生成简洁的最终回答模板（用于回退或结构化产物渲染）。"""
         sections = []
         answer = str(artifact.get("answer", "")).strip()
         if answer:
             sections.append(answer)
 
+        # 只附加任务结果摘要，不展示内部证据
         task_results = [str(item).strip() for item in artifact.get("task_results", []) if str(item).strip()]
         if task_results:
             sections.append("任务结果：\n" + "\n".join(f"- {item}" for item in task_results))
 
-        mapping = [
-            ("已确认", artifact.get("confirmed_facts", [])),
-            ("文件证据", artifact.get("file_evidence", [])),
-            ("失败记录", artifact.get("failed_attempts", [])),
-            ("未解决问题", artifact.get("unresolved_questions", [])),
-            ("引用", artifact.get("citations", [])),
-        ]
-        for title, items in mapping:
-            normalized = [str(item).strip() for item in items if str(item).strip()]
-            if not normalized:
-                continue
-            body = "\n".join(f"- {item}" for item in normalized)
-            sections.append(f"{title}：\n{body}")
-
-        return "\n\n".join(sections).strip() or "执行完成，但未生成可展示的最终回答。"
+        return "\n\n".join(sections).strip() or "执行完成。"
 
     @staticmethod
     def _normalize_text_list(value: Any, limit: int = 8, item_limit: int = 300) -> List[str]:
@@ -1064,9 +1027,9 @@ class ReActMultiAgentOrchestrator:
         if successful:
             answer_parts.append("已完成：" + "；".join(successful[:4]))
         if failed:
-            answer_parts.append("失败：" + "；".join(failed[:4]))
+            answer_parts.append("部分任务未能完成：" + "；".join(failed[:4]))
         if error:
-            answer_parts.append(f"最终结构化总结回退：{error[:160]}")
+            answer_parts.append(f"（生成最终回答时遇到问题：{error[:160]}）")
 
         artifact = {
             "answer": "。".join(answer_parts) if answer_parts else "执行完成，但仅能返回回退结果。",
@@ -1098,6 +1061,124 @@ class ReActMultiAgentOrchestrator:
             finalized["file_evidence"] + finalized["citations"]
         ))[:8]
         return finalized
+
+    def _extract_step_result_content(self, step: Dict[str, Any]) -> str:
+        """从步骤记录中提取用户可读的结果内容（用于最终回答展示）。"""
+        if not step.get("success"):
+            return ""
+
+        # 优先使用步骤的完整响应（已被 Agent 处理过）
+        response = step.get("response", "").strip()
+        if response:
+            # 如果响应中包含工具调用格式痕迹，尝试清理
+            if re.search(r'^\s*(read_file|bash|execute_python|write_file|edit_file|list_dir)\s*\{', response, re.MULTILINE):
+                # 响应主要是工具调用，不适合直接展示，尝试后续提取
+                pass
+            else:
+                # 响应看起来是自然语言总结，直接使用
+                # 清理可能残留的代码块标记
+                cleaned = re.sub(r'```[^`]*```', '', response).strip()
+                if len(cleaned) > 20:  # 避免展示太短的无意义响应
+                    return cleaned
+
+        # 若响应不可用，尝试从工具调用结果中提取
+        tool_calls = step.get("tool_calls", [])
+        if tool_calls:
+            for tc in tool_calls:
+                if not tc.get("success"):
+                    continue
+                result = tc.get("result", {})
+                tool = tc.get("tool")
+                if tool == "read_file":
+                    # 如果没有自然语言解释，只返回一个占位符，因为文件内容太长
+                    return "（文件内容已读取，但未生成解释文本）"
+                elif tool == "bash":
+                    stdout = result.get("stdout", "")
+                    if stdout:
+                        return f"命令输出：\n```\n{stdout[:500]}\n```"
+                elif tool == "execute_python":
+                    stdout = result.get("stdout", "")
+                    if stdout:
+                        return f"执行输出：\n```\n{stdout[:500]}\n```"
+        return ""
+
+    def _summarize_step_result_for_template(self, step: Dict[str, Any]) -> str:
+        """生成用户友好的步骤结果摘要（用于 fallback 或结构化产物内部）。"""
+        action = step.get("action", "")
+        if not step.get("success"):
+            if step.get("task_type") == "knowledge":
+                return "（知识问答部分因缺乏可靠证据，未能提供详细内容）"
+            else:
+                return "（该步骤执行未成功）"
+
+        # 对于知识问答，返回简要提示，具体内容由后续展示
+        if step.get("task_type") == "knowledge":
+            return "（知识问答已完成，详见下文）"
+
+        # 工具步骤：简单描述
+        tool_calls = step.get("tool_calls", [])
+        if tool_calls and any(tc.get("tool") == "bash" for tc in tool_calls):
+            return "已生成所需文档"
+        elif tool_calls and any(tc.get("tool") == "read_file" for tc in tool_calls):
+            return "已读取并分析文件"
+        else:
+            return "任务已执行"
+
+    def _format_friendly_response(self, artifact: Dict[str, Any], step_results: List[Dict]) -> str:
+        """将结构化产物转换为用户友好的 Markdown 最终回答。"""
+        lines = []
+
+        # 1. 总体结论
+        answer = artifact.get("answer", "").strip()
+        if answer:
+            lines.append(f"## 📋 执行摘要\n\n{answer}\n")
+
+        # 2. 各步骤详细结果
+        if step_results:
+            lines.append("## 🔍 任务详情\n")
+            for idx, step in enumerate(step_results, 1):
+                action = step.get("action", f"步骤 {idx}")
+                success = step.get("success", False)
+                status_icon = "✅" if success else "❌"
+                lines.append(f"### {status_icon} {idx}. {action}\n")
+
+                if success:
+                    # 提取该步骤的详细结果内容
+                    content = self._extract_step_result_content(step)
+                    if content:
+                        # 如果内容包含 Markdown 格式，直接使用；否则按段落处理
+                        if content.startswith("```") or content.startswith("#"):
+                            lines.append(content)
+                        else:
+                            lines.append(f"{content}")
+                    else:
+                        # 对于没有详细内容的情况，给出简要说明
+                        if step.get("task_type") == "knowledge":
+                            lines.append("（回答内容已在前文展示）")
+                        else:
+                            lines.append("（操作已成功完成）")
+                else:
+                    error_info = step.get("error_info", {})
+                    error_msg = error_info.get("message", "未知错误")
+                    lines.append(f"**失败原因**：{error_msg}")
+
+                lines.append("")  # 空行分隔
+
+        # 3. 如果有补救步骤产生的额外内容，已在 step_results 中包含，无需重复
+
+        # 4. 未解决的问题（如有）
+        unresolved = artifact.get("unresolved_issues", [])
+        if unresolved:
+            lines.append("## ⚠️ 待解决问题\n")
+            for issue in unresolved[:3]:
+                lines.append(f"- {issue}")
+            lines.append("")
+
+        final_text = "\n".join(lines).strip()
+        if not final_text:
+            final_text = "任务已完成，但未能生成详细回答。"
+
+        return final_text
 
     @staticmethod
     def _filter_allowed_items(items: List[str], allowed: List[str]) -> List[str]:

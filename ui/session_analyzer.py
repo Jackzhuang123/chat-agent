@@ -502,7 +502,8 @@ def create_session_analyzer():
                 # 页面加载时自动获取会话信息
                 demo.load(
                     get_all_sessions_info,
-                    outputs=[total_sessions_html, total_messages_html, avg_duration_html, total_tokens_html, sessions_html]
+                    outputs=[total_sessions_html, total_messages_html, avg_duration_html, total_tokens_html, sessions_html],
+                    queue=False
                 )
 
             # ===== Tab 2: 会话详情查看 =====
@@ -791,28 +792,32 @@ def create_session_analyzer():
                     load_session_details,
                     inputs=current_session_id,
                     outputs=[summary_stats, messages_summary, model_calls_detail, json_editor, all_messages_detail],
-                    every=5  # 每5秒自动刷新一次
+                    every=5,  # 每5秒自动刷新一次
+                    queue=False
                 )
 
                 # 当用户从列表中选择会话时立即加载
                 current_session_id.change(
                     load_session_details,
                     inputs=current_session_id,
-                    outputs=[summary_stats, messages_summary, model_calls_detail, json_editor, all_messages_detail]
+                    outputs=[summary_stats, messages_summary, model_calls_detail, json_editor, all_messages_detail],
+                    queue=False
                 )
 
                 # 当点击刷新按钮时加载会话详情
                 refresh_btn.click(
                     load_session_details,
                     inputs=current_session_id,
-                    outputs=[summary_stats, messages_summary, model_calls_detail, json_editor, all_messages_detail]
+                    outputs=[summary_stats, messages_summary, model_calls_detail, json_editor, all_messages_detail],
+                    queue=False
                 )
 
                 # 下载 JSON 按钮（json_editor 内容变化时自动准备下载）
                 json_editor.change(
                     prepare_json_download,
                     inputs=json_editor,
-                    outputs=[download_json_btn, copy_status]
+                    outputs=[download_json_btn, copy_status],
+                    queue=False
                 )
 
     return demo
@@ -837,11 +842,15 @@ if __name__ == "__main__":
     print(f"✅ 高级分析页面运行在端口 {port}")
 
     demo = create_session_analyzer()
-    demo.launch(
-        server_name="0.0.0.0",
+    _, local_url, _ = demo.launch(
+        server_name="127.0.0.1",
         server_port=port,
-        inbrowser=True,
+        inbrowser=False,
         share=False,
         show_error=True,
+        _frontend=False,
+        prevent_thread_lock=True,
     )
-
+    demo.startup_events()
+    print(f"✅ 高级分析页面本地服务已启动: {local_url}")
+    demo.block_thread()
