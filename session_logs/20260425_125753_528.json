@@ -1,0 +1,55 @@
+{
+  "session_id": "20260425_125753_528",
+  "created_at": "2026-04-25T12:57:53.528482",
+  "start_time": "2026-04-25T12:57:53.528485",
+  "end_time": "2026-04-25T12:57:54.045551",
+  "status": "active",
+  "messages": [
+    {
+      "timestamp": "2026-04-25T12:57:54.045412",
+      "user_message": "你好",
+      "bot_response": "[GLM API 错误] Error code: 400, with error text {\"error\":{\"code\":\"1211\",\"message\":\"模型不存在，请检查模型代码。\"}}",
+      "execution_time": 0.2329249382019043,
+      "tokens_used": 0,
+      "model": "glm-4.1v-think-flash",
+      "model_calls": [],
+      "runtime_context": {
+        "trace_id": "req_1f917554524b",
+        "run_mode": "chat",
+        "plan_mode": false,
+        "uploaded_files": [],
+        "selected_skills": [],
+        "intent_reasons": [
+          "用户输入是寒暄或简短致谢，无需工具或检索"
+        ],
+        "router_evidence": []
+      },
+      "execution_log": [
+        {
+          "iteration": -1,
+          "type": "intent_analysis",
+          "run_mode": "chat",
+          "skill_ids": [],
+          "reasons": [
+            "用户输入是寒暄或简短致谢，无需工具或检索"
+          ],
+          "timestamp": "2026-04-25T04:57:53Z"
+        },
+        {
+          "type": "agent_summary",
+          "iterations": 0,
+          "duration": 0.23113608360290527,
+          "thread_id": "imecppkw39_req_1f917554524b",
+          "reflection_summary_present": true
+        }
+      ]
+    }
+  ],
+  "calls": [],
+  "statistics": {
+    "total_messages": 1,
+    "total_tokens_used": 0,
+    "total_duration": 0.2329249382019043,
+    "total_calls": 0
+  }
+}

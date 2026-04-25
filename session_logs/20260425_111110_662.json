@@ -1,0 +1,55 @@
+{
+  "session_id": "20260425_111110_662",
+  "created_at": "2026-04-25T11:11:10.662208",
+  "start_time": "2026-04-25T11:11:10.662212",
+  "end_time": "2026-04-25T11:11:17.960677",
+  "status": "active",
+  "messages": [
+    {
+      "timestamp": "2026-04-25T11:11:17.960283",
+      "user_message": "你好",
+      "bot_response": "⚠️ **API 请求频率超限（429）**\n\n您的账户已达到调用速率限制，请稍等 10～30 秒后重试。\n\n**建议：**\n- 等待片刻后重新发送消息\n- 如频繁遇到此问题，可考虑升级到付费套餐（glm-4-air 等）\n- 复杂任务可拆分为较小步骤分次提交",
+      "execution_time": 7.295156002044678,
+      "tokens_used": 0,
+      "model": "glm-4.7-flash",
+      "model_calls": [],
+      "runtime_context": {
+        "trace_id": "req_c11432405096",
+        "run_mode": "chat",
+        "plan_mode": false,
+        "uploaded_files": [],
+        "selected_skills": [],
+        "intent_reasons": [
+          "用户输入是寒暄或简短致谢，无需工具或检索"
+        ],
+        "router_evidence": []
+      },
+      "execution_log": [
+        {
+          "iteration": -1,
+          "type": "intent_analysis",
+          "run_mode": "chat",
+          "skill_ids": [],
+          "reasons": [
+            "用户输入是寒暄或简短致谢，无需工具或检索"
+          ],
+          "timestamp": "2026-04-25T03:11:10Z"
+        },
+        {
+          "type": "agent_summary",
+          "iterations": 0,
+          "duration": 7.293718099594116,
+          "thread_id": "u9zhr1e7o8_req_c11432405096",
+          "reflection_summary_present": true
+        }
+      ]
+    }
+  ],
+  "calls": [],
+  "statistics": {
+    "total_messages": 1,
+    "total_tokens_used": 0,
+    "total_duration": 7.295156002044678,
+    "total_calls": 0
+  }
+}
