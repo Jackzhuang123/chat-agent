@@ -59,12 +59,24 @@ def create_qwen_model_forward(qwen_agent, system_prompt_base: str = ""):
         }
 
         response_text = ""
+
+        def _merge_stream_chunk(current: str, chunk: str) -> str:
+            if not current:
+                return chunk
+            if chunk.startswith(current):
+                return chunk
+            if len(chunk) >= max(16, len(current) // 2) and chunk[:1] in "{[`\"":
+                return chunk
+            return current + chunk
+
         if hasattr(qwen_agent, "generate_stream_text"):
             for token in qwen_agent.generate_stream_text(full_messages, **gen_kwargs):
-                response_text = token
+                if isinstance(token, str):
+                    response_text = _merge_stream_chunk(response_text, token)
         elif hasattr(qwen_agent, "generate_stream_with_messages"):
             for token in qwen_agent.generate_stream_with_messages(full_messages, **gen_kwargs):
-                response_text = token
+                if isinstance(token, str):
+                    response_text = _merge_stream_chunk(response_text, token)
         else:
             raise AttributeError(
                 f"{type(qwen_agent).__name__} 未实现 generate_stream_text 或 "

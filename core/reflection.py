@@ -1,9 +1,12 @@
+# core/reflection.py
 # -*- coding: utf-8 -*-
-"""增强反思引擎：错误分类、智能重试、策略调整"""
+"""增强反思引擎：错误分类、智能重试、策略调整（增强版）
+新增：结构化修复建议生成、自适应策略注入
+"""
 
 import re
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 from core.monitor_logger import get_monitor_logger
 
@@ -52,6 +55,86 @@ class EnhancedReflectionEngine:
 
     def attach_tool_learner(self, learner):
         self._tool_learner = learner
+
+    def get_last_suggestion(self, tool_name: str) -> str:
+        """返回针对指定工具的最新修复建议（用于注入到对话）"""
+        for category, entries in self.failure_memory.items():
+            for entry in reversed(entries):
+                if entry["tool"] == tool_name:
+                    pattern = self.FAILURE_PATTERNS.get(category)
+                    if pattern and pattern["fixes"]:
+                        return pattern["fixes"][0]
+        return ""
+
+    def get_full_recommendation(self, tool_name: str, error_msg: str) -> Dict[str, Any]:
+        """根据错误生成完整的策略建议，包括建议工具和参数修改"""
+        error_type, category = None, "unknown_error"
+        error_lower = error_msg.lower()
+        for etype, info in self.FAILURE_PATTERNS.items():
+            for pattern in info["patterns"]:
+                if re.search(pattern, error_lower, re.I):
+                    error_type = etype
+                    category = info["category"]
+                    break
+            if error_type:
+                break
+
+        recommendation = {
+            "tool": tool_name,
+            "error_type": error_type or "unknown",
+            "suggested_alternative": None,
+            "hint": "",
+        }
+
+        if error_type == "file_not_found":
+            recommendation["suggested_alternative"] = "bash"  # 建议用find搜索
+            recommendation["hint"] = "文件未找到，请使用 bash find 命令搜索正确路径"
+        elif error_type == "syntax_error":
+            recommendation["suggested_alternative"] = "bash"  # 语法错误时建议改用bash
+            recommendation["hint"] = "代码存在语法错误，建议改用 bash 命令完成相同任务"
+        elif error_type == "empty_output":
+            recommendation["suggested_alternative"] = "bash"
+            recommendation["hint"] = "Python代码没有输出，请改用 bash 重定向"
+        elif error_type == "permission_denied":
+            recommendation["hint"] = "权限不足，请更换工作目录或检查文件权限"
+        elif error_type == "timeout":
+            recommendation["hint"] = "命令超时，请拆分任务或增加超时时间"
+        else:
+            recommendation["hint"] = "请检查工具参数是否正确，或尝试其他方法"
+
+        return recommendation
+
+    def get_action_plan(self, recent_errors: List[Dict[str, Any]], max_errors: int = 3) -> Dict[str, Any]:
+        if not recent_errors:
+            return {"action": "none"}
+
+        error_types = [e.get("error_type") for e in recent_errors if e.get("error_type")]
+        tool_names = [e.get("tool") for e in recent_errors]
+
+        # 连续 file_not_found 快速切换
+        file_not_found_chain = [et for et in error_types if et == "file_not_found"]
+        if len(file_not_found_chain) >= 2:
+            return {
+                "action": "suggest_search",
+                "query_template": "find . -name \"*{name}*\"",
+                "reason": "连续多次文件未找到，强制使用 find 命令定位"
+            }
+
+        if tool_names and all(t == "execute_python" for t in tool_names) and \
+                all(et in ("syntax_error", "execute_python_empty_output") for et in error_types):
+            return {
+                "action": "switch_tool",
+                "new_tool": "bash",
+                "reason": "execute_python 多次失败（语法/空输出），改用 bash 命令"
+            }
+
+        if len(set(error_types)) == 1 and len(recent_errors) >= 3:
+            return {
+                "action": "abort",
+                "reason": f"连续 {len(recent_errors)} 次相同错误 ({error_types[0]})，建议请求用户干预"
+            }
+
+        return {"action": "none"}
 
     def record_result(
         self,

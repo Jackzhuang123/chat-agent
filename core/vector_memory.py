@@ -16,6 +16,7 @@
 
 import hashlib
 import json
+import math
 import os
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -128,7 +129,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
 
     def _simple_embed(self, text: str) -> np.ndarray:
         """简化的哈希嵌入（无外部依赖时）"""
-        vec = np.zeros(self.dimension)
+        vec = [0.0] * self.dimension
         tokens = text.lower().split()
         for i, token in enumerate(tokens[:50]):  # 限制 token 数
             for j in range(3):  # 3个哈希位置
@@ -136,8 +137,10 @@ class LocalEmbeddingProvider(EmbeddingProvider):
                 idx = hash_val % self.dimension
                 vec[idx] += 1 / (i + 1)  # 位置加权
         # L2归一化
-        norm = np.linalg.norm(vec)
-        return vec / norm if norm > 0 else vec
+        norm = math.sqrt(sum(v * v for v in vec))
+        if norm <= 0:
+            return vec
+        return [v / norm for v in vec]
 
 
 class VectorMemory:
@@ -270,11 +273,12 @@ class VectorMemory:
 
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         """计算余弦相似度"""
-        norm_a = np.linalg.norm(a)
-        norm_b = np.linalg.norm(b)
+        norm_a = math.sqrt(sum(float(x) * float(x) for x in a))
+        norm_b = math.sqrt(sum(float(x) * float(x) for x in b))
         if norm_a == 0 or norm_b == 0:
             return 0.0
-        return np.dot(a, b) / (norm_a * norm_b)
+        dot = sum(float(x) * float(y) for x, y in zip(a, b))
+        return dot / (norm_a * norm_b)
 
     def _is_duplicate(self, content: str, threshold: float = 0.95, precomputed_emb=None) -> tuple:
         """检测新内容是否与工作记忆中已有内容高度重复。
@@ -321,8 +325,8 @@ class VectorMemory:
         # 一次性计算 embedding
         embedding = self.embedder.embed([content])[0]
 
-        # 去重检测
-        if skip_duplicate:
+        # 去重检测：空工作记忆时无需去重，避免首条记忆被误判跳过
+        if skip_duplicate and self.working_memory:
             is_dup, _ = self._is_duplicate(content, precomputed_emb=embedding)
             if is_dup:
                 return "dup_skip"
@@ -360,6 +364,7 @@ class VectorMemory:
             if tool_chain_id not in self.tool_chains:
                 self.tool_chains[tool_chain_id] = []
             self.tool_chains[tool_chain_id].append(entry_id)
+            self._dirty = True
 
         # 触发压缩
         if len(self.working_memory) > self.max_working:
@@ -519,17 +524,21 @@ class VectorMemory:
             types: List[str],
             top_k: int = 5,
             min_score: float = 0.0,
+            filter_metadata: Optional[Dict[str, Any]] = None,
             **kwargs,
     ) -> List[Dict[str, Any]]:
         """按记忆类型依次检索并聚合结果，避免不同类型记忆互相污染。"""
         aggregated: List[Dict[str, Any]] = []
         seen_ids = set()
         for memory_type in types:
+            type_filter = {"type": memory_type}
+            if filter_metadata:
+                type_filter.update(filter_metadata)
             results = self.search(
                 query=query,
                 top_k=top_k,
                 min_score=min_score,
-                filter_metadata={"type": memory_type},
+                filter_metadata=type_filter,
                 **kwargs,
             )
             for item in results:

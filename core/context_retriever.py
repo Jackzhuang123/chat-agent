@@ -1,14 +1,18 @@
 # core/context_retriever.py
 # -*- coding: utf-8 -*-
 """
-RAG 上下文检索器 - 基于向量记忆的智能上下文管理
-用于替换原有的 compress_context_smart 逻辑
+RAG 上下文检索器 - 基于向量记忆的智能上下文管理（增强版）
+新增特性：
+  - 查询扩展：对短查询补充同义/相关词
+  - 短期记忆加权：最近 2 小时内的记忆获得额外 0.2 分
+  - 动态检索类型：根据查询内容推断合适的记忆类型
 """
 
 import json
 import logging
 import re
 import time
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from .vector_memory import VectorMemory
@@ -22,26 +26,82 @@ class ContextRetriever:
         vector_memory: VectorMemory,
         max_recent_messages: int = 5,
         max_retrieved_chunks: int = 3,
-        min_relevance_score: float = 0.4,
+        min_relevance_score: float = 0.25,
         chunk_max_length: int = 1500,
+        enable_query_expansion: bool = True,
+        short_term_window_minutes: int = 120,
     ):
         self.vm = vector_memory
         self.max_recent_messages = max_recent_messages
         self.max_retrieved_chunks = max_retrieved_chunks
         self.min_relevance_score = min_relevance_score
         self.chunk_max_length = chunk_max_length
+        self.enable_query_expansion = enable_query_expansion
+        self.short_term_window_minutes = short_term_window_minutes
         self.monitor = get_monitor_logger()
+
+        # 简易同义词/扩展词映射（中文为主）
+        self.expansion_map = {
+            "文件": ["文档", "file", "读取", "路径"],
+            "读取": ["查看", "打开", "读"],
+            "写入": ["保存", "输出", "写"],
+            "扫描": ["遍历", "查找", "搜索"],
+            "代码": ["程序", "源码", "脚本"],
+            "问题": ["错误", "失败", "异常"],
+            "之前": ["历史", "上次", "最近"],
+            "继续": ["刚才", "上一个", "前面"],
+        }
+
+    @staticmethod
+    def _build_memory_filter(
+        session_id: Optional[str] = None,
+        allow_cross_session: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        if allow_cross_session or not session_id:
+            return None
+        return {"session_id": session_id}
+
+    def _expand_query(self, query: str) -> str:
+        """对查询进行简单扩展，补充相关关键词"""
+        if not self.enable_query_expansion or not query:
+            return query
+        words = re.findall(r'[\u4e00-\u9fff]+', query)
+        additions = []
+        for w in words:
+            if w in self.expansion_map:
+                additions.extend(self.expansion_map[w][:2])  # 最多取2个相关词
+        if additions:
+            return query + " " + " ".join(additions)
+        return query
+
+    def _short_term_bonus(self, entry_timestamp_str: str) -> float:
+        """若记忆在短期窗口内，返回额外加分"""
+        try:
+            entry_time = datetime.fromisoformat(entry_timestamp_str)
+            minutes_ago = (datetime.now() - entry_time).total_seconds() / 60
+            if minutes_ago <= self.short_term_window_minutes:
+                return 0.2 * (1 - minutes_ago / self.short_term_window_minutes)  # 线性衰减
+        except Exception:
+            pass
+        return 0.0
 
     def augment_messages(
             self,
             messages: List[Dict[str, str]],
             query: str,
             filter_tool_types: Optional[List[str]] = None,
+            session_id: Optional[str] = None,
+            allow_cross_session: bool = False,
     ) -> List[Dict[str, str]]:
         system_msgs = [m for m in messages if m.get("role") == "system"]
         non_system_msgs = [m for m in messages if m.get("role") != "system"]
 
-        retrieved_chunks = self._retrieve_relevant_chunks(query, filter_tool_types)
+        retrieved_chunks = self._retrieve_relevant_chunks(
+            query,
+            filter_tool_types,
+            session_id=session_id,
+            allow_cross_session=allow_cross_session,
+        )
 
         augmented = list(system_msgs)
 
@@ -92,17 +152,24 @@ class ContextRetriever:
         self,
         query: str,
         filter_tool_types: Optional[List[str]] = None,
+        session_id: Optional[str] = None,
+        allow_cross_session: bool = False,
     ) -> List[Dict[str, Any]]:
         normalized_query = (query or "").strip()
         if not normalized_query:
             return []
         compact_query = re.sub(r"\s+", "", normalized_query)
-        if len(compact_query) <= 4 and not re.search(r"[./\\]|文件|日志|问题|错误|失败|修复", normalized_query):
+        followup_reference = re.search(r"继续|上一个|最后一个|刚才|前面|这个问题|那个问题|接着", normalized_query)
+        if len(compact_query) <= 4 and not followup_reference and not re.search(r"[./\\]|文件|日志|问题|错误|失败|修复", normalized_query):
             return []
 
+        # 动态选择检索类型：若含“之前”“历史”等词，偏向对话类记忆
         query_types = ["tool_execution"]
-        if re.search(r"之前|历史|回顾|上次", normalized_query):
-            query_types = ["tool_execution", "user_question", "assistant_response"]
+        if re.search(r"之前|历史|回顾|上次|说过|问过|记得", normalized_query) or followup_reference:
+            query_types = ["user_question", "assistant_response", "tool_execution"]
+        elif re.search(r"怎么|如何|是什么|原因|解释|含义", normalized_query):
+            query_types = ["assistant_response", "user_question", "tool_execution"]
+
         log_event(
             event_type="rag_retrieval_plan",
             message="确定 RAG 检索类型",
@@ -112,8 +179,11 @@ class ContextRetriever:
             filter_tool_types=",".join(filter_tool_types or []),
         )
 
+        # 查询扩展
+        expanded_query = self._expand_query(normalized_query)
+
         results = self.vm.search_by_types(
-            query=normalized_query,
+            query=expanded_query,
             types=query_types,
             top_k=self.max_retrieved_chunks * 2,
             semantic_weight=0.7,
@@ -121,12 +191,23 @@ class ContextRetriever:
             importance_weight=0.1,
             min_score=self.min_relevance_score,
             mmr_lambda=0.7,
+            filter_metadata=self._build_memory_filter(session_id, allow_cross_session),
         )
 
         results = [r for r in results if isinstance(r, dict)]
 
         if filter_tool_types:
             results = [r for r in results if r.get("metadata", {}).get("tool") in filter_tool_types]
+
+        # 短期记忆加分
+        for r in results:
+            timestamp = r.get("timestamp", "")
+            bonus = self._short_term_bonus(timestamp)
+            if bonus > 0:
+                r["score"] = r.get("score", 0) + bonus
+                r.setdefault("adjusted_score", r["score"])
+        # 按最终分数重新排序
+        results.sort(key=lambda x: x.get("score", 0), reverse=True)
 
         for r in results:
             content = r.get("content", "")
@@ -156,7 +237,6 @@ class ContextRetriever:
         recent = messages[-self.max_recent_messages:]
         early = messages[:-self.max_recent_messages]
 
-        # 保留所有工具 Observation（以 ✅ 或 ❌ 开头）
         tool_obs = []
         for msg in early:
             if msg.get("role") == "user":
@@ -175,7 +255,8 @@ class ContextRetriever:
         tool_args: Dict[str, Any],
         result: Dict[str, Any],
         success: bool,
-        original_question: str = None,  # 新增参数
+        original_question: str = None,
+        session_id: Optional[str] = None,
     ):
         content_parts = [
             f"工具: {tool_name}",
@@ -201,6 +282,8 @@ class ContextRetriever:
             "success": success,
             "args_summary": json.dumps(tool_args, ensure_ascii=False)[:200],
         }
+        if session_id:
+            metadata["session_id"] = session_id
         importance = 0.7 if success and len(content) > 200 else 0.5
 
         self.vm.add(
@@ -208,7 +291,7 @@ class ContextRetriever:
             metadata=metadata,
             importance=importance,
             auto_score=True,
-            original_question=original_question,  # 新增参数
+            original_question=original_question,
         )
 
     def enhance_messages_with_rag(
@@ -218,12 +301,18 @@ class ContextRetriever:
         session_context: Dict[str, Any],
     ) -> List[Dict[str, str]]:
         query = session_context.get("current_task", current_query)
+        session_id = session_context.get("session_id")
+        allow_cross_session = bool(session_context.get("allow_cross_session_memory"))
 
         start_time = time.perf_counter()
-        retrieved_chunks = self._retrieve_relevant_chunks(query, None)
+        retrieved_chunks = self._retrieve_relevant_chunks(
+            query,
+            None,
+            session_id=session_id,
+            allow_cross_session=allow_cross_session,
+        )
         elapsed = time.perf_counter() - start_time
 
-        # 记录检索统计
         scores = [c.get("score", 0) for c in retrieved_chunks]
         avg_score = sum(scores) / len(scores) if scores else 0.0
         log_event(
@@ -236,7 +325,6 @@ class ContextRetriever:
             elapsed_ms=f"{elapsed * 1000:.1f}",
         )
 
-        # 输出每条证据详情（DEBUG）
         for idx, chunk in enumerate(retrieved_chunks, 1):
             content_snippet = chunk.get("content", "")[:300].replace("\n", " ")
             log_event(
@@ -251,7 +339,6 @@ class ContextRetriever:
 
         augmented = self.augment_messages(messages, query)
 
-        # 强制保留最近一条成功的 read_file Observation
         for msg in reversed(messages):
             if msg.get("role") == "user" and msg.get("content", "").startswith("✅ read_file:"):
                 if msg not in augmented:

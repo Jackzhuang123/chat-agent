@@ -258,44 +258,38 @@ class SkillManager:
         return resources
 
     def find_skills_for_task(self, task_description: str) -> List[Dict[str, Any]]:
-        """
-        基于任务描述查找相关技能 (简单的关键词匹配)
+        """基于关键词集合的 Jaccard 相似度匹配技能"""
+        import re
+        task_words = set(re.findall(r'[\w\u4e00-\u9fff]+', task_description.lower()))
+        if not task_words:
+            return []
 
-        Args:
-            task_description: 任务描述
+        scored = []
+        for skill_id, meta in self.skills_metadata.items():
+            # 构建技能词汇集合：标签 + 名称 + 描述词
+            skill_words = set()
+            skill_words.update(tag.lower() for tag in meta.get("tags", []))
+            name_words = re.findall(r'[\w\u4e00-\u9fff]+', meta.get("name", "").lower())
+            desc_words = re.findall(r'[\w\u4e00-\u9fff]+', meta.get("description", "").lower())
+            skill_words.update(name_words + desc_words)
 
-        Returns:
-            相关技能列表
-        """
-        task_keywords = task_description.lower().split()
-        relevant_skills = []
+            if not skill_words:
+                continue
 
-        for skill_id, metadata in self.skills_metadata.items():
-            # 检查标签匹配
-            tags = [tag.lower() for tag in metadata.get("tags", [])]
-            name = metadata.get("name", "").lower()
-            desc = metadata.get("description", "").lower()
+            intersection = len(task_words & skill_words)
+            union = len(task_words | skill_words)
+            similarity = intersection / union if union > 0 else 0
 
-            match_score = 0
-            for keyword in task_keywords:
-                if keyword in tags:
-                    match_score += 3
-                elif keyword in name:
-                    match_score += 2
-                elif keyword in desc:
-                    match_score += 1
-
-            if match_score > 0:
-                relevant_skills.append({
+            if similarity > 0.05:  # 极低门槛，确保相关技能都能被考虑
+                scored.append({
                     "id": skill_id,
-                    "name": metadata.get("name", skill_id),
-                    "score": match_score,
-                    "description": metadata.get("description", ""),
+                    "name": meta.get("name", skill_id),
+                    "score": round(similarity, 3),
+                    "description": meta.get("description", ""),
                 })
 
-        # 按匹配分数排序
-        relevant_skills.sort(key=lambda x: x["score"], reverse=True)
-        return relevant_skills
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return scored
 
 
 class SkillInjector:

@@ -51,17 +51,36 @@ class ToolExecutor:
         except Exception as e:
             return json.dumps({"error": str(e)})
 
+    def _is_direct_path(self, path: str) -> bool:
+        """检查给定路径是否指向一个现有文件（不读内容，仅判断存在）"""
+        try:
+            p = Path(path)
+            if p.is_absolute():
+                return p.exists() and p.is_file()
+            else:
+                return (self.work_dir / path).exists() and (self.work_dir / path).is_file()
+        except Exception:
+            return False
+
     def _fuzzy_find_file(self, filename: str, search_home: bool = True, depth_limit: int = 8) -> Optional[Path]:
         """模糊搜索文件。"""
+        candidates = self._find_file_candidates(filename, search_home=search_home, depth_limit=depth_limit)
+        return candidates[0] if candidates else None
+
+    def _find_file_candidates(self, filename: str, search_home: bool = True, depth_limit: int = 8,
+                              limit: int = 8) -> List[Path]:
+        """返回候选文件列表，顺序为项目内优先，再到项目外。"""
         SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv",
                      ".tox", "dist", "build", ".mypy_cache", ".pytest_cache",
                      ".idea", ".vscode", "site-packages", "dist-info",
                      "lib", "bin"}
         target_name = Path(filename).name
         if not target_name or target_name in ("..", "."):
-            return None
+            return []
 
         work_dir_real = self.work_dir.resolve()
+        collected: List[Path] = []
+        seen = set()
 
         def _is_safe(path: Path, allowed_root: Path) -> bool:
             try:
@@ -70,72 +89,60 @@ class ToolExecutor:
             except ValueError:
                 return False
 
-        def _scan(root: Path, depth: int) -> Optional[Path]:
-            if depth < 0:
-                return None
+        def _record(path: Path):
+            if len(collected) >= limit:
+                return
+            resolved = str(path.resolve())
+            if resolved in seen:
+                return
+            seen.add(resolved)
+            collected.append(path)
+
+        def _scan(root: Path, depth: int, allowed_root: Path):
+            if depth < 0 or len(collected) >= limit:
+                return
             try:
                 for item in sorted(root.iterdir()):
+                    if len(collected) >= limit:
+                        return
                     if item.name in SKIP_DIRS or item.name.startswith("."):
                         continue
                     if item.is_symlink():
                         continue
                     if item.is_file() and item.name == target_name:
-                        if _is_safe(item, work_dir_real):
-                            return item
+                        if _is_safe(item, allowed_root):
+                            _record(item)
                     elif item.is_dir() and depth > 0:
-                        found = _scan(item, depth - 1)
-                        if found:
-                            return found
+                        _scan(item, depth - 1, allowed_root)
             except (PermissionError, OSError):
                 pass
-            return None
+            return
 
-        result = _scan(self.work_dir, depth_limit)
-        if result:
-            return result
+        _scan(self.work_dir, depth_limit, work_dir_real)
+        if collected or not search_home:
+            return collected
 
-        if search_home:
-            home = Path.home()
-            home_real = home.resolve()
-            try:
-                for item in sorted(home.iterdir()):
-                    if item.name in SKIP_DIRS or item.name.startswith("."):
-                        continue
-                    if item.is_symlink():
-                        continue
-                    item_real = item.resolve()
-                    if item_real == work_dir_real:
-                        continue
-                    if item.is_file() and item.name == target_name:
-                        if _is_safe(item, home_real):
-                            return item
-                    if item.is_dir():
-                        def _scan_sub(root2: Path, depth: int) -> Optional[Path]:
-                            if depth < 0:
-                                return None
-                            try:
-                                for sub in sorted(root2.iterdir()):
-                                    if sub.name in SKIP_DIRS or sub.name.startswith("."):
-                                        continue
-                                    if sub.is_symlink():
-                                        continue
-                                    if sub.is_file() and sub.name == target_name:
-                                        if _is_safe(sub, home_real):
-                                            return sub
-                                    elif sub.is_dir() and depth > 0:
-                                        found2 = _scan_sub(sub, depth - 1)
-                                        if found2:
-                                            return found2
-                            except (PermissionError, OSError):
-                                pass
-                            return None
-
-                        found = _scan_sub(item, min(depth_limit, 6))
-                        if found:
-                            return found
-            except (PermissionError, OSError):
-                pass
-        return None
+        home = Path.home()
+        home_real = home.resolve()
+        try:
+            for item in sorted(home.iterdir()):
+                if len(collected) >= limit:
+                    break
+                if item.name in SKIP_DIRS or item.name.startswith("."):
+                    continue
+                if item.is_symlink():
+                    continue
+                item_real = item.resolve()
+                if item_real == work_dir_real:
+                    continue
+                if item.is_file() and item.name == target_name:
+                    if _is_safe(item, home_real):
+                        _record(item)
+                if item.is_dir():
+                    _scan(item, min(depth_limit, 6), home_real)
+        except (PermissionError, OSError):
+            pass
+        return collected
 
     _BLOCKED_PATH_PATTERNS = (
         "/.venv/", "/venv/", "/site-packages/", "/.dist-info/",
@@ -234,6 +241,28 @@ class ToolExecutor:
 
         p = Path(path)
 
+        def _build_candidate_error(target_path: str, found_candidates: List[Path]) -> str:
+            project_candidates = []
+            external_candidates = []
+            work_dir_real = self.work_dir.resolve()
+            for candidate in found_candidates[:6]:
+                try:
+                    candidate.resolve().relative_to(work_dir_real)
+                    project_candidates.append(str(candidate))
+                except ValueError:
+                    external_candidates.append(str(candidate))
+            payload = {
+                "success": False,
+                "error": f"文件不存在: {target_path}",
+                "searched_name": Path(target_path).name,
+                "project_candidates": project_candidates,
+                "external_candidates": external_candidates,
+                "hint": "项目内未找到精确路径。若候选正确，请提供更完整的项目内相对路径后重试。",
+            }
+            if external_candidates and not project_candidates:
+                payload["hint"] = "仅在项目外找到了同名文件。为避免误读，系统不会自动读取，请明确提供目标路径。"
+            return json.dumps(payload, ensure_ascii=False)
+
         # ----- 绝对路径分支 -----
         if p.is_absolute():
             if p.exists() and p.is_file():
@@ -245,27 +274,32 @@ class ToolExecutor:
                     return json.dumps({"success": False, "error": f"读取文件失败: {str(e)}"}, ensure_ascii=False)
             else:
                 filename = p.name
-                found = self._fuzzy_find_file(filename, search_home=True, depth_limit=5)
-                if found:
+                candidates = self._find_file_candidates(filename, search_home=True, depth_limit=5)
+                project_candidate = next(
+                    (candidate for candidate in candidates if str(candidate.resolve()).startswith(str(self.work_dir.resolve()))),
+                    None
+                )
+                if project_candidate:
                     try:
-                        with open(found, "r", encoding="utf-8") as f:
+                        with open(project_candidate, "r", encoding="utf-8") as f:
                             content = f.read()
-                        correction_prefix = (
-                            f"⚠️ 系统自动纠正：你请求的路径 '{path}' 不存在。\n"
-                            f"✅ 实际读取的文件为：{found}\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                        )
-                        return self._build_read_result(found, correction_prefix + content, extra={
+                        return self._build_read_result(project_candidate, content, extra={
                             "fuzzy_match": True,
                             "original_request": path,
-                            "note": f"原绝对路径 '{path}' 不存在，自动匹配到: {found}",
+                            "note": f"原绝对路径 '{path}' 不存在，已在项目内自动匹配到: {project_candidate}",
+                            "resolution_note": (
+                                f"系统自动纠正：你请求的路径 '{path}' 不存在，"
+                                f"实际读取的文件为：{project_candidate}"
+                            ),
                         })
                     except Exception as e:
                         return json.dumps({"success": False, "error": f"读取文件失败: {str(e)}"}, ensure_ascii=False)
+                if candidates:
+                    return _build_candidate_error(path, candidates)
                 return json.dumps({
                     "success": False,
                     "error": f"文件不存在: {path}",
-                    "hint": "绝对路径指定的文件不存在，且项目内未找到同名文件。请仅提供文件名（如 'session_analyzer.py'），系统会自动搜索。"
+                    "hint": "绝对路径指定的文件不存在，且项目内未找到同名文件。请提供项目内相对路径或明确的目标位置。"
                 }, ensure_ascii=False)
 
         # ----- 相对路径分支 -----
@@ -288,23 +322,28 @@ class ToolExecutor:
 
         # 相对路径不存在时的模糊搜索
         filename = Path(path).name
-        found = self._fuzzy_find_file(filename, search_home=True, depth_limit=5)
-        if found:
+        candidates = self._find_file_candidates(filename, search_home=True, depth_limit=5)
+        project_candidate = next(
+            (candidate for candidate in candidates if str(candidate.resolve()).startswith(str(self.work_dir.resolve()))),
+            None
+        )
+        if project_candidate:
             try:
-                with open(found, "r", encoding="utf-8") as f:
+                with open(project_candidate, "r", encoding="utf-8") as f:
                     content = f.read()
-                correction_prefix = (
-                    f"⚠️ 系统自动纠正：你请求的路径 '{path}' 不存在。\n"
-                    f"✅ 实际读取的文件为：{found}\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                )
-                return self._build_read_result(found, correction_prefix + content, extra={
+                return self._build_read_result(project_candidate, content, extra={
                     "fuzzy_match": True,
                     "original_request": path,
-                    "note": f"原路径 '{path}' 不存在，自动匹配到: {found}",
+                    "note": f"原路径 '{path}' 不存在，已在项目内自动匹配到: {project_candidate}",
+                    "resolution_note": (
+                        f"系统自动纠正：你请求的路径 '{path}' 不存在，"
+                        f"实际读取的文件为：{project_candidate}"
+                    ),
                 })
             except Exception as e:
                 return json.dumps({"error": f"读取文件失败: {str(e)}"}, ensure_ascii=False)
+        if candidates:
+            return _build_candidate_error(path, candidates)
 
         return json.dumps({
             "success": False,

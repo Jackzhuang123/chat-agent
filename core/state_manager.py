@@ -14,6 +14,9 @@ class SessionContext:
     read_files_cache: Dict[str, str] = field(default_factory=dict)
     task_context: Dict[str, Any] = field(default_factory=lambda: {
         "current_task": None,
+        "current_topic": None,
+        "topic_history": [],
+        "topic_updated_at": None,
         "completed_steps": [],
         "failed_attempts": [],
         # 结构化子任务状态：{subtask_index(int): {"desc": str, "status": "pending"|"done", "done_by": [tool_call_str]}}
