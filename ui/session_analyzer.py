@@ -5,10 +5,93 @@
 """
 
 import json
+import html
+import re
 
 import gradio as gr
 
+from core.network_env import ensure_local_no_proxy
 from session_logger import get_logger
+
+ensure_local_no_proxy()
+
+
+def _render_markdown_html(text: str) -> str:
+    if not text:
+        return ""
+
+    def render_inline(content: str) -> str:
+        escaped = html.escape(content)
+        return re.sub(r'`([^`]+)`', lambda m: f"<code>{m.group(1)}</code>", escaped)
+
+    lines = text.splitlines()
+    output = []
+    in_code = False
+    code_lang = ""
+    code_lines = []
+    list_mode = None
+
+    def close_list():
+        nonlocal list_mode
+        if list_mode == "ul":
+            output.append("</ul>")
+        elif list_mode == "ol":
+            output.append("</ol>")
+        list_mode = None
+
+    for line in lines:
+        stripped = line.rstrip()
+        fence = stripped.strip()
+        if fence.startswith("```"):
+            if in_code:
+                code_html = html.escape("\n".join(code_lines))
+                lang_attr = f' class="language-{html.escape(code_lang)}"' if code_lang else ""
+                output.append(f"<pre><code{lang_attr}>{code_html}</code></pre>")
+                in_code = False
+                code_lang = ""
+                code_lines = []
+            else:
+                close_list()
+                in_code = True
+                code_lang = fence[3:].strip()
+            continue
+        if in_code:
+            code_lines.append(line)
+            continue
+        if not stripped.strip():
+            close_list()
+            continue
+        heading = re.match(r'^(#{1,6})\s+(.+)$', stripped.strip())
+        if heading:
+            close_list()
+            level = len(heading.group(1))
+            output.append(f"<h{level}>{render_inline(heading.group(2))}</h{level}>")
+            continue
+        ordered = re.match(r'^\s*\d+\.\s+(.+)$', stripped)
+        if ordered:
+            if list_mode != "ol":
+                close_list()
+                output.append("<ol>")
+                list_mode = "ol"
+            output.append(f"<li>{render_inline(ordered.group(1))}</li>")
+            continue
+        unordered = re.match(r'^\s*[-*]\s+(.+)$', stripped)
+        if unordered:
+            if list_mode != "ul":
+                close_list()
+                output.append("<ul>")
+                list_mode = "ul"
+            output.append(f"<li>{render_inline(unordered.group(1))}</li>")
+            continue
+        close_list()
+        output.append(f"<p>{render_inline(stripped)}</p>")
+
+    if in_code:
+        code_html = html.escape("\n".join(code_lines))
+        lang_attr = f' class="language-{html.escape(code_lang)}"' if code_lang else ""
+        output.append(f"<pre><code{lang_attr}>{code_html}</code></pre>")
+    close_list()
+    return "\n".join(output)
 
 
 def create_session_analyzer():
@@ -602,8 +685,8 @@ def create_session_analyzer():
                     # 2. 对话流摘要
                     messages_html = ""
                     for idx, msg in enumerate(session_data["messages"], 1):
-                        user_msg = msg["user_message"][:100] + "..." if len(msg["user_message"]) > 100 else msg["user_message"]
-                        bot_response = msg["bot_response"][:100] + "..." if len(msg["bot_response"]) > 100 else msg["bot_response"]
+                        user_msg = html.escape(msg["user_message"][:100] + "..." if len(msg["user_message"]) > 100 else msg["user_message"])
+                        bot_response = html.escape(msg["bot_response"][:100] + "..." if len(msg["bot_response"]) > 100 else msg["bot_response"])
                         exec_time = msg["execution_time"]
                         tokens = msg["tokens_used"]
                         model_calls_count = len(msg.get("model_calls", []))
@@ -691,8 +774,8 @@ def create_session_analyzer():
                     all_messages_html = ""
                     for idx, msg in enumerate(session_data["messages"], 1):
                         timestamp = msg["timestamp"]
-                        user_msg = msg["user_message"]
-                        bot_response = msg["bot_response"]
+                        user_msg = html.escape(msg["user_message"])
+                        bot_response = _render_markdown_html(msg["bot_response"])
                         exec_time = msg["execution_time"]
                         tokens = msg["tokens_used"]
                         model_calls = msg.get("model_calls", [])
@@ -709,7 +792,7 @@ def create_session_analyzer():
 
                             <div class="message-bubble bot-bubble" style="margin: 8px 0;">
                                 <div class="bubble-header">🤖 助手回复:</div>
-                                <div class="bubble-content" style="white-space: pre-wrap; word-break: break-word;">{bot_response}</div>
+                                <div class="bubble-content" style="word-break: break-word;">{bot_response}</div>
                             </div>
 
                             <div class="bubble-meta">

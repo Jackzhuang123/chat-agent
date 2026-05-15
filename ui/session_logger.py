@@ -104,6 +104,33 @@ class SessionLogger:
 
         return self.current_session_id
 
+    def bind_session(self, session_id: str) -> str:
+        """绑定到已存在会话；若文件不存在则自动创建占位会话文件。"""
+        if not session_id:
+            return self.create_session()
+        self.current_session_id = session_id
+        self.current_session_file = self.log_dir / f"{session_id}.json"
+        if not self.current_session_file.exists():
+            session_data = {
+                "session_id": self.current_session_id,
+                "created_at": datetime.now().isoformat(),
+                "start_time": datetime.now().isoformat(),
+                "end_time": None,
+                "status": "active",
+                "messages": [],
+                "calls": [],
+                "statistics": {
+                    "total_messages": 0,
+                    "total_tokens_used": 0,
+                    "total_duration": 0,
+                    "total_calls": 0
+                }
+            }
+            with open(self.current_session_file, 'w', encoding='utf-8') as f:
+                json.dump(session_data, f, ensure_ascii=False, indent=2)
+        self._pending_model_calls.setdefault(self.current_session_id, [])
+        return self.current_session_id
+
     def log_message(self,
                    user_message: str,
                    bot_response: str,
@@ -463,6 +490,34 @@ class SessionLogger:
         all_questions.sort(key=lambda x: x.get("timestamp", ""))
         return all_questions
 
+    def get_recent_turns(self,
+                         session_id: Optional[str] = None,
+                         limit: int = 10,
+                         skip_placeholders: bool = True) -> List[Dict[str, Any]]:
+        """获取指定会话最近若干轮真实对话（按时间升序）。"""
+        target_session_id = session_id or self.current_session_id
+        if not target_session_id:
+            return []
+        session_data = self.get_session_details(target_session_id)
+        if not session_data:
+            return []
+        turns = []
+        for msg in session_data.get("messages", []):
+            user_msg = msg.get("user_message", "")
+            bot_resp = msg.get("bot_response", "")
+            if skip_placeholders and user_msg == "[未设置]" and bot_resp == "[在进行中...]":
+                continue
+            if not user_msg or user_msg == "[未设置]":
+                continue
+            turns.append({
+                "timestamp": msg.get("timestamp", ""),
+                "user_message": user_msg,
+                "bot_response": bot_resp,
+            })
+        if limit > 0:
+            turns = turns[-limit:]
+        return turns
+
     def delete_session(self, session_id: str) -> bool:
         """
         删除会话
@@ -496,4 +551,3 @@ def get_logger() -> SessionLogger:
     if _logger_instance is None:
         _logger_instance = SessionLogger()
     return _logger_instance
-

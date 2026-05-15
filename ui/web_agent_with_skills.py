@@ -13,7 +13,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from core.monitor_logger import get_monitor_logger, log_startup, log_shutdown,set_log_level
+from core.monitor_logger import get_monitor_logger, log_startup, log_shutdown, set_log_level
+from core.network_env import ensure_local_no_proxy
 
 import gradio as gr
 
@@ -29,7 +30,10 @@ if _env_file.exists():
                 if _ek and _ek not in os.environ:  # 系统环境变量优先
                     os.environ[_ek] = _ev
 
+ensure_local_no_proxy()
+
 from ui.chat_controller import ChatController
+
 
 def create_ui_with_skills():
     controller = ChatController()
@@ -827,6 +831,14 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"⚠️  JSON Schema 修补过程中出错: {e}")
 
+    # ---------- 强制绕过 Gradio 本地可达性检查 ----------
+    import gradio.networking as gr_net
+    original_url_ok = gr_net.url_ok
+    def always_url_ok(url, timeout=5):
+        return True
+    gr_net.url_ok = always_url_ok
+    # ----------------------------------------------------
+
     demo = create_ui_with_skills()
 
     import socket
@@ -854,8 +866,6 @@ if __name__ == "__main__":
     try:
         set_log_level("DEBUG")  # 开启 DEBUG 级别日志
 
-        # 某些代理或网络环境会导致 Gradio 对 localhost 的自检误判。
-        # 这里固定为本地启动，并关闭该前端自检，避免误判后切换到 share 模式。
         launch_options = dict(
             server_name=os.getenv("GRADIO_SERVER_NAME", "127.0.0.1"),
             server_port=port,

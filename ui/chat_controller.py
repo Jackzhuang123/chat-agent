@@ -2,10 +2,12 @@
 # -*- coding: utf-8 -*-
 import json
 import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict
+from core.multi_agent import safe_fstr, WorkflowPlanState   # 添加 WorkflowPlanState
 
 import gradio as gr
 
@@ -24,13 +26,15 @@ from core import (
     ReActMultiAgentOrchestrator,
     ToolEnforcementMiddleware,
 )
+from core.components import clean_react_tags
+from core.components.output_cleaner import summarize_long_response
 from core.langgraph_agent import LangGraphAgent as QwenAgentFramework
+from core.multi_agent import safe_fstr
 from core.prompts import get_system_prompt, inject_few_shot_examples
 from core.state_manager import SessionContext
 from ui.qwen_agent import QwenAgent
 from ui.session_logger import get_logger
 
-# 新增：RAG 意图路由器
 from core.rag_intent_router import RAGIntentRouter, IntentType
 from core.vector_memory import VectorMemory
 from core.context_retriever import ContextRetriever
@@ -48,19 +52,34 @@ try:
 except ImportError:
     HAS_PYPDF = False
 
+from core.clarification import ClarificationManager
+
 
 class ChatController:
+    _MEMORY_META_PATTERNS = (
+        r'我之前.*问', r'回顾.*问题', r'历史.*记录', r'之前.*聊', r'上次.*说',
+        r'过去.*问过', r'之前.*说了什么', r'最近.*问题', r'历史.*对话',
+        r'以前.*问', r'我问过.*什么', r'我问了.*什么', r'聊天记录', r'历史问题',
+    )
+    _FOLLOWUP_REFERENCE_PATTERNS = (
+        r'继续回答', r'继续说', r'接着说', r'继续分析', r'继续讲',
+        r'上一个问题', r'最后一个问题', r'刚才那个问题', r'前面那个问题',
+        r'这个问题', r'那个问题', r'回答最后一个', r'回答上一个',
+    )
+    _TOPIC_CARRYOVER_PATTERNS = (
+        r'^继续$', r'^继续说$', r'^接着说$', r'^展开讲讲$', r'^展开一下$', r'^详细讲讲$',
+        r'^那这个怎么修$', r'^这个怎么修$', r'^然后呢$', r'^细说一下$', r'^继续分析$',
+    )
+
     def __init__(self):
-        self.logger = get_logger()                     # 业务会话日志
-        self.monitor = get_monitor_logger()            # 监控日志
+        self.logger = get_logger()
+        self.monitor = get_monitor_logger()
         self._active_agent = {"instance": None, "type": "local"}
         self._GLM_API_KEY = os.environ.get("GLM_API_KEY", "").strip()
         self._GLM_AUTO_ENABLED = HAS_GLM and bool(self._GLM_API_KEY)
 
-        # 初始化向量记忆（供 RAG 路由器使用）
         self.vector_memory = VectorMemory()
 
-        # 使用 RAG 意图路由器
         self.mode_router = RAGIntentRouter(
             vector_memory=self.vector_memory,
             llm_forward_fn=self.dynamic_routing_forward,
@@ -70,6 +89,7 @@ class ChatController:
         self.user_sessions = {}
         self.session_states = {}
         self._init_skills()
+        self.clarification_mgr = ClarificationManager()
 
         if self._GLM_AUTO_ENABLED:
             try:
@@ -93,6 +113,192 @@ class ChatController:
         self.skill_injector = SkillInjector(self.skill_manager)
         self._available_skill_ids = list(self.skill_manager.skills_metadata.keys())
         self.monitor.info(f"发现 {len(self.skill_manager.skills_metadata)} 个技能")
+
+    @staticmethod
+    def _has_local_execution_signal(user_input: str, uploaded_files_meta: Optional[List[Dict]] = None) -> bool:
+        if uploaded_files_meta:
+            return True
+        return bool(re.search(r'[/\\]|[\w\-]+\.\w{2,}', user_input or ""))
+
+    @staticmethod
+    def _build_request_profile(user_input: str, uploaded_files_meta: Optional[List[Dict]] = None) -> Dict[str, bool]:
+        text = user_input or ""
+        has_local_signal = ChatController._has_local_execution_signal(text, uploaded_files_meta)
+        high_risk_knowledge = ChatController._is_high_risk_knowledge_request(text)
+        numbered_tasks = re.findall(r'(?:^|[\n\r])\s*(\d+)\s*[.、]', text)
+        return {
+            "has_local_signal": has_local_signal,
+            "high_risk_knowledge": high_risk_knowledge,
+            "numbered_tasks": len(set(numbered_tasks)) >= 2,
+            "avoid_breakdown": high_risk_knowledge and not has_local_signal,
+            "external_only_high_risk": high_risk_knowledge and not has_local_signal,
+        }
+
+    @staticmethod
+    def _format_evidence_labeled_response(response_text: str, run_mode: str,
+                                          runtime_context: Optional[Dict] = None,
+                                          tool_calls: Optional[List[Dict]] = None) -> str:
+        text = (response_text or "").strip()
+        if not text:
+            return text
+        runtime_context = runtime_context or {}
+        tool_calls = tool_calls or []
+        if runtime_context.get("external_only_high_risk"):
+            return (
+                "## 谨慎结论 / 待核实\n"
+                "以下内容缺少本地或可信证据支持，因此仅保留概括，不应视为已核实事实。\n\n"
+                f"{text}"
+            )
+        if run_mode in ("tools", "hybrid", "plan") and tool_calls:
+            return (
+                "## 基于工具执行\n"
+                "以下结论来自本次工具调用与执行结果。\n\n"
+                f"{text}"
+            )
+        return text
+
+    @classmethod
+    def _is_memory_meta_request(cls, text: str) -> bool:
+        normalized = (text or "").strip()
+        return any(re.search(pattern, normalized, re.I) for pattern in cls._MEMORY_META_PATTERNS)
+
+    @classmethod
+    def _is_followup_reference_request(cls, text: str) -> bool:
+        normalized = (text or "").strip()
+        if not normalized:
+            return False
+        return any(re.search(pattern, normalized, re.I) for pattern in cls._FOLLOWUP_REFERENCE_PATTERNS)
+
+    @classmethod
+    def _should_replay_followup_answer(cls, text: str) -> bool:
+        normalized = re.sub(r'\s+', '', (text or ""))
+        if not normalized:
+            return False
+        pure_patterns = (
+            r'^回答最后一个问题$',
+            r'^回答上一个问题$',
+            r'^继续回答最后一个问题$',
+            r'^继续回答上一个问题$',
+            r'^继续说$',
+            r'^接着说$',
+            r'^继续讲$',
+            r'^继续回答$',
+        )
+        return any(re.match(pattern, normalized, re.I) for pattern in pure_patterns)
+
+    @classmethod
+    def _resolve_followup_turn(cls, history_pairs: List[List[str]],
+                               user_message: str,
+                               fallback_turns: Optional[List[Dict[str, str]]] = None) -> Optional[Dict[str, str]]:
+        if not cls._is_followup_reference_request(user_message):
+            return None
+
+        def _candidate_from_pair(user_text: str, bot_text: str) -> Optional[Dict[str, str]]:
+            normalized = (user_text or "").strip()
+            if not normalized:
+                return None
+            if cls._is_memory_meta_request(normalized):
+                return None
+            if cls._is_followup_reference_request(normalized):
+                return None
+            if normalized in ("继续", "下一个", "继续其他问题"):
+                return None
+            return {
+                "user_message": normalized,
+                "bot_response": (bot_text or "").strip(),
+            }
+
+        for pair in reversed(history_pairs or []):
+            if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                continue
+            candidate = _candidate_from_pair(pair[0], pair[1])
+            if candidate:
+                return candidate
+
+        for turn in reversed(fallback_turns or []):
+            candidate = _candidate_from_pair(turn.get("user_message", ""), turn.get("bot_response", ""))
+            if candidate:
+                return candidate
+        return None
+
+    @staticmethod
+    def _build_followup_context_message(followup_turn: Dict[str, str], current_user_message: str) -> str:
+        prior_question = (followup_turn or {}).get("user_message", "").strip()
+        prior_answer = (followup_turn or {}).get("bot_response", "").strip()
+        answer_excerpt = prior_answer[:800] + ("..." if len(prior_answer) > 800 else "")
+        return (
+            "上下文：用户当前消息是在继续追问之前的相关问题。\n"
+            f"上一条相关用户问题：{prior_question}\n"
+            f"上一条助手回答：{answer_excerpt or '（上一条回答为空）'}\n"
+            f"当前追问：{current_user_message}\n"
+            "要求：请围绕“上一条相关用户问题”继续回答当前追问，不要把“最后一个问题/上一个问题”当作字面待解释对象。"
+        )
+
+    @staticmethod
+    def _build_followup_replay_answer(followup_turn: Dict[str, str]) -> str:
+        prior_question = (followup_turn or {}).get("user_message", "").strip()
+        prior_answer = (followup_turn or {}).get("bot_response", "").strip()
+        if prior_answer:
+            return (
+                "## 上一条相关问题的回答\n"
+                f"对应问题：{prior_question}\n\n"
+                f"{prior_answer}"
+            )
+        return f"上一条相关问题是：{prior_question}"
+
+    @classmethod
+    def _is_topic_carryover_request(cls, text: str) -> bool:
+        normalized = (text or "").strip()
+        if not normalized:
+            return False
+        if cls._is_followup_reference_request(normalized):
+            return True
+        return any(re.match(pattern, normalized, re.I) for pattern in cls._TOPIC_CARRYOVER_PATTERNS)
+
+    @classmethod
+    def _extract_topic_from_message(cls, text: str) -> Optional[str]:
+        normalized = re.sub(r'\s+', ' ', (text or '').strip())
+        if not normalized:
+            return None
+        if cls._is_memory_meta_request(normalized):
+            return None
+        if cls._is_topic_carryover_request(normalized):
+            return None
+        return normalized[:160]
+
+    @classmethod
+    def _resolve_topic_for_turn(cls, session_context: SessionContext, user_message: str,
+                                followup_turn: Optional[Dict[str, str]] = None) -> Optional[str]:
+        task_context = getattr(session_context, "task_context", {}) or {}
+        current_topic = task_context.get("current_topic")
+        if followup_turn:
+            return followup_turn.get("user_message") or current_topic
+        if cls._is_topic_carryover_request(user_message):
+            return current_topic
+        return cls._extract_topic_from_message(user_message) or current_topic
+
+    @classmethod
+    def _update_session_topic(cls, session_context: SessionContext, user_message: str,
+                              followup_turn: Optional[Dict[str, str]] = None) -> Optional[str]:
+        task_context = session_context.task_context
+        resolved_topic = cls._resolve_topic_for_turn(session_context, user_message, followup_turn)
+        if not resolved_topic:
+            return task_context.get("current_topic")
+        previous_topic = task_context.get("current_topic")
+        task_context["current_topic"] = resolved_topic
+        task_context["topic_updated_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        topic_history = task_context.setdefault("topic_history", [])
+        if not topic_history or topic_history[-1].get("topic") != resolved_topic:
+            topic_history.append({
+                "topic": resolved_topic,
+                "source": "followup" if followup_turn or cls._is_topic_carryover_request(user_message) else "user_message",
+                "timestamp": task_context["topic_updated_at"],
+            })
+            if len(topic_history) > 8:
+                del topic_history[:-8]
+        if previous_topic and previous_topic != resolved_topic:
+            task_context["previous_topic"] = previous_topic
+        return resolved_topic
 
     def get_session_state(self, session_hash):
         if session_hash not in self.session_states:
@@ -123,7 +329,6 @@ class ChatController:
                 checkpoint_db_path="checkpoints.db",
             )
 
-            # 强制共享同一份向量记忆，避免路由器与执行框架各自检索不同记忆导致结果不一致。
             agent_framework.vector_memory = self.vector_memory
             agent_framework.memory = self.vector_memory
             agent_framework.context_retriever = ContextRetriever(
@@ -137,6 +342,15 @@ class ChatController:
                 "session_context": SessionContext()
             }
         return self.session_states[session_hash]
+
+    def _ensure_log_session(self, session_hash: str) -> str:
+        existing = self.user_sessions.get(session_hash)
+        if existing:
+            return self.logger.bind_session(existing)
+        session_id = self.logger.create_session()
+        self.user_sessions[session_hash] = session_id
+        self.monitor.info(f"为 Gradio 会话 {session_hash} 绑定日志会话 {session_id}")
+        return session_id
 
     def get_or_init_local_agent(self):
         if self._active_agent["instance"] is None or self._active_agent["type"] != "local":
@@ -236,22 +450,35 @@ class ChatController:
         return uploaded_files
 
     @log_async_execution_time
-    async def bot_response(self, history, sys_prompt, temp, top_p_val, max_tok, plan_mode_enabled, pdf_files, gr_request: gr.Request):
+    async def bot_response(
+            self,
+            history,
+            sys_prompt,
+            temp,
+            top_p_val,
+            max_tok,
+            plan_mode_enabled,
+            pdf_files,
+            gr_request: gr.Request,
+    ):
+        global _asyncio, partial_results
         if not history or history[-1][1] is not None:
             yield history, "💬 等待输入..."
             return
 
         user_message = history[-1][0]
         history_without_last = history[:-1]
-        self.logger.create_session()
 
         session_hash = gr_request.session_hash
+        self._ensure_log_session(session_hash)
         trace_id = make_trace_id()
         session_state = self.get_session_state(session_hash)
         agent_framework = session_state["agent_framework"]
         session_context = session_state["session_context"]
+        session_context.task_context["session_id"] = session_hash
+        session_context.runtime_context["session_id"] = session_hash
 
-        # 存储用户消息到向量记忆
+        # --- 向量记忆存储 ---
         if agent_framework.vector_memory and user_message:
             if user_message != "[未设置]" and not user_message.startswith("["):
                 agent_framework.vector_memory.add(
@@ -263,29 +490,26 @@ class ChatController:
                     },
                     importance=0.95,
                     auto_score=False,
-                    skip_duplicate=True
+                    skip_duplicate=True,
                 )
 
+        # --- PDF 处理 ---
         pdf_info = ""
         uploaded_files_meta = self.extract_uploaded_file_meta(pdf_files)
-        self.monitor.info(
-            f"收到用户消息，trace_id={trace_id}, session={session_hash[:8]}, 消息预览: {user_message[:100]}"
-        )
-        log_event(
-            "request_received",
-            "收到用户请求",
-            trace_id=trace_id,
-            session=session_hash[:8],
-            user_len=len(user_message),
-            has_uploads=bool(uploaded_files_meta),
-        )
         if uploaded_files_meta and HAS_PYPDF:
             pdf_text = self.extract_pdf_text(pdf_files)
             if pdf_text:
                 pdf_info = f"\n\n【PDF内容】:\n{pdf_text[:1000]}..."
 
-        # 清理历史中无效的占位消息
-        _filter_prefixes = ("已达到最大迭代次数", "[⚠️ 工具模式错误]", "[GLM API 错误]", "[在进行中...]", "[未设置]")
+        # --- 清理历史 ---
+        _filter_prefixes = (
+            "已达到最大迭代次数",
+            "[⚠️ 工具模式错误]",
+            "[GLM API 错误]",
+            "[在进行中...]",
+            "[未设置]",
+        )
+
         def _is_stale_tool_plan(a_text: str) -> bool:
             if not a_text:
                 return False
@@ -300,18 +524,21 @@ class ChatController:
             if not u:
                 continue
             _a_invalid = (
-                not a
-                or any(a.startswith(p) for p in _filter_prefixes)
-                or _is_stale_tool_plan(a)
+                    not a
+                    or any(a.startswith(p) for p in _filter_prefixes)
+                    or _is_stale_tool_plan(a)
             )
             if _a_invalid:
                 _clean_pairs.append([u, None])
             else:
                 _clean_pairs.append([u, a])
-
         chat_history = [[u, a] for u, a in _clean_pairs if u and a]
+        current_log_session = self.user_sessions.get(session_hash)
+        recent_logged_turns = self.logger.get_recent_turns(current_log_session, limit=12) if current_log_session else []
+        followup_turn = self._resolve_followup_turn(_clean_pairs, user_message, recent_logged_turns)
+        current_topic = self._update_session_topic(session_context, user_message, followup_turn)
 
-        # 准备路由器上下文
+        # --- 路由器上下文 ---
         skill_list_for_router = []
         for skill_id in self._available_skill_ids:
             meta = self.skill_manager.skills_metadata.get(skill_id, {})
@@ -319,122 +546,161 @@ class ChatController:
                 "id": skill_id,
                 "name": meta.get("name", skill_id),
                 "tags": meta.get("tags", []),
-                "description": meta.get("description", "")
+                "description": meta.get("description", ""),
             })
-
         router_context = {
+            "session_id": session_hash,
             "available_skills": skill_list_for_router,
             "uploaded_files": uploaded_files_meta,
-            "history": [[u, a] for u, a in _clean_pairs[-3:] if u]
+            "history": [[u, a] for u, a in _clean_pairs[-3:] if u],
+            "current_topic": current_topic,
         }
 
-        # ---------- RAG 意图路由 ----------
+        # --- 意图路由 ---
         intent_result = self.mode_router.route(user_message + pdf_info, router_context)
         run_mode = intent_result.intent.value
         confidence = intent_result.confidence
 
-        # ===== 新增：处理 MEMORY_QUERY 意图 =====
         if run_mode == "memory_query":
-            questions = self.logger.get_all_user_questions(skip_placeholders=True)
-            if questions:
-                lines = ["📚 根据历史记录，您曾问过以下问题："]
-                for q in questions[-10:]:  # 最近10条
-                    timestamp = q.get("timestamp", "")[:19]
-                    user_msg = q.get("user_message", "")
-                    lines.append(f"- {timestamp}：{user_msg}")
-                memory_answer = "\n".join(lines)
-            else:
-                memory_answer = "暂无历史问题记录。"
+            current_session_questions = []
+            for turn in recent_logged_turns:
+                q = turn.get("user_message", "")
+                if q and not self._is_memory_meta_request(q):
+                    current_session_questions.append({
+                        "timestamp": turn.get("timestamp", ""),
+                        "user_message": q,
+                    })
+            questions = current_session_questions or self.logger.get_all_user_questions(skip_placeholders=True)
+            memory_answer = "\n".join(
+                f"- {q.get('timestamp', '')[:19]}：{q.get('user_message', '')}"
+                for q in (questions[-10:] if questions else [])
+            ) if questions else "暂无历史问题记录。"
             history[-1][1] = memory_answer
             yield history, "📚 历史记忆查询"
             return
 
+        if followup_turn and self._should_replay_followup_answer(user_message):
+            replay_answer = self._build_followup_replay_answer(followup_turn)
+            history[-1][1] = replay_answer
+            self.logger.log_message(
+                user_message=user_message,
+                bot_response=replay_answer,
+                execution_time=0.0,
+                tokens_used=0,
+                model="followup_replay",
+                runtime_context={
+                    "trace_id": trace_id,
+                    "session_id": session_hash,
+                    "run_mode": "chat",
+                    "followup_turn": followup_turn,
+                    "followup_replay": True,
+                },
+                execution_log=[{
+                    "iteration": -1,
+                    "type": "followup_replay",
+                    "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                }],
+            )
+            yield history, "💬 对话模式（历史追问回放）"
+            return
+
+        # ===== 文件操作缺少路径时使用统一的澄清卡片 =====
+        if run_mode == "tools":
+            has_path = bool(re.search(r'[/\\]|[\w\-]+\.\w{2,}', user_message))
+            if not has_path and not uploaded_files_meta:
+                missing_items = ["请提供要处理的文件路径或文件名"]
+                clarification_card = self.clarification_mgr.trigger_clarification(
+                    runtime_context={},
+                    missing_info=missing_items,
+                    source="pre_check"
+                )
+                history[-1][1] = clarification_card
+                yield history, "❓ 需要澄清（缺少文件路径）"
+                return
+        # ==========================================================
+
         suggested = intent_result.suggested_params
+        if run_mode in ("tools", "skills"):
+            actual_temp = 0.2
+            actual_max_tokens = suggested.get("max_tokens", 4096)
+        elif run_mode == "plan":
+            actual_temp = 0.4
+            actual_max_tokens = suggested.get("max_tokens", 4096)
+        else:
+            actual_temp = suggested.get("temperature", temp)
+            actual_max_tokens = suggested.get("max_tokens", max_tok)
 
-        actual_temp = suggested.get("temperature", temp)
-        actual_max_tokens = suggested.get("max_tokens", max_tok)
-
-        # 技能匹配
         skill_ids = []
         if run_mode in ("skills", "hybrid"):
             msg_lower = user_message.lower()
             for sid in self._available_skill_ids:
                 if sid.lower() in msg_lower or any(
-                    kw in msg_lower for kw in sid.lower().replace("-", " ").split()
+                        kw in msg_lower for kw in sid.lower().replace("-", " ").split()
                 ):
                     skill_ids.append(sid)
             if not skill_ids and run_mode == "skills":
                 skill_ids = self._available_skill_ids[:1]
 
-        # 自动计划检测
-        import re as _re
-        _numbered_tasks = _re.findall(r'(?:^|[\n\r])\s*(\d+)\s*[.、]', user_message)
-        _auto_plan = len(set(_numbered_tasks)) >= 2
+        request_profile = self._build_request_profile(user_message, uploaded_files_meta)
+        _numbered_tasks = re.findall(r'(?:^|[\n\r])\s*(\d+)\s*[.、]', user_message)
+        _auto_plan = request_profile["numbered_tasks"]
         _effective_plan_mode = bool(plan_mode_enabled) or _auto_plan
+        _should_avoid_breakdown = request_profile["avoid_breakdown"]
 
-        needs_breakdown = (run_mode == "plan" or run_mode == "multi_agent"
-                           or intent_result.intent == IntentType.PLAN or _auto_plan)
-
-        _mode_icons = {"chat": "💬", "tools": "🔧", "skills": "🎓", "hybrid": "⚡", "plan": "📋"}
-        _mode_labels = {"chat": "对话模式", "tools": "工具模式", "skills": "技能模式", "hybrid": "混合模式", "plan": "计划模式"}
-        mode_display_text = f"{_mode_icons.get(run_mode, '🤖')} {_mode_labels.get(run_mode, run_mode)} (置信度: {confidence:.2f})"
-        if _auto_plan and not plan_mode_enabled:
-            mode_display_text += f" | 📋自动计划模式（检测到{len(set(_numbered_tasks))}个子任务）"
-        if skill_ids:
-            mode_display_text += f" | 技能: {', '.join(skill_ids)}"
-        if intent_result.reasoning:
-            mode_display_text += f"\n原因: {intent_result.reasoning[:100]}"
-        if needs_breakdown:
-            mode_display_text += " | 📋任务拆解中..."
-
-        self.monitor.info(f"意图路由结果: {run_mode}, 置信度: {confidence:.2f}, 计划模式: {_effective_plan_mode}")
-        log_event(
-            "intent_route",
-            "完成意图路由",
-            trace_id=trace_id,
-            session=session_hash[:8],
-            run_mode=run_mode,
-            confidence=f"{confidence:.2f}",
-            plan_mode=_effective_plan_mode,
-            auto_plan=_auto_plan,
-            skills=",".join(skill_ids) if skill_ids else "-",
+        needs_breakdown = (
+                run_mode in ("tools", "plan")
+                or intent_result.intent == IntentType.PLAN
+                or (run_mode == "hybrid" and not _should_avoid_breakdown)
+                or (_auto_plan and not _should_avoid_breakdown)
         )
+        if request_profile["external_only_high_risk"] and run_mode == "hybrid":
+            run_mode = "chat"
 
-        # 关键修改：将路由阶段检索到的证据传递给 Agent
         runtime_context = {
             "trace_id": trace_id,
+            "session_id": session_hash,
             "run_mode": run_mode,
             "plan_mode": _effective_plan_mode,
+            "request_profile": request_profile,
+            "external_only_high_risk": request_profile["external_only_high_risk"],
+            "followup_turn": followup_turn,
+            "current_topic": current_topic,
             "uploaded_files": uploaded_files_meta,
             "selected_skills": skill_ids,
             "intent_reasons": [intent_result.reasoning],
-            "router_evidence": intent_result.evidence,  # 新增：预检索证据
+            "router_evidence": intent_result.evidence,
         }
 
-        # 构建系统提示词
+        if self.clarification_mgr.is_clarification_active(runtime_context):
+            if self.clarification_mgr.process_user_clarification(
+                    user_message,
+                    runtime_context,
+                    agent_framework.vector_memory if hasattr(agent_framework, 'vector_memory') else None
+            ):
+                self.monitor.info("用户澄清信息已处理，即将继续任务")
+            else:
+                self.monitor.warning("处理用户澄清回复失败")
+
         if not sys_prompt or sys_prompt.strip() == "":
-            skills_text = ""
-            if skill_ids:
-                skills_text = "\n".join([f"- {sid}" for sid in skill_ids])
             sys_prompt = get_system_prompt(
                 mode=run_mode,
                 work_dir=str(Path.cwd()),
-                skills_context=skills_text
+                skills_context="\n".join(skill_ids) if skill_ids else "",
             )
 
-        # 构建消息
         base_messages = [{"role": "system", "content": sys_prompt}]
         if run_mode == "tools":
             base_messages = inject_few_shot_examples(base_messages, max_examples=2)
-
         for u, a in chat_history:
             base_messages.append({"role": "user", "content": u})
             base_messages.append({"role": "assistant", "content": a})
-
         _user_msg_with_ctx = user_message + pdf_info
         base_messages.append({"role": "user", "content": _user_msg_with_ctx})
 
-        # 注入技能内容
+        if self.clarification_mgr.get_clarified_facts(runtime_context):
+            facts_msg = self.clarification_mgr.build_clarification_context_message(runtime_context)
+            base_messages.append(facts_msg)
+
         if skill_ids:
             skill_content_parts = []
             skill_infos = []
@@ -455,10 +721,7 @@ class ChatController:
                 })
             if skill_content_parts:
                 runtime_context["skill_contexts"] = skill_infos
-                skill_inject_msg = (
-                    "\n\n".join(skill_content_parts)
-                    + "\n\n请参考上方技能知识完成任务。"
-                )
+                skill_inject_msg = "\n\n".join(skill_content_parts) + "\n\n请参考上方技能知识完成任务。"
                 base_messages.append({"role": "user", "content": skill_inject_msg})
 
         start_time = time.time()
@@ -471,189 +734,240 @@ class ChatController:
             "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
         }]
 
-        # ---------- 核心执行：根据是否多步骤决定调用方式 ----------
+        review_info = {}
+        _react_orchestrator = None              # 修正：预置 orchestrator 变量，避免 NameError
+
+        context_prefixes = []
+        clarified_facts = self.clarification_mgr.get_clarified_facts(runtime_context)
+        if clarified_facts:
+            facts_text = "；".join(clarified_facts)
+            context_prefixes.append(f"背景：上一轮任务需要澄清，用户补充了以下信息：{facts_text}。")
+        if followup_turn:
+            context_prefixes.append(self._build_followup_context_message(followup_turn, user_message))
+        elif self._is_topic_carryover_request(user_message) and current_topic:
+            context_prefixes.append(
+                f"上下文：当前会话的主话题是：{current_topic}。\n"
+                f"当前用户追问：{user_message}\n"
+                "要求：请围绕这个主话题继续回答，不要把代词或省略句单独理解成新任务。"
+            )
+        if context_prefixes:
+            user_message_with_context = "\n\n".join(context_prefixes + [f"现在用户说：{user_message}"]) + pdf_info
+        else:
+            user_message_with_context = user_message + pdf_info
+
         if needs_breakdown:
-            # 使用 ReActMultiAgentOrchestrator 进行多步骤执行
             self.monitor.info("进入 ReAct 多 Agent 模式")
             try:
-                import asyncio as _asyncio
                 _react_orchestrator = ReActMultiAgentOrchestrator(
                     react_framework=agent_framework,
-                    max_plan_steps=6,
+                    max_plan_steps=100,
                     max_retries=1,
+                    clarification_mgr=self.clarification_mgr
                 )
-                _ma_result = await _asyncio.wait_for(
-                    _react_orchestrator.run(
-                        user_input=user_message + pdf_info,
+                session_state["orchestrator"] = _react_orchestrator
+
+                partial_results = []
+                final_response = ""
+
+                # 直接迭代，不添加总超时（内部已有步骤级超时）
+                async for event in _react_orchestrator.run_stream(
+                        user_input=user_message_with_context,
                         session=session_context,
                         context=runtime_context,
                         temperature=actual_temp,
                         top_p=top_p_val,
                         max_tokens=actual_max_tokens,
-                    ),
-                    timeout=240,
-                )
-                final_response = _ma_result.get("final_response", "")
-                if not final_response:
-                    final_response = "多 Agent 执行完成，但未能生成最终回答。"
-                _plan = _ma_result.get("plan", {})
-                _steps = _ma_result.get("step_results", [])
-                _n_success = sum(1 for s in _steps if s.get("success"))
-                execution_log.append({
-                    "iteration": 0,
-                    "type": "react_multi_agent_run",
-                    "plan_complexity": _plan.get("complexity", "unknown"),
-                    "steps_total": len(_steps),
-                    "steps_success": _n_success,
-                    "duration": _ma_result.get("duration", 0),
-                    "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                })
-                if _ma_result.get("final_artifact"):
-                    execution_log.append({
-                        "type": "final_artifact",
-                        "final_facts_count": len(_ma_result["final_artifact"].get("final_facts", [])),
-                        "unresolved_count": len(_ma_result["final_artifact"].get("unresolved_issues", [])),
-                        "evidence_count": len(_ma_result["final_artifact"].get("evidence_used", [])),
-                    })
-                history[-1][1] = final_response
-                self.monitor.info(f"多 Agent 执行完成，成功步骤: {_n_success}/{len(_steps)}")
-                log_event(
-                    "request_completed",
-                    "多 Agent 请求完成",
-                    trace_id=trace_id,
-                    session=session_hash[:8],
-                    mode=run_mode,
-                    steps_total=len(_steps),
-                    steps_success=_n_success,
-                    duration_s=f"{_ma_result.get('duration', 0):.2f}",
-                )
-                yield history, mode_display_text
-            except _asyncio.TimeoutError:
-                _timeout_msg = "⏰ 多步骤任务执行超时（超过4分钟），已强制中断。"
-                self.monitor.error("ReAct多Agent模式超时")
-                history[-1][1] = _timeout_msg
-                yield history, "⏰ 执行超时"
-                execution_log.append({
-                    "type": "multi_agent_timeout",
-                    "error": "asyncio.TimeoutError after 240s",
-                    "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                })
-                log_event(
-                    "request_failed",
-                    "多 Agent 请求超时",
-                    trace_id=trace_id,
-                    session=session_hash[:8],
-                    mode=run_mode,
-                    error="timeout",
-                )
+                ):
+                    if event["type"] == "step_complete":
+                        partial_results.append(
+                            f"✅ 步骤 {event['step_id']}: {safe_fstr(event['action'])}\n{safe_fstr(event['result'])}")
+                    elif event["type"] == "step_failed":
+                        partial_results.append(f"❌ 步骤 {event['step_id']} 失败: {safe_fstr(event['error'])}")
+                    elif event["type"] == "step_blocked":
+                        # ✅ 新增 safe_fstr
+                        partial_results.append(f"🔒 步骤 {event['step_id']} 需要澄清: {safe_fstr(event['message'])}")
+                    elif event["type"] == "error":
+                        error_msg = event.get("message", "未知错误")
+                        # ✅ 新增 safe_fstr
+                        final_response = f"❌ 任务执行失败：{safe_fstr(error_msg)}"
+                        self.monitor.error(f"多 Agent 执行错误: {safe_fstr(error_msg)}")
+                        break
+                    elif event["type"] == "final":
+                        final_response = event["response"]  # 直接赋值，无需转义
+
+                raw_agent_response = final_response if final_response.strip() else (
+                    "\n\n".join(partial_results) if partial_results else "（无输出）")
+
+                # 检查是否有步骤需要澄清
+                workflow_state = _react_orchestrator.workflow_states.get(trace_id)
+                if isinstance(workflow_state, WorkflowPlanState) and workflow_state.pending_clarifications:
+                    clarification_card = self.clarification_mgr.trigger_clarification(
+                        runtime_context, missing_items=["请提供更多信息"], source="multi_agent"
+                    )
+                    history[-1][1] = clarification_card
+                    yield history, f"❓ 需要澄清"
+                    return
+
             except Exception as e:
-                self.monitor.warning(f"ReAct多Agent模式异常: {e}")
-                error_msg = f"❌ 任务执行失败：{str(e)}。"
-                history[-1][1] = error_msg
-                yield history, mode_display_text
-                execution_log.append({
-                    "type": "multi_agent_failed",
-                    "error": str(e),
-                    "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                })
-                log_event(
-                    "request_failed",
-                    "多 Agent 请求失败",
-                    trace_id=trace_id,
-                    session=session_hash[:8],
-                    mode=run_mode,
-                    error=str(e)[:200],
-                )
+                import traceback
+                traceback.print_exc()  # <-- 加这一行
+                raw_agent_response = f"❌ 任务执行失败：{str(e)}"
         else:
-            # 直接调用 Agent
-            try:
-                # 将 Gradio 格式的二维历史 [[user, assistant], ...] 转换为消息字典列表
-                formatted_history = []
-                for user_msg, bot_msg in chat_history:
-                    if user_msg:
-                        formatted_history.append({"role": "user", "content": user_msg})
-                    if bot_msg:
-                        formatted_history.append({"role": "assistant", "content": bot_msg})
+            formatted_history = []
+            for user_msg, bot_msg in chat_history:
+                if user_msg:
+                    formatted_history.append({"role": "user", "content": user_msg})
+                if bot_msg:
+                    formatted_history.append({"role": "assistant", "content": bot_msg})
+            request_thread_id = f"{session_hash}_{trace_id}"
+            res = await agent_framework.run(
+                user_input=user_message_with_context,
+                session=session_context,
+                history=formatted_history,
+                runtime_context=runtime_context,
+                temperature=actual_temp,
+                top_p=top_p_val,
+                max_tokens=actual_max_tokens,
+                thread_id=request_thread_id,
+            )
+            raw_agent_response = self._format_evidence_labeled_response(
+                res["response"],
+                run_mode=run_mode,
+                runtime_context=runtime_context,
+                tool_calls=res.get("tool_calls", []),
+            )
 
-                request_thread_id = f"{session_hash}_{trace_id}"
-                res = await agent_framework.run(
-                    user_input=user_message + pdf_info,
-                    session=session_context,
-                    history=formatted_history,
-                    runtime_context=runtime_context,
-                    temperature=actual_temp,
-                    top_p=top_p_val,
-                    max_tokens=actual_max_tokens,
-                    thread_id=request_thread_id,
-                )
-                final_response = res["response"]
-                if isinstance(res.get("tool_calls"), list):
-                    for i, tc in enumerate(res["tool_calls"]):
-                        if isinstance(tc, dict):
-                            execution_log.append({
-                                "iteration": i,
-                                "type": "tool_call",
-                                "tool": tc.get("tool"),
-                                "success": tc.get("success")
-                            })
-                        else:
-                            # 记录异常格式，避免崩溃
-                            self.monitor.warning(f"工具调用记录格式异常，已跳过：{type(tc)} - {tc}")
+        # ========== 澄清检测（高风险知识请求不弹卡片） ==========
+        should_clarify = False
+        if isinstance(raw_agent_response, str) and any(
+                status in raw_agent_response for status in ("STATUS: NEEDS_CONTEXT", "STATUS: BLOCKED")):
+            if not self._is_high_risk_knowledge_request(user_message):
+                should_clarify = True
+            else:
+                self.monitor.info("高风险知识请求，忽略 STATUS，保留当前回答")
+        elif review_info.get("completed") is False and review_info.get("quality") == "poor":
+            should_clarify = True
+        elif run_mode in ("tools", "hybrid") and len(raw_agent_response.strip()) < 50 and any(
+                kw in raw_agent_response for kw in ["请提供", "缺少", "不知道", "需要更多"]):
+            should_clarify = True
 
-                history[-1][1] = final_response
-                yield history, mode_display_text
-                self.monitor.info(f"Agent 执行完成，工具调用数: {len(res['tool_calls'])}")
-                execution_log.append({
-                    "type": "agent_summary",
-                    "iterations": res.get("iterations", 0),
-                    "duration": res.get("duration", 0),
-                    "thread_id": res.get("thread_id"),
-                    "reflection_summary_present": bool(res.get("reflection_summary")),
-                })
-                log_event(
-                    "request_completed",
-                    "Agent 请求完成",
-                    trace_id=trace_id,
-                    session=session_hash[:8],
-                    mode=run_mode,
-                    tool_calls=len(res["tool_calls"]),
-                    iterations=res.get("iterations", 0),
-                    duration_s=f"{res.get('duration', 0):.2f}",
-                )
-            except Exception as e:
-                self.monitor.error(f"Agent 执行异常: {e}")
-                error_msg = f"❌ 执行失败: {str(e)}"
-                history[-1][1] = error_msg
-                yield history, mode_display_text
-                execution_log.append({
-                    "type": "runtime_error",
-                    "error": str(e),
-                    "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                })
-                log_event(
-                    "request_failed",
-                    "Agent 请求失败",
-                    trace_id=trace_id,
-                    session=session_hash[:8],
-                    mode=run_mode,
-                    error=str(e)[:200],
-                )
-
-        # 记录日志
         execution_time = time.time() - start_time
-        _cur_agent = self._active_agent.get("instance")
-        _agent_type = self._active_agent.get("type", "local")
-        _cur_model_name = "glm-4-flash" if _agent_type == "glm" else "Qwen2.5-0.5B"
+
+        if should_clarify and self.clarification_mgr.get_clarify_round(
+                runtime_context) < self.clarification_mgr.MAX_CLARIFY_ROUNDS:
+            missing_items = ["请提供缺失的文件路径或参数", "或描述您希望完成的具体操作"]
+            if "file_not_found" in raw_agent_response.lower():
+                missing_items = ["文件未找到，请提供正确的文件名或路径"]
+            elif "NEEDS_CONTEXT" in raw_agent_response:
+                missing_items = ["根据模型要求，请补充上下文信息"]
+
+            clarification_card = self.clarification_mgr.trigger_clarification(
+                runtime_context, missing_items, source="agent_response"
+            )
+            history[-1][1] = clarification_card
+
+            try:
+                self.logger.log_message(
+                    user_message=user_message,
+                    bot_response=raw_agent_response.strip(),
+                    execution_time=execution_time,
+                    tokens_used=0,
+                    model="glm-4-flash" if self._active_agent["type"] == "glm" else "Qwen2.5-0.5B",
+                    runtime_context=runtime_context,
+                    execution_log=execution_log,
+                )
+            except Exception as log_err:
+                self.monitor.warning(f"澄清轮次日志记录失败: {log_err}")
+
+            yield history, f"❓ 需要澄清（第 {runtime_context.get('clarify_round', 1)} 次）"
+            return
+
+        # --- 最终输出与日志 ---
+        final_response = raw_agent_response
+        final_response = clean_react_tags(final_response)
+        #final_response = summarize_long_response(final_response, max_chars=0)
+        # 增加兜底：若最终响应仍为空，给一个默认提示
+        if not final_response.strip():
+            final_response = "✅ 任务已处理，但未生成文本结果。请查看控制台日志。"
+        history[-1][1] = final_response
+
+        _mode_icons = {"chat": "💬", "tools": "🔧", "skills": "🎓", "hybrid": "⚡", "plan": "📋"}
+        _mode_labels = {"chat": "对话模式", "tools": "工具模式", "skills": "技能模式", "hybrid": "混合模式",
+                        "plan": "计划模式"}
+        mode_display = f"{_mode_icons.get(run_mode, '🤖')} {_mode_labels.get(run_mode, run_mode)} (置信度: {confidence:.2f})"
+        if _auto_plan and not plan_mode_enabled:
+            mode_display += f" | 📋自动计划（{len(set(_numbered_tasks))}个子任务）"
+        if skill_ids:
+            mode_display += f" | 技能: {', '.join(skill_ids)}"
+
         self.logger.log_message(
             user_message=user_message,
-            bot_response=history[-1][1],
+            bot_response=final_response,
             execution_time=execution_time,
             tokens_used=0,
-            model=_cur_model_name,
+            model="glm-4-flash" if self._active_agent["type"] == "glm" else "Qwen2.5-0.5B",
             runtime_context=runtime_context,
             execution_log=execution_log,
         )
-        self.monitor.info(f"请求处理完成，trace_id={trace_id}, 总耗时 {execution_time:.2f}s")
+        self._check_performance_alert(execution_time, raw_agent_response, trace_id)  # 修正：使用原始响应
+
+        # ---------- 恢复未完成工作流 ----------
+        if _react_orchestrator is not None and user_message.strip() in ("继续", "继续其他问题", "下一个"):
+            resume_trace_id = self._get_or_resume_workflow(session_hash)
+            if resume_trace_id:
+                result = await _react_orchestrator.run(
+                    user_input=user_message,
+                    session=session_context,
+                    context=runtime_context,
+                    resume=True,
+                    temperature=actual_temp,
+                    top_p=top_p_val,
+                    max_tokens=actual_max_tokens
+                )
+                final_response = result.get("final_response", "")
+                history[-1][1] = final_response
+                # 补充日志记录
+                self.logger.log_message(
+                    user_message=user_message,
+                    bot_response=final_response,
+                    execution_time=time.time() - start_time,
+                    tokens_used=0,
+                    model="glm-4-flash" if self._active_agent["type"] == "glm" else "Qwen2.5-0.5B",
+                    runtime_context=runtime_context,
+                    execution_log=[],
+                )
+                yield history, "🔄 继续执行剩余任务"
+                return
+        # -------------------------------------------------------------
+
+        yield history, mode_display
+
+    @staticmethod
+    def _extract_missing_from_status(text: str) -> List[str]:
+        """从 STATUS 响应中提取 REASON 和 RECOMMENDATION"""
+        reasons = []
+        for line in text.split('\n'):
+            if line.startswith("REASON:") or line.startswith("RECOMMENDATION:"):
+                reasons.append(line.split(":", 1)[1].strip())
+        return reasons if reasons else ["需要更多信息"]
+
+    @staticmethod
+    def _is_high_risk_knowledge_request(user_input: str) -> bool:
+        markers = ["歌词", "片段", "最出名", "十首", "top", "排名", "排行榜", "具体数据",
+                   "列出", "给出", "截取"]
+        return any(m in user_input for m in markers)
+
+    def _get_or_resume_workflow(self, session_hash: str) -> Optional[str]:
+        session_state = self.session_states.get(session_hash)
+        if not session_state:
+            return None
+        orchestrator = session_state.get("orchestrator")
+        if not orchestrator:
+            return None
+        for trace_id, state in orchestrator.workflow_states.items():
+            if not state.is_all_done() and not state.has_blocked():
+                return trace_id
+        return None
 
     def on_engine_change(self, engine_choice):
         is_glm = "GLM" in engine_choice
@@ -698,6 +1012,22 @@ class ChatController:
             self.monitor.error(f"GLM 模型切换失败: {e}")
             return f"❌ 切换失败: {e}"
 
+    def _check_performance_alert(self, execution_time: float, raw_agent_response: str, trace_id: str):
+        if execution_time > 120:
+            self.monitor.warning(f"请求 {trace_id} 执行超时 ({execution_time:.2f}s)")
+
+        session_hash = trace_id.split('_')[0] if '_' in trace_id else "global"
+        if not hasattr(self, '_failure_counters'):
+            self._failure_counters: Dict[str, int] = {}
+        counter = self._failure_counters.get(session_hash, 0)
+        if "❌" in raw_agent_response or "失败" in raw_agent_response:
+            counter += 1
+            self._failure_counters[session_hash] = counter
+            if counter >= 3:
+                self.monitor.error(f"会话 {session_hash} 连续失败 {counter} 次，触发降级")
+        else:
+            self._failure_counters[session_hash] = 0
+
     async def handle_message_with_workflow_resume(
         self,
         history,
@@ -709,10 +1039,6 @@ class ChatController:
         pdf_files,
         gr_request: gr.Request
     ):
-        """
-        兼容 web_agent_with_skills.py 中绑定的事件名称。
-        直接调用 bot_response 并转发其流式输出。
-        """
         async for response in self.bot_response(
             history, sys_prompt, temp, top_p_val, max_tok,
             plan_mode_enabled, pdf_files, gr_request

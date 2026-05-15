@@ -14,6 +14,8 @@ GLMAgent - 智谱 GLM-4-Flash API 封装
 import time
 from typing import Generator, List, Dict, Optional, Tuple
 
+from core.network_env import create_httpx_client_for_api, ensure_local_no_proxy
+
 
 class GLMAgent:
     """
@@ -55,7 +57,11 @@ class GLMAgent:
         """初始化智谱 AI 客户端。"""
         try:
             from zhipuai import ZhipuAI
-            self._client = ZhipuAI(api_key=self.api_key)
+            ensure_local_no_proxy()
+            self._client = ZhipuAI(
+                api_key=self.api_key,
+                http_client=create_httpx_client_for_api(timeout=60.0),
+            )
             print(f"✅ GLM 客户端初始化成功，使用模型: {self.model}")
         except ImportError:
             raise ImportError(
@@ -205,7 +211,11 @@ def validate_api_key(api_key: str) -> Tuple[bool, str]:
 
     try:
         from zhipuai import ZhipuAI
-        client = ZhipuAI(api_key=api_key)
+        ensure_local_no_proxy()
+        client = ZhipuAI(
+            api_key=api_key,
+            http_client=create_httpx_client_for_api(timeout=30.0),
+        )
         # 用最小请求验证 key
         resp = client.chat.completions.create(
             model="glm-4-flash",
@@ -223,4 +233,3 @@ def validate_api_key(api_key: str) -> Tuple[bool, str]:
         if "api_key" in err.lower() or "authentication" in err.lower() or "unauthorized" in err.lower():
             return False, f"❌ API Key 无效：{err}"
         return False, f"❌ 验证出错：{err}"
-
