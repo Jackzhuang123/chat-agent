@@ -15,6 +15,9 @@ class SessionContext:
     task_context: Dict[str, Any] = field(default_factory=lambda: {
         "current_task": None,
         "current_topic": None,
+        "active_file": None,
+        "active_file_updated_at": None,
+        "file_history": [],
         "topic_history": [],
         "topic_updated_at": None,
         "completed_steps": [],

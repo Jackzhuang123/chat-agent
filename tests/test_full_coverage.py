@@ -159,6 +159,7 @@ with patch.dict(sys.modules, {"gradio": _mock_gradio}):
     except Exception as e:
         SessionLogger = MagicMock
         _make_json_serializable = lambda x: x
+    from ui.markdown_utils import render_markdown_html, build_markdown_preview
 
 
 # =============================================================================
@@ -643,9 +644,10 @@ class TestContextRetriever(unittest.TestCase):
         """add_tool_observation 将工具结果写入向量记忆"""
         vm = VectorMemory(memory_dir=tempfile.mkdtemp())
         retriever = ContextRetriever(vm)
-        retriever.add_tool_observation("read_file", {"path": "a.py"}, {"content": "code"}, True)
+        retriever.add_tool_observation("read_file", {"path": "a.py"}, {"content": "code"}, True, active_file="a.py")
         results = vm.search("a.py", top_k=1)
         self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["metadata"].get("active_file"), "a.py")
 
 
 class TestFormatCorrector(unittest.TestCase):
@@ -867,6 +869,26 @@ class TestRAGIntentRouter(unittest.TestCase):
         self.assertTrue(profile["avoid_breakdown"])
         self.assertFalse(profile["has_local_signal"])
 
+    def test_08_path_only_query_routes_to_tools(self):
+        vm = VectorMemory(memory_dir=tempfile.mkdtemp())
+        router = RAGIntentRouter(vm)
+        result = router.route("/Users/zhuangranxin/PyCharmProjects/chat-Agent/core/monitor_logger.py，继续任务", {})
+        self.assertEqual(result.intent, IntentType.TOOLS)
+        self.assertGreaterEqual(result.confidence, 0.9)
+
+    def test_09_file_query_retrieval_isolated_to_tool_history(self):
+        vm = VectorMemory(memory_dir=tempfile.mkdtemp())
+        router = RAGIntentRouter(vm)
+        filter_metadata = router._build_retrieval_filter("/tmp/demo.py", session_id="s1", allow_cross_session=False)
+        self.assertEqual(filter_metadata["session_id"], "s1")
+        self.assertEqual(filter_metadata["type"], "tool_execution")
+
+    def test_10_file_followup_with_active_file_routes_to_tools(self):
+        vm = VectorMemory(memory_dir=tempfile.mkdtemp())
+        router = RAGIntentRouter(vm)
+        result = router.route("继续任务", {"active_file": "/tmp/demo.py"})
+        self.assertEqual(result.intent, IntentType.TOOLS)
+
 
 class TestReflection(unittest.TestCase):
     """reflection.py 关键细节测试"""
@@ -1043,6 +1065,18 @@ class TestToolEnforcementMiddleware(unittest.TestCase):
         resp = "继续执行"
         result = self._run_async(mw.process_after_llm(resp, ctx))
         self.assertFalse(ctx.get("_needs_retry", True))
+
+    def test_03b_explicit_file_request_cannot_skip_tool_with_natural_language(self):
+        mw = ToolEnforcementMiddleware(max_retries=2)
+        ctx = {"run_mode": "tools", "iteration": 0, "user_input": "monitor_logger.py"}
+        resp = "STATUS: BLOCKED\nREASON: 文件不存在"
+        result = self._run_async(mw.process_after_llm(resp, ctx))
+        self.assertTrue(ctx.get("_needs_retry"))
+        self.assertIn("未检测到工具调用", result)
+
+    def test_03c_explicit_file_request_detected_from_runtime_context(self):
+        mw = ToolEnforcementMiddleware(max_retries=2)
+        self.assertTrue(mw._is_explicit_file_request("monitor_logger.py"))
 
     def test_04_direct_command_detector(self):
         """DirectCommandDetector 识别显式命令"""
@@ -1314,6 +1348,45 @@ class TestChatControllerHelpers(unittest.TestCase):
         self.assertTrue(ChatController._is_topic_carryover_request("那这个怎么修"))
         self.assertFalse(ChatController._is_topic_carryover_request("读取 a.py"))
 
+    def test_07_high_risk_request_profile_keeps_breakdown_when_local_signal_exists(self):
+        from ui.chat_controller import ChatController
+        profile = ChatController._build_request_profile(
+            "1.总结周杰伦的十首最出名的歌，截取片段给出解释\n2.阅读reflection.py代码"
+        )
+        self.assertTrue(profile["high_risk_knowledge"])
+        self.assertTrue(profile["has_local_signal"])
+        self.assertFalse(profile["avoid_breakdown"])
+
+    def test_08_numbered_knowledge_request_does_not_auto_plan(self):
+        from ui.chat_controller import ChatController
+        from core.rag_intent_router import IntentType
+        profile = ChatController._build_request_profile(
+            "1. 解释 Python 装饰器\n2. 对比闭包和装饰器"
+        )
+        self.assertTrue(profile["numbered_tasks"])
+        self.assertFalse(ChatController._should_auto_plan_request("chat", IntentType.CHAT, profile))
+        self.assertFalse(ChatController._should_break_down_request("chat", IntentType.CHAT, profile))
+
+    def test_09_numbered_local_request_still_breaks_down(self):
+        from ui.chat_controller import ChatController
+        from core.rag_intent_router import IntentType
+        profile = ChatController._build_request_profile(
+            "1. 阅读 reflection.py\n2. 输出 summary.md"
+        )
+        self.assertTrue(profile["numbered_tasks"])
+        self.assertTrue(profile["has_local_signal"])
+        self.assertTrue(ChatController._should_auto_plan_request("hybrid", IntentType.CHAT, profile))
+        self.assertTrue(ChatController._should_break_down_request("hybrid", IntentType.CHAT, profile))
+
+    def test_10_active_file_followup_context_is_built(self):
+        from ui.chat_controller import ChatController
+        from core.state_manager import SessionContext
+        ctx = SessionContext()
+        active_file = ChatController._update_active_file(ctx, "/tmp/demo.py")
+        self.assertEqual(active_file, "/tmp/demo.py")
+        followup = ChatController._build_file_followup_context(ctx, "继续任务")
+        self.assertIn("/tmp/demo.py", followup)
+
 
 class TestLangGraphAgentInternals(unittest.TestCase):
     """langgraph_agent.py 关键内部逻辑测试（不依赖完整 LangGraph 运行时）"""
@@ -1333,11 +1406,30 @@ class TestLangGraphAgentInternals(unittest.TestCase):
 
     def test_03_requires_tool_evidence_for_file_task(self):
         """tools/hybrid/plan 下的文件任务必须先有工具证据"""
-        from core.langgraph_agent import _requires_tool_evidence, _should_skip_rag_for_file_request
+        from core.langgraph_agent import (
+            _requires_tool_evidence,
+            _should_skip_rag_for_file_request,
+        )
         self.assertTrue(_requires_tool_evidence("分析 /tmp/a.py", "tools"))
         self.assertFalse(_requires_tool_evidence("解释 Python 装饰器", "chat"))
         self.assertTrue(_should_skip_rag_for_file_request("查看 /tmp/data.json"))
         self.assertFalse(_should_skip_rag_for_file_request("你好"))
+
+
+class TestPromptContracts(unittest.TestCase):
+    """prompts.py 关键约束测试"""
+
+    def test_01_chat_prompt_is_direct_not_humorous(self):
+        from core.prompts import get_system_prompt
+        prompt = get_system_prompt("chat")
+        self.assertIn("简洁、准确、直接", prompt)
+        self.assertNotIn("幽默", prompt)
+        self.assertNotIn("名字叫小Q", prompt)
+
+    def test_02_plan_prompt_does_not_execute_tools(self):
+        from core.prompts import get_system_prompt
+        prompt = get_system_prompt("plan")
+        self.assertIn("只输出计划，不执行工具", prompt)
 
     def test_03_make_json_serializable_numpy(self):
         """_make_json_serializable 处理非原生 numpy 数组（改用自定义可 tolist 对象）"""
@@ -1483,6 +1575,34 @@ class TestMultiAgent(unittest.TestCase):
         result = planner.plan("请拆解很多步骤的复杂任务")
         self.assertTrue(result["success"])
         self.assertLessEqual(len(result["plan"]["steps"]), 8)
+
+    def test_02f_planner_selects_artifact_generation_template(self):
+        from core.multi_agent import PlannerAgent
+        planner = PlannerAgent(MagicMock(return_value=json.dumps({
+            "complexity": "medium",
+            "steps": [
+                {"id": 1, "action": "读取 reflection.py", "tool": "read_file", "tool_input": {"path": "reflection.py"}, "task_type": "tool"},
+                {"id": 2, "action": "总结 reflection.py", "tool": "none", "task_type": "knowledge", "depends_on": [1]},
+                {"id": 3, "action": "写入 summary.md", "tool": "write_file", "tool_input": {"path": "summary.md", "content": "..."}, "task_type": "tool", "depends_on": [2]},
+            ],
+            "estimated_time": "90"
+        }, ensure_ascii=False)))
+        result = planner.plan("读取 reflection.py 并写入 summary.md")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["template"], PlannerAgent.PLAN_TEMPLATES["artifact_generation"])
+
+    def test_02g_planner_selects_direct_knowledge_template(self):
+        from core.multi_agent import PlannerAgent
+        planner = PlannerAgent(MagicMock(return_value=json.dumps({
+            "complexity": "simple",
+            "steps": [
+                {"id": 1, "action": "解释 Python 装饰器和闭包的区别", "tool": "none", "task_type": "knowledge"}
+            ],
+            "estimated_time": "20"
+        }, ensure_ascii=False)))
+        result = planner.plan("1. 解释 Python 装饰器\n2. 对比闭包")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["template"], PlannerAgent.PLAN_TEMPLATES["knowledge_only"])
 
     def test_03_executor_tool_step(self):
         """ExecutorAgent 执行工具步骤"""
@@ -1645,6 +1765,44 @@ class TestMultiAgent(unittest.TestCase):
         normalized = orch._normalize_plan(plan)
         self.assertLessEqual(len(normalized["steps"]), 3)
 
+    def test_11d_high_risk_knowledge_steps_are_merged(self):
+        """高风险纯知识子步骤应合并，避免机械拆分"""
+        from core.multi_agent import PlannerAgent
+        planner = PlannerAgent(MagicMock())
+        plan = {
+            "steps": [
+                {"id": 1, "action": "总结周杰伦的十首最出名的歌", "tool": "none", "task_type": "knowledge"},
+                {"id": 2, "action": "截取周杰伦歌曲片段", "tool": "none", "task_type": "knowledge", "depends_on": [1]},
+                {"id": 3, "action": "解释截取的歌曲片段", "tool": "none", "task_type": "knowledge", "depends_on": [2]},
+                {"id": 4, "action": "读取文件 clarification.py", "tool": "read_file",
+                 "tool_input": {"path": "clarification.py"}, "task_type": "tool"},
+            ]
+        }
+        normalized = planner._sanitize_high_risk_knowledge_plan(
+            "总结周杰伦的十首最出名的歌，截取片段给出解释",
+            plan,
+        )
+        knowledge_steps = [s for s in normalized["steps"] if s.get("task_type") == "knowledge"]
+        self.assertEqual(len(knowledge_steps), 1)
+        self.assertIn("总结周杰伦的十首最出名的歌", knowledge_steps[0]["action"])
+        self.assertIn("截取周杰伦歌曲片段", knowledge_steps[0]["action"])
+        self.assertIn("解释截取的歌曲片段", knowledge_steps[0]["action"])
+
+    def test_11e_markdown_preview_preserves_rendering(self):
+        """日志页预览应保留 Markdown 渲染，不应直接转义为纯文本"""
+        text = "## 标题\n\n- 项目一\n- 项目二\n\n```python\nprint('ok')\n```"
+        rendered = render_markdown_html(build_markdown_preview(text, max_chars=80))
+        self.assertIn("<h2>", rendered)
+        self.assertIn("<ul>", rendered)
+        self.assertIn("<pre><code", rendered)
+
+    def test_11f_knowledge_steps_use_chat_mode(self):
+        """知识步骤统一走 chat 模式，避免再被工具链硬编码改写"""
+        from core.multi_agent import ReActMultiAgentOrchestrator
+        orch = ReActMultiAgentOrchestrator(MagicMock(), max_plan_steps=4)
+        self.assertEqual(orch._resolve_step_run_mode("knowledge"), "chat")
+        self.assertEqual(orch._resolve_step_run_mode("tool"), "tools")
+
     def test_12_react_grounded_knowledge_step_uses_file_facts(self):
         """有前置 read_file 证据时，knowledge 步骤直接基于 file_facts 生成结果"""
         from core.multi_agent import ReActMultiAgentOrchestrator
@@ -1684,29 +1842,6 @@ class TestMultiAgent(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertIn("ClarificationManager", result["result"]["response"])
         self.assertIn("is_active", result["result"]["response"])
-
-    def test_12b_react_high_risk_knowledge_response_is_annotated(self):
-        """高风险知识步骤应保留模型内容，并统一追加风险标注"""
-        from core.multi_agent import ReActMultiAgentOrchestrator
-        orch = ReActMultiAgentOrchestrator(MagicMock(), max_plan_steps=4)
-        response = orch._annotate_high_risk_knowledge_response(
-            "截取周杰伦歌曲片段",
-            "1. 《晴天》：表达青春期遗憾\n2. 《夜曲》：表达失落与怀念"
-        )
-        self.assertIn("## 风险提示", response)
-        self.assertIn("待核实", response)
-        self.assertIn("《晴天》", response)
-
-    def test_12c_react_high_risk_annotation_preserves_existing_markers(self):
-        """若模型已标注待核实，则不应重复破坏原内容，只补统一风险提示"""
-        from core.multi_agent import ReActMultiAgentOrchestrator
-        orch = ReActMultiAgentOrchestrator(MagicMock(), max_plan_steps=4)
-        response = orch._annotate_high_risk_knowledge_response(
-            "总结周杰伦的十首最出名的歌",
-            "1. 《青花瓷》（待核实）：中国风代表作\n2. 《稻香》（待核实）：治愈主题"
-        )
-        self.assertIn("## 风险提示", response)
-        self.assertEqual(response.count("《青花瓷》（待核实）"), 1)
 
     def test_13_react_direct_write_file_uses_dependency_response(self):
         """write_file 步骤应直接写入前置 knowledge 结果，而不是再次让模型改写"""
@@ -1750,6 +1885,26 @@ class TestMultiAgent(unittest.TestCase):
         ], state)
         self.assertIn("### 步骤1: 阅读reflection.py代码", output)
         self.assertNotIn("- 步骤1", output)
+
+    def test_13c_react_evidence_layered_response_groups_unresolved_sections(self):
+        from core.multi_agent import ReActMultiAgentOrchestrator, WorkflowPlanState
+        orch = ReActMultiAgentOrchestrator(MagicMock(), max_plan_steps=4)
+        state = WorkflowPlanState({"steps": []})
+        state.steps_status = {1: "completed", 2: "blocked", 3: "failed"}
+        state.results = {
+            1: {"response": "解释结果", "tool_calls": []},
+            2: {},
+            3: {},
+        }
+        output = orch._build_evidence_layered_response("解释并继续", [
+            {"id": 1, "action": "解释装饰器"},
+            {"id": 2, "action": "等待文件路径"},
+            {"id": 3, "action": "执行失败步骤"},
+        ], state)
+        self.assertIn("## 谨慎结论 / 待核实", output)
+        self.assertIn("## 未完成部分", output)
+        self.assertIn("### 步骤2: 等待文件路径", output)
+        self.assertIn("### 步骤3: 执行失败步骤", output)
 
 
 class TestMonitorLogger(unittest.TestCase):

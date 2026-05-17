@@ -1,658 +1,1522 @@
-# QwenAgentFramework 技术文档 v3.0  
-## 智能体系统的架构、算法与数据流全解析
+# ZwenAgentFramework 技术方案 README（细节增强版）
+
+> 本 README 根据当前上传的源码重新整理，目标是让后续开发者能够理解系统架构、请求链路、关键数据结构、工具执行策略、RAG 记忆机制、Skills 外置知识体系、多 Agent 编排、异常恢复与扩展方式。
+>
+> 相比上一版，本版重点补充了“代码细节”：运行模式判定、`runtime_context` 字段、`SessionContext.task_context` 结构、工具调用格式、读写文件保护、RAG 检索权重、多 Agent 规划模板、澄清轮次、反思重试策略、流式事件结构、配置项与扩展步骤。
 
 ---
 
-## 1. 系统总览：智能体的“数字城市”
+## 0. 当前源码覆盖范围
 
-### 1.1 生动比喻
-想象一个**高度自治的数字城市**，各组件如同城市中的关键基础设施协同运转：
-- **ChatController** = 市政服务大厅（统一窗口，协调所有部门）
-- **RAGIntentRouter** = 城市快递分拣中心（三层安检：规则快检 → 历史档案比对 → AI智能复核）
-- **LangGraphAgent** = 城市执行中心（LangGraph状态机 = 智能交通指挥中心，支持红灯暂停/绿灯续行）
-- **Middleware Chain** = 交通法规系统（12种法规，确保所有车辆按规则行驶）
-- **ToolExecutor** = 机械车间（沙箱隔离，危险操作自动拦截）
-- **VectorMemory** = 魔法图书馆（按语义而非字母排序，384维空间中的知识星云）
-- **ContextRetriever** = 图书检索机器人（RAG增强：自动关联历史证据，但严禁重复执行）
-- **ToolLearner** = 老工匠的笔记本（马尔可夫链记录工具转移概率，贝叶斯更新成功率）
-- **EnhancedReflectionEngine** = 质量控制局（故障分类 → 重复检测 → 策略升级三级响应）
-- **SkillManager** = 专业学院（PDF处理学院、代码审查学院等，热插拔式知识加载）
-- **ReActMultiAgentOrchestrator** = 大型工程指挥部（并行调度、依赖管理、断点续跑）
-- **ClarificationManager** = 统一客服台（所有澄清路径归一，生成友好提示卡片）
-- **SessionLogger / Viewer / Analyzer** = 城市档案馆（三套独立展厅：基础查阅/高级分析/可视化统计）
+当前分析基于以下上传文件：
 
-### 1.2 完整项目结构
-```
-project_root/
-├── core/                           # 核心引擎层
-│   ├── langgraph_agent.py         # LangGraph状态图引擎（Checkpoint/断点续跑）
-│   ├── agent_middlewares.py       # 中间件链（12种中间件，洋葱模型）
-│   ├── agent_tools.py             # 工具系统（执行器/解析器/注册表）
-│   ├── vector_memory.py           # 向量记忆（语义嵌入+时间衰减+MMR去重）
-│   ├── rag_intent_router.py       # RAG意图路由器（规则+向量+LLM三层）
-│   ├── context_retriever.py       # RAG上下文检索器（证据注入+滑动窗口）
-│   ├── reflection.py              # 增强反思引擎（错误模式匹配+泊松检验）
-│   ├── tool_learner.py            # 自适应工具学习器（马尔可夫转移矩阵）
-│   ├── multi_agent.py             # 多Agent协作（Planner-Executor-Reviewer+并行）
-│   ├── clarification.py           # 澄清管理器（统一入口、轮次管理）
-│   ├── prompts.py                 # 多模式系统提示词（Chat/Tools/Plan/Hybrid）
-│   ├── state_manager.py           # 统一状态管理（SessionContext/WorkflowState）
-│   ├── monitor_logger.py          # 监控日志（彩色输出/按天轮转/多进程安全）
-│   ├── loop_detector.py           # 循环检测（工具签名哈希+thought模式识别）
-│   ├── completion_guard.py        # 完成判定守卫（工具关键词+完成信号检测）
-│   ├── format_corrector.py        # 格式纠错注入（7种解析策略兜底）
-│   ├── output_cleaner.py          # 输出清理（ReAct标签剥离/尾部工具截断）
-│   ├── task_injector.py           # 任务上下文注入（事实账本+子任务看板）
-│   ├── model_forward.py           # 模型前向工厂（Qwen/GLM统一接口）
-│   ├── streaming_framework.py     # 流式SSE包装器（零逻辑重复）
-│   └── tool_enforcement_middleware.py  # 工具强制中间件（防偷懒机制）
-│
-├── ui/                             # Web界面层
-│   ├── web_agent_with_skills.py   # 主入口（Gradio豆包风格，侧边栏可收起）
-│   ├── chat_controller.py         # 业务控制器（整合所有核心组件）
-│   ├── qwen_agent.py              # 本地Qwen2.5-0.5B（CPU模式/流式生成）
-│   ├── glm_agent.py               # 智谱GLM-4-Flash API封装（免费/流式）
-│   ├── session_viewer.py          # 会话查看器（端口7861）
-│   └── session_analyzer.py        # 高级分析（端口7862，JSON编辑/可视化）
-│
-├── skills/                         # 技能知识库（热插拔LoRA式加载）
-│   ├── pdf/SKILL.md
-│   ├── code-review/SKILL.md
-│   └── python-dev/SKILL.md
-├── session_logs/                   # 会话持久化日志（JSON格式）
-├── logs/                           # 监控日志（按天轮转，保留30天）
-├── checkpoints.db                  # LangGraph检查点数据库（SQLite）
-├── .agent_memory/                  # 向量记忆持久化（meta.json + emb.npz）
-├── start_all_apps.sh / stop_all_apps.sh
-└── README.md
+| 文件 | 作用概述 |
+|---|---|
+| `web_agent_with_skills.py` | Gradio Web UI 入口、页面布局、启动逻辑、端口选择、环境变量加载 |
+| `chat_controller.py` | 总控制器，负责会话、意图路由、模型选择、上下文组装、工具/多 Agent 调度 |
+| `rag_intent_router.py` | RAG 意图路由器，输出 `chat/tools/skills/hybrid/plan/memory_query` 等模式 |
+| `agent_middlewares.py` | Middleware Chain，实现运行模式提示、计划模式提示、上传文件提示、工具结果守卫、对话压缩等 |
+| `tool_enforcement_middleware.py` | Tools 模式强制工具调用，避免模型在需要文件证据时直接凭空回答 |
+| `agent_tools.py` | 工具执行器、工具解析器、工具注册器，支持读写文件、编辑、目录、bash、Python 执行 |
+| `agent_skills.py` | Skills 外置知识系统，扫描 `skills/*/SKILL.md`，支持元数据、详情、资源三级加载 |
+| `context_retriever.py` | RAG 上下文检索器，负责历史证据召回、短期记忆加权、滑动窗口压缩 |
+| `vector_memory.py` | 向量记忆系统，负责嵌入、去重、检索、MMR、多类型记忆、持久化 |
+| `multi_agent.py` | Planner + Executor + Reviewer 多 Agent 编排与工作流状态管理 |
+| `reflection.py` | 反思引擎，负责错误分类、失败记忆、重试策略、工具学习联动 |
+| `tool_learner.py` | 自适应工具学习器，记录工具成功率、转移矩阵、失败模式与推荐 |
+| `clarification.py` | 交互式澄清模块，处理缺上下文、BLOCKED、NEEDS_CONTEXT 等场景 |
+| `state_manager.py` | 会话上下文与工作流状态持久化 |
+| `streaming_framework.py` | SSE/流式输出包装层，将运行过程转换为前端事件 |
+| `model_forward.py` | Qwen/GLM 模型统一前向适配器 |
+| `glm_agent.py` | 智谱 GLM API 适配器 |
+| `prompts.py` | 不同运行模式的系统提示词与工具调用契约 |
+| `completion_guard.py` | 任务完成度判断辅助函数 |
+
+> 说明：源码中还引用了 `core.langgraph_agent`、`core.multi_agent_support`、`core.monitor_logger`、`ui.qwen_agent` 等模块，但这些文件未在当前附件中提供。因此本文对这些模块只描述“外部调用关系”，不推断其内部实现。
+
+---
+
+## 1. 项目定位
+
+ZwenAgentFramework 是一个面向本地工程任务的智能体框架。它不是单纯聊天机器人，而是一个具备以下能力的 Agent Runtime：
+
+1. **普通问答**：低风险、低上下文依赖的问题直接进入 `chat` 模式。
+2. **工具执行**：涉及文件、目录、命令、代码执行时进入 `tools` 模式。
+3. **技能注入**：涉及 PDF、代码审查等领域方法论时进入 `skills` 或 `hybrid` 模式。
+4. **RAG 记忆**：可从历史对话、工具执行结果、助手回答中召回上下文。
+5. **多步骤规划**：复杂任务进入 `plan` 模式，由 Planner 生成步骤并按依赖执行。
+6. **异常恢复**：工具失败后通过 Reflection 分类错误、生成修复建议、控制重试。
+7. **前端流式展示**：通过 Gradio UI 与 SSE 事件向用户展示执行过程。
+
+框架核心思路是：
+
+```text
+用户请求
+  → ChatController 统一入口
+  → RAGIntentRouter 判断任务类型
+  → 根据 run_mode 选择普通回答、工具模式、技能模式、多 Agent 模式
+  → Middleware 注入约束和上下文
+  → 模型生成或调用工具
+  → 工具执行结果进入记忆和反思系统
+  → 最终回答经过清理、证据标签和澄清机制返回前端
 ```
 
-### 1.3 架构拓扑图（全局交互）
+---
+
+## 2. 总体架构
+
+### 2.1 分层架构
+
+系统可以分为七层：
+
+| 层级 | 模块 | 主要职责 |
+|---|---|---|
+| 交互层 | `web_agent_with_skills.py` | 提供 Gradio UI、文件上传、模型选择、按钮交互 |
+| 控制层 | `chat_controller.py` | 请求入口、路由决策、上下文组装、执行分发 |
+| 路由层 | `rag_intent_router.py` | 规则 + 向量证据 + LLM 复核的意图识别 |
+| 上下文层 | `agent_middlewares.py`, `context_retriever.py` | 注入运行模式、技能、上传文件、历史证据、摘要压缩 |
+| 执行层 | `agent_tools.py`, `multi_agent.py` | 工具执行、工具解析、多步骤计划、依赖执行 |
+| 增强层 | `reflection.py`, `tool_learner.py`, `clarification.py` | 失败反思、工具学习、澄清追问 |
+| 存储与适配层 | `vector_memory.py`, `state_manager.py`, `model_forward.py`, `glm_agent.py` | 向量记忆、会话状态、模型统一接口、GLM 适配 |
+
+### 2.2 全局拓扑图
 
 ```mermaid
-graph TD
-    UI[Gradio UI (7860/7861/7862)] --> Controller[ChatController]
-    Controller --> Router[RAGIntentRouter]
-    Controller --> SkillMgr[SkillManager]
-    Controller --> LangGraph[LangGraphAgent]
-    Controller --> MultiAgent[ReActMultiAgentOrchestrator]
-    LangGraph --> Middleware[MidwareChain]
-    LangGraph --> StateMachine[StateMachine]
-    StateMachine --> Checkpoint[(Checkpoint SQLite)]
-    LangGraph --> Tools[ToolExecutor]
-    LangGraph --> Memory[VectorMemory]
-    LangGraph --> Reflection[EnhancedReflectionEngine]
-    LangGraph --> Learner[AdaptiveToolLearner]
-    MultiAgent --> Planner[PlannerAgent]
-    MultiAgent --> Executor[ExecutorAgent (uses LangGraph)]
-    MultiAgent --> Reviewer[ReviewerAgent]
-    Controller --> Clarification[ClarificationManager]
-    Controller --> SessionLog[SessionLogger]
+flowchart TD
+    U[User] --> UI[Gradio UI\nweb_agent_with_skills.py]
+    UI --> CC[ChatController\nchat_controller.py]
+
+    CC --> ROUTER[RAGIntentRouter\nrag_intent_router.py]
+    CC --> SESSION[SessionContext\nstate_manager.py]
+    CC --> VM[VectorMemory\nvector_memory.py]
+    CC --> CR[ContextRetriever\ncontext_retriever.py]
+    CC --> SK[SkillManager / SkillInjector\nagent_skills.py]
+    CC --> CL[ClarificationManager\nclarification.py]
+
+    ROUTER --> MODE{IntentType}
+    MODE --> CHAT[chat]
+    MODE --> TOOLS[tools]
+    MODE --> SKILLS[skills]
+    MODE --> HYBRID[hybrid]
+    MODE --> PLAN[plan]
+    MODE --> MEMORY[memory_query]
+
+    CC --> MW[Middleware Chain\nagent_middlewares.py]
+    MW --> MODEL[Model Forward Adapter\nmodel_forward.py]
+    MODEL --> QWEN[Local QwenAgent]
+    MODEL --> GLM[GLMAgent\nglm_agent.py]
+
+    MODEL --> PARSER[ToolParser\nagent_tools.py]
+    PARSER --> EXEC[ToolExecutor\nagent_tools.py]
+    EXEC --> REF[EnhancedReflectionEngine\nreflection.py]
+    REF --> LEARN[AdaptiveToolLearner\ntool_learner.py]
+    EXEC --> VM
+
+    CC --> ORCH[ReActMultiAgentOrchestrator\nmulti_agent.py]
+    ORCH --> PLANNER[PlannerAgent]
+    ORCH --> WPS[WorkflowPlanState]
+    ORCH --> EXEC
+
+    CC --> STREAM[StreamingFramework\nstreaming_framework.py]
+    STREAM --> UI
 ```
 
 ---
 
-## 2. 单次请求完整生命周期（序列图）
+## 3. 单次请求完整生命周期
+
+### 3.1 普通路径
 
 ```mermaid
 sequenceDiagram
     participant User
     participant UI as Gradio UI
     participant CC as ChatController
-    participant RTR as RAGIntentRouter
-    participant LGA as LangGraphAgent
-    participant AGN as AgentNode
-    participant TON as ToolNode
-    participant FIN as FinalizeNode
-    participant TEX as ToolExecutor
+    participant Router as RAGIntentRouter
     participant VM as VectorMemory
-    participant REF as EnhancedReflection
+    participant MW as Middleware Chain
+    participant Model as Qwen/GLM
+    participant Tool as ToolExecutor
+    participant Clarify as ClarificationManager
 
-    User->>UI: 输入消息
-    UI->>CC: bot_response(history, ...)
-    CC->>VM: add(用户消息)
-    CC->>RTR: route(用户消息)
-    RTR-->>CC: intent=TOOLS, confidence=0.99
-    CC->>LGA: run(user_input, session, ...)
-    LGA->>AGN: ainvoke (开始迭代)
-    AGN->>AGN: 中间件预处理 (注入模式/技能/RAG)
-    AGN->>AGN: 调用LLM
-    AGN->>AGN: 解析工具调用
-    AGN-->>LGA: tool_calls=[read_file, ...]
-    LGA->>TON: 执行工具
-    TON->>TEX: execute_tool(read_file, ...)
-    TEX-->>TON: 文件内容
-    TON->>REF: record_result(成功)
-    TON->>VM: add(文件摘要)
-    TON-->>LGA: tool_results=[...]
-    LGA->>AGN: 继续迭代 (Observation注入)
-    AGN-->>LGA: final_response或新tool_calls
-    LGA->>FIN: 提取最终回答
-    FIN-->>LGA: final_response
-    LGA-->>CC: {response, tool_calls}
-    CC->>CC: 输出清理 (clean_react_tags)
-    CC->>VM: 保存向量记忆
-    CC-->>UI: 最终回复
-    UI-->>User: 显示回答
+    User->>UI: 输入问题 / 上传文件
+    UI->>CC: bot_response(user_input, history, files, settings)
+    CC->>CC: 获取或创建 SessionContext
+    CC->>Router: route(user_input, runtime_context)
+    Router->>VM: 需要时检索历史证据
+    VM-->>Router: evidence
+    Router-->>CC: IntentResult(intent, confidence, suggested_params)
+    CC->>CC: 构建 request_profile 与 run_mode
+    CC->>MW: process_before_llm 注入运行模式/文件/技能/RAG
+    MW-->>CC: augmented_messages
+    CC->>Model: dynamic_model_forward(messages)
+    Model-->>CC: response 或工具调用文本
+    CC->>Tool: 如果解析到工具调用则执行
+    Tool-->>CC: JSON 工具结果
+    CC->>Clarify: 检查是否 NEEDS_CONTEXT / BLOCKED
+    Clarify-->>CC: 需要澄清或继续返回
+    CC-->>UI: 最终回答
+    UI-->>User: 展示结果
 ```
+
+### 3.2 关键阶段说明
+
+| 阶段 | 触发位置 | 关键逻辑 |
+|---|---|---|
+| 会话初始化 | `ChatController.get_session_state()` | 每个用户/会话维护独立 `SessionContext`，避免并发污染 |
+| 请求画像 | `_build_request_profile()` | 判断是否有文件信号、高风险知识请求、编号任务、是否避免拆解 |
+| 意图路由 | `RAGIntentRouter.route()` | L0 前置规则 → L1 向量检索 → L2 证据推断 → L3 LLM 复核 → L4 规则兜底 |
+| 运行模式选择 | `run_mode` | 根据 intent、用户选项、文件信号与计划模式决定 `chat/tools/skills/hybrid/plan` |
+| 上下文注入 | Middleware | 运行模式、计划约束、上传文件、技能、对话摘要、工具结果守卫等 |
+| 工具解析 | `ToolParser.parse_tool_calls()` | 支持标准格式、`<input>` 格式、容错 JSON、参数归一化 |
+| 工具执行 | `ToolExecutor.execute_tool()` | 执行文件读写、bash、Python，并输出标准 JSON |
+| 失败恢复 | `EnhancedReflectionEngine` | 将错误归为路径错误、权限错误、语法错误、超时、空输出等 |
+| 澄清追问 | `ClarificationManager` | 当回答含 `NEEDS_CONTEXT` / `BLOCKED` 或上下文不足时提问 |
 
 ---
 
-## 3. 核心组件一：RAGIntentRouter 三层意图识别
+## 4. ChatController：总控制器细节
 
-### 3.1 控制流与决策
+`ChatController` 是系统的主入口。它的作用类似“调度中枢”，负责把 UI 输入转换为可执行的 Agent 流程。
 
-```mermaid
-graph TD
-    Input[用户输入] --> L0{L0: 快速规则}
-    L0 -->|命中| Out1[直接返回 置信度 0.95+]
-    L0 -->|未命中| L1{L1: 向量语义检索}
-    L1 -->|置信度 > 0.7| Out2[直接返回]
-    L1 -->|否| L2{L2: LLM 二次确认}
-    L2 -->|成功| Out3[LLM 判定意图]
-    L2 -->|失败| L3[L3: 关键词规则兜底]
-    L3 --> Out4[返回意图 chat/tools/plan...]
+### 4.1 初始化流程
+
+初始化时主要完成以下事情：
+
+```text
+ChatController.__init__
+  ├─ 创建 SessionLogger / MonitorLogger
+  ├─ 判断 GLM_API_KEY 是否存在
+  ├─ 初始化 VectorMemory
+  ├─ 初始化 RAGIntentRouter(confidence_threshold=0.7)
+  ├─ 初始化 user_sessions / session_states
+  ├─ _init_skills(): 创建示例技能并扫描 skills 目录
+  ├─ 初始化 ClarificationManager
+  └─ 如果 GLM_API_KEY 存在则启用 GLMAgent，否则使用本地 Qwen
 ```
 
-### 3.2 核心代码
+### 4.2 request_profile 请求画像
 
-**文件：`rag_intent_router.py`**
+请求画像由 `_build_request_profile()` 生成，核心字段如下：
 
-```python
-class RAGIntentRouter:
-    def route(self, user_input: str, context: Dict = None) -> IntentResult:
-        # L0: 前置规则（正则+关键词，耗时<1ms）
-        if self._has_explicit_file_operation(user_input):
-            return IntentResult(intent=IntentType.TOOLS, confidence=0.99, ...)
-        if self._is_memory_query(user_input):
-            return IntentResult(intent=IntentType.MEMORY_QUERY, confidence=0.99, ...)
+| 字段 | 含义 | 典型用途 |
+|---|---|---|
+| `has_local_signal` | 是否出现路径、文件名、上传文件等本地执行信号 | 决定是否需要工具 |
+| `high_risk_knowledge` | 是否涉及歌词、原文、名单、排名、价格、日期等易错内容 | 避免在无证据时拆解/编造 |
+| `numbered_tasks` | 是否存在多个编号任务 | 决定是否自动计划 |
+| `avoid_breakdown` | 高风险知识且无本地信号时避免拆解 | 防止把纯知识问题错误转工具任务 |
+| `external_only_high_risk` | 高风险且缺少可信证据 | 最终回答前加“待核实”标签 |
 
-        # L1: 向量检索 + 启发式推断
-        evidence = self.vm.search(user_input, top_k=3, ...)
-        intent, confidence, _ = self._infer_from_evidence(user_input, evidence)
-        if confidence > self.threshold:   # 默认0.7
-            return IntentResult(intent=intent, confidence=confidence, ...)
+### 4.3 自动计划与拆解策略
 
-        # L2: LLM 二次确认
-        if self.llm_forward_fn:
-            llm_intent, llm_conf, _ = self._llm_route(user_input, evidence)
-            if llm_conf > confidence:
-                intent, confidence = llm_intent, llm_conf
+`ChatController` 使用两个函数决定是否进入计划/多 Agent 模式：
 
-        # L3: 规则兜底
-        if confidence < 0.5:
-            intent = self._rule_fallback(user_input)
-            confidence = 0.5
-
-        return IntentResult(intent=intent, confidence=confidence, ...)
+```text
+_should_auto_plan_request(run_mode, intent_type, request_profile)
+_should_break_down_request(run_mode, intent_type, request_profile, explicit_plan_mode)
 ```
 
-### 3.3 原理阐述
+判定原则：
 
-- **L0** 利用精心设计的正则（如文件名模式 `[\w\-]+\.(json|log|txt|md|py|...)` 和操作动词）实现零延迟命中，覆盖约70%的明确请求。
-- **L1** 借助 `VectorMemory` 的语义搜索能力，将当前查询与历史记忆比对，通过启发式加权（工具执行记录越相似、查询中包含工具关键词越多，TOOLS 得分越高）快速推断意图。
-- **L2** 仅当 L1 不确定时调用 LLM，采用结构化的 JSON 提示，并要求 LLM 输出置信度。为防 LLM 被历史证据引导为 `memory_query`，会二次校验查询中是否包含“之前”、“历史”等明确信号。
-- 所有置信度都经过**温度校准**，根据系统运行反馈调整置信度分布的平滑度，避免过自信。
+1. 如果 `avoid_breakdown=True`，不自动拆解。
+2. 如果 `run_mode` 是 `tools` 或 `plan`，倾向自动计划。
+3. 如果路由结果是 `IntentType.PLAN`，进入计划。
+4. 如果用户输入有多个编号任务且包含本地文件信号，也进入计划。
+5. `hybrid` 只有在存在本地执行信号时才拆解。
 
-### 3.4 案例
+### 4.4 追问与话题承接
 
-**输入**：`“分析 core/ 目录结构，生成文档”`
+控制器内置多类正则：
 
-- L0：匹配 `core/` (路径模式) + `生成` (操作动词) → 触发 TOOLS 判定，置信度 0.99，直接返回。
-- 建议参数：`temperature=0.3, max_tokens=2048`，计划模式自动开启（因为检测到编号子任务）。
+| 正则组 | 作用 |
+|---|---|
+| `_MEMORY_META_PATTERNS` | 识别“我之前问了什么”“历史记录”等历史回顾请求 |
+| `_FOLLOWUP_REFERENCE_PATTERNS` | 识别“继续说”“上一个问题”“刚才那个”等追问 |
+| `_TOPIC_CARRYOVER_PATTERNS` | 识别“继续”“展开一下”“这个怎么修”等极短承接表达 |
+
+配合以下方法维护上下文：
+
+```text
+_resolve_followup_turn()
+_build_followup_context_message()
+_extract_topic_from_message()
+_extract_active_file_from_message()
+_update_active_file()
+_build_file_followup_context()
+_update_session_topic()
+```
+
+这些逻辑解决的核心问题是：用户经常不会重复文件名或问题背景，例如“继续修改”“这个怎么修”。系统会从历史轮次和 `task_context.active_file/current_topic` 中恢复上下文。
 
 ---
 
-## 4. 核心组件二：LangGraphAgent 状态图引擎与断点续跑
+## 5. 运行模式与意图路由
 
-### 4.1 DAG 状态图
+### 5.1 IntentType 枚举
 
-```mermaid
-graph TD
-    Start([开始]) --> Agent[AgentNode]
-    Agent -->|tool_calls非空且无循环| Tools[ToolNode]
-    Agent -->|final_response已设置| Finalize[FinalizeNode]
-    Agent -->|超过最大迭代| Finalize
-    Agent -->|检测到循环| Loop[LoopDetectedNode]
-    Tools -->|将结果作为Observation| Agent
-    Finalize --> End([结束])
-    Loop --> End
+`rag_intent_router.py` 定义的运行意图包括：
+
+| IntentType | 适用场景 | 后续执行 |
+|---|---|---|
+| `CHAT` | 普通聊天、解释概念、寒暄 | 直接模型回答 |
+| `TOOLS` | 文件读写、代码执行、目录扫描、bash 等 | 强制工具调用 |
+| `SKILLS` | 明确需要外置技能知识 | 注入技能上下文 |
+| `HYBRID` | 技能方法 + 工具执行 | 先技能后工具 |
+| `PLAN` | 多步骤、复杂、生成、重构、部署类任务 | 多 Agent 规划执行 |
+| `MEMORY_QUERY` | 用户询问历史问题/之前对话 | 从记忆/日志中回顾 |
+| `UNKNOWN` | 无法判断 | 兜底到 chat 或规则模式 |
+
+### 5.2 RAGIntentRouter 四层判定
+
+`RAGIntentRouter.route()` 采用分层设计：
+
+```text
+L0 前置规则
+  ├─ 历史回顾 → memory_query
+  ├─ 当前有活跃文件 + 继续请求 → tools
+  ├─ 低信息寒暄 → chat
+  ├─ 模糊文件请求 → chat 低置信度，后续澄清
+  ├─ 显式文件操作 → tools
+  └─ 上传文件分析 → tools
+
+L1 向量检索
+  └─ 对高信息量查询从 VectorMemory 中检索 top_k=3 历史证据
+
+L2 证据推断
+  └─ 根据历史证据和当前输入推断 intent/confidence
+
+L3 LLM 二次确认
+  └─ 当置信度 <= 0.7 且适合复核时调用模型输出 JSON 判断
+
+L4 兜底规则
+  └─ 如果 confidence < 0.5，则根据关键词规则回退
 ```
 
-### 4.2 关键实现
+### 5.3 路由关键词规则
 
-**`langgraph_agent.py`** 构建图的核心代码：
+| 目标模式 | 关键词/模式 |
+|---|---|
+| `TOOLS` | 读取、写入、修改、删除、列出、扫描、查找、bash、grep、find、`.py`、`.md`、文件、目录、代码 |
+| `SKILLS` | 技能、知识库、pdf、文档处理、代码审查 |
+| `PLAN` | 分析、重构、设计、实现、开发、生成、搭建、部署、复杂、多步骤 |
+| `CHAT` | 什么是、为什么、怎么样、解释、介绍、聊天、你好、谢谢 |
 
-```python
-def _build_graph(self) -> StateGraph:
-    builder = StateGraph(AgentState)
-    builder.add_node("agent", AgentNode(self))     # 推理+决策
-    builder.add_node("tools", ToolNode(self))      # 工具执行
-    builder.add_node("finalize", FinalizeNode())   # 提取最终回答
-    builder.add_node("loop_detected", LoopDetectedNode())  # 循环终止
-    builder.set_entry_point("agent")
-    builder.add_conditional_edges("agent", self._should_continue)
-    builder.add_edge("tools", "agent")
-    builder.add_edge("finalize", END)
-    builder.add_edge("loop_detected", END)
-    return builder.compile(checkpointer=self.checkpointer)
-```
+### 5.4 典型路由示例
 
-### 4.3 AgentNode 内部工作流
-
-```mermaid
-sequenceDiagram
-    participant AGN
-    participant CR as ContextRetriever
-    participant MW as MiddlewareChain
-    participant LLM
-    participant TP as ToolParser
-
-    AGN->>CR: augment_messages (首次迭代)
-    AGN->>AGN: 注入任务上下文 & 反思摘要
-    AGN->>AGN: 应用策略切换 (若有)
-    AGN->>MW: process_before_llm (所有中间件)
-    AGN->>LLM: 调用模型 (system+history+user)
-    LLM-->>AGN: 原始响应
-    AGN->>MW: process_after_llm
-    AGN->>AGN: STATUS 拦截检测
-    AGN->>TP: parse_tool_calls
-    alt 解析出工具
-        AGN-->>LangGraph: 返回 tool_calls
-    else 无工具但检测到意图
-        AGN->>LLM: 格式纠正重试
-    else 纯对话或完成
-        AGN-->>LangGraph: 返回 final_response
-    end
-```
-
-### 4.4 断点续跑原理与实现
-
-**核心代码**：
-
-```python
-# 初始化检查点保存器
-async def _ensure_graph(self):
-    self._checkpoint_cm = AsyncSqliteSaver.from_conn_string(
-        str(self.checkpoint_db_path))
-    self.checkpointer = await self._checkpoint_cm.__aenter__()
-    self.graph = self._build_graph()  # 编译时绑定 checkpointer
-
-# 运行时自动保存/恢复
-async def run(self, ..., thread_id=None, resume_from_checkpoint=False):
-    config = {"configurable": {"thread_id": thread_id}}
-    if resume_from_checkpoint:
-        # 注入事实账本摘要，避免重复工作
-        facts_summary = self._build_facts_summary(session)
-        if facts_summary:
-            messages.insert(-1, {"role":"system","content":facts_summary})
-    initial_state = _sanitize_state_update({...})
-    final_state = await self.graph.ainvoke(initial_state, config)
-    ...
-```
-
-**原理**：LangGraph 的 `AsyncSqliteSaver` 会在每次状态更新时自动序列化整个 `AgentState` 到 SQLite 的 `checkpoints` 表中，以 `thread_id` 区分不同会话。恢复时，框架会从数据库中加载该 `thread_id` 的最新快照，并继续从之前中断的节点调度（例如仍在 `agent` 节点等待 LLM 调用）。这样即使用户关闭浏览器，下次进入也能续接对话，且已执行的工具结果和反思历史均被保留。
-
-**案例**：用户在多步骤任务中因网络中断退出，重新打开后系统通过缓存的 `thread_id` 恢复状态，从上次失败的工具调用处继续，并提示“检测到未完成任务，已从断点恢复”。用户无需重复已完成的步骤。
+| 用户输入 | 路由结果 | 原因 |
+|---|---|---|
+| `你好` | `chat` | 低信息寒暄 |
+| `读取 agent_tools.py` | `tools` | 显式文件操作 + `.py` 文件名 |
+| `根据这些代码生成 README` | `plan` 或 `tools/hybrid` | 有文件上下文 + 生成任务 |
+| `PDF 怎么提取文本` | `skills` | 命中 PDF/文档处理技能 |
+| `继续修改` | `tools` | 依赖活跃文件或前一任务 |
+| `我之前问过什么` | `memory_query` | 命中历史回顾意图 |
 
 ---
 
-## 5. 核心组件三：Middleware Chain 洋葱模型
+## 6. SessionContext 与运行时状态
 
-### 5.1 中间件执行顺序
+### 6.1 SessionContext 数据结构
 
-```mermaid
-sequenceDiagram
-    participant Agent
-    participant MW1 as RuntimeMode
-    participant MW2 as PlanMode
-    participant MW3 as SkillsContext
-    participant MW4 as UploadedFiles
-    participant MW5 as ConversationSummary
-    participant MW6 as ContextWindow
-    participant MW7 as ToolResultGuard
-    participant MW8 as Completeness
-    participant MW9 as SearchBeforeBuilding
-    participant MW10 as AskUserFormat
-    participant MW11 as CompletionStatus
-    participant MW12 as ToolEnforcement
-
-    Agent->>MW1: process_before_llm
-    MW1-->>Agent: 注入模式提示
-    Agent->>MW2: process_before_llm
-    MW2-->>Agent: 注入计划模式(若启用)
-    ... (依次执行所有 before_llm)
-    Agent->>LLM: 调用模型
-    Agent->>MW12: process_after_llm
-    MW12-->>Agent: 检查工具调用，必要时标记重试
-    Agent->>MW7: process_before_tool (执行前)
-    MW7-->>Agent: 防重复append拦截
-    ToolExecutor执行
-    Agent->>MW7: process_after_tool
-    MW7-->>Agent: 标准化结果格式
-```
-
-### 5.2 典型中间件详解
-
-#### ToolEnforcementMiddleware（防偷懒）
+`state_manager.py` 中的 `SessionContext` 是会话隔离的核心对象：
 
 ```python
-class ToolEnforcementMiddleware(AgentMiddleware):
-    async def process_after_llm(self, response, context):
-        if context.get("run_mode") != "tools":
-            return response
-        tool_calls = ToolParser.parse_tool_calls(response)
-        if tool_calls:
-            return response   # 已调用工具，通过
-        # 检测是否为纯知识问答（允许不调工具）
-        if self._is_knowledge_qa_response(response, context):
-            return response
-        # 重试逻辑
-        retry = context.get("_tool_enforcement_retry", 0)
-        if retry < self.max_retries:
-            context["_tool_enforcement_retry"] = retry + 1
-            context["_needs_retry"] = True
-            return response + "\n⚠️ 未检测到工具调用，请严格按照格式输出..."
-        else:
-            context["_tool_enforcement_failed"] = True
-            return response
+@dataclass
+class SessionContext:
+    tool_history: List[Dict]
+    reflection_history: List[Dict]
+    read_files_cache: Dict[str, str]
+    task_context: Dict[str, Any]
+    current_tool_chain_id: Optional[str]
+    runtime_context: Dict[str, Any]
 ```
 
-**原理**：在 `tools` 模式下，如果模型尝试直接回答而不调用工具，该中间件会强制插入格式提示，引导模型重新输出工具调用。为避免干扰知识问答，它会检查响应是否已包含列举、解释等内容；同时限制重试次数，防止无限重试。
+### 6.2 task_context 字段
 
-#### ToolResultGuardMiddleware（防重复写入）
+`task_context` 默认结构如下：
 
-```python
-class ToolResultGuardMiddleware(AgentMiddleware):
-    def __init__(self):
-        self._append_history: Dict[str, set] = {}  # 路径 -> 内容哈希集合
+| 字段 | 作用 |
+|---|---|
+| `current_task` | 当前任务描述 |
+| `current_topic` | 当前话题，用于“继续说”等追问 |
+| `active_file` | 当前活跃文件，用于“继续修改这个文件” |
+| `active_file_updated_at` | 活跃文件更新时间 |
+| `file_history` | 历史涉及文件列表 |
+| `topic_history` | 历史话题列表 |
+| `topic_updated_at` | 当前话题更新时间 |
+| `completed_steps` | 已完成步骤记录 |
+| `failed_attempts` | 失败尝试记录 |
+| `subtask_status` | 结构化子任务状态，格式为 `{index: {desc, status, done_by}}` |
+| `facts_ledger.confirmed_facts` | 已确认事实 |
+| `facts_ledger.file_facts` | 来自文件读取的事实 |
+| `facts_ledger.failed_actions` | 失败动作 |
+| `facts_ledger.open_questions` | 尚未解决的问题 |
 
-    async def process_before_tool(self, tool_name, tool_input, context):
-        if tool_name == "write_file" and tool_input.get("mode") == "append":
-            path = tool_input["path"]
-            content_hash = hash(tool_input["content"].strip())
-            if path in self._append_history and content_hash in self._append_history[path]:
-                # 拦截重复追加
-                tool_input["_duplicate_append_blocked"] = True
-                tool_input["content"] = ""   # 清空内容
-            else:
-                self._append_history.setdefault(path, set()).add(content_hash)
-        return tool_name, tool_input
+### 6.3 runtime_context 常见字段
 
-    async def process_after_tool(self, tool_name, tool_input, result, context):
-        if tool_input.get("_duplicate_append_blocked"):
-            return json.dumps({"success": True, "output": "⚠️ 已跳过重复追加..."})
-        ...
-```
-
-**原理**：当模型反复向同一文件附加相同内容时（例如 API.md 重复写入），该中间件通过记录每次 append 的内容哈希来拦截重复操作，并模拟成功响应，避免文件内容叠加。
+| 字段 | 来源 | 含义 |
+|---|---|---|
+| `run_mode` | Controller/Router | 当前运行模式 |
+| `iteration` | Agent 循环 | 当前迭代次数 |
+| `plan_mode` | UI/Controller | 是否开启计划模式 |
+| `uploaded_files` | UI 上传 | 上传文件元数据 |
+| `skill_contexts` | SkillManager | 匹配到的技能元数据 |
+| `_runtime_mode_injected` | Middleware | 运行模式提示是否已注入 |
+| `_plan_mode_injected` | Middleware | 计划模式提示是否已注入 |
+| `_uploaded_files_injected` | Middleware | 上传文件提示是否已注入 |
+| `_skills_context_injected` | Middleware | 技能上下文是否已注入 |
+| `external_only_high_risk` | RequestProfile | 高风险且无本地证据 |
+| `_in_clarification` | ClarificationManager | 是否处于澄清流程 |
+| `clarify_round` | ClarificationManager | 澄清轮次 |
+| `clarified_facts` | ClarificationManager | 用户补充事实 |
 
 ---
 
-## 6. 核心组件四：工具系统（解析、执行、安全）
+## 7. Middleware Chain 设计
 
-### 6.1 工具解析的七层容错
+### 7.1 基础接口
 
-```mermaid
-graph TD
-    Start[模型输出文本] --> Try1[1. execute_python专用解析]
-    Try1 -->|成功| Done([解析成功])
-    Try1 -->|失败| Try2[2. Markdown代码块内工具]
-    Try2 -->|成功| Done
-    Try2 -->|失败| Try3[3. JSON数组格式]
-    Try3 -->|成功| Done
-    Try3 -->|失败| Try4[4. JSON对象格式]
-    Try4 -->|成功| Done
-    Try4 -->|失败| Try5[5. 工具名+换行+JSON]
-    Try5 -->|成功| Done
-    Try5 -->|失败| Try6[6. XML标签格式]
-    Try6 -->|成功| Done
-    Try6 -->|失败| Try7[7. 裸工具名+input标签]
-    Try7 -->|成功| Done
-    Try7 -->|失败| Fail[解析失败]
-```
-
-**代码实现**：
+所有中间件继承 `AgentMiddleware`，可在五个阶段介入：
 
 ```python
-@staticmethod
-def parse_tool_calls(text: str) -> List[Tuple[str, Dict]]:
-    # 1. execute_python 专用（处理长代码块）
-    if "execute_python" in text:
-        ep_match = re.search(r'execute_python\s*(\{[\s\S]*?\})', text)
-        if ep_match:
-            args = _parse_input_payload(ep_match.group(1))
-            if args and "code" in args: return [("execute_python", args)]
-    # 2. Markdown 代码块
-    for block in re.finditer(r'```(?:python|json)?\s*\n(.*?)```', text, re.DOTALL):
-        inner = block.group(1)
-        ...
-    # 3-7: 依次尝试各种JSON/XML格式
-    ...
+async def process_before_llm(messages, context) -> messages
+async def process_after_llm(response, context) -> response
+async def process_before_tool(tool_name, tool_args, context) -> (tool_name, tool_args)
+async def process_after_tool(tool_name, tool_args, result, context) -> result
+async def process_on_error(error, phase, context) -> Optional[str]
 ```
 
-**原理**：模型输出格式不可控，必须尽可能包容各种错误（缺少括号、未转义控制字符等）。解析器采用**链式尝试**，每层都有独立的容错修复（如补全括号、转义修复、嵌套引号替换），确保即使模型输出不完美也能提取工具调用。
+这种设计的好处是：
 
-### 6.2 安全沙箱
+1. 不需要把所有约束写死在主流程。
+2. 可以按功能独立开启或关闭中间件。
+3. LLM 前、LLM 后、工具前、工具后、异常阶段都能统一处理。
 
-#### 路径阻断
-```python
-_BLOCKED_PATH_PATTERNS = (
-    "/.venv/", "/venv/", "/site-packages/", "/__pycache__/", "/.git/", "/node_modules/"
-)
-def _read_file(self, path: str) -> str:
-    norm = path.replace("\\", "/")
-    for blocked in self._BLOCKED_PATH_PATTERNS:
-        if blocked in norm:
-            return json.dumps({"success": False, "error": "⛔ 路径被拦截..."})
-    ...
+### 7.2 注入位置策略
+
+`_inject_context_before_last_user()` 会把上下文消息插入到“最后一条 user 消息之前”，而不是追加到最后。这么做的目的：
+
+```text
+system / history / injected_context / latest_user
 ```
 
-#### Bash 高危命令拦截
-```python
-_BASH_BLOCKED_PATTERNS = [
-    r"\brm\s+-rf\s+/", r"\bmkfs\b", r"\bdd\s+if=.+of=/dev/", r"\bcurl\b.+\|\s*bash"
+这样模型在阅读最后用户请求之前，已经看到约束和背景，降低遗漏概率。
+
+### 7.3 主要中间件说明
+
+| 中间件 | 阶段 | 作用 |
+|---|---|---|
+| `RuntimeModeMiddleware` | before_llm | 注入当前 `chat/tools/skills/hybrid` 模式说明 |
+| `PlanModeMiddleware` | before_llm | 开启计划模式时要求输出不少于 3 步状态；工具模式下要求逐步调用工具 |
+| `SkillsContextMiddleware` | before_llm | 注入匹配到的技能名称、描述、标签 |
+| `UploadedFilesMiddleware` | before_llm | 注入上传文件名、路径、大小，提示优先用 `read_file` |
+| `ToolResultGuardMiddleware` | before_tool / after_tool | 防重复 append，标准化工具 JSON 结果 |
+| `ConversationSummaryMiddleware` | before_llm | 当历史轮次过多时压缩早期对话 |
+| `ContextWindowMiddleware` | before_llm | 控制上下文窗口，保留关键消息 |
+| `CompletenessMiddleware` | before_llm | 注入完成度提醒，防止未完成就总结 |
+| `AskUserQuestionMiddleware` | after_llm / before_llm | 检测模型反问，辅助澄清流程 |
+| `CompletionStatusMiddleware` | before_llm / after_llm | 处理完成状态信号 |
+| `SearchBeforeBuildingMiddleware` | before_llm | 构建/生成前提醒先搜索现有文件 |
+| `RepoOwnershipMiddleware` | before_llm | 强调只修改项目内文件，避免越界 |
+
+### 7.4 ToolResultGuard 的关键保护
+
+`ToolResultGuardMiddleware` 有两个重要功能：
+
+1. **防重复 append**：
+   - 记录每个文件 append 内容的 hash。
+   - 如果相同内容重复 append，返回成功但跳过写入。
+   - 避免 `API.md`、`README.md` 被重复追加多份内容。
+
+2. **工具结果 JSON 标准化**：
+   - 工具返回非 JSON 时包装为 `{success:false, error, raw_result}`。
+   - 工具返回 JSON 但缺少 `success/tool/timestamp` 时补齐字段。
+
+---
+
+## 8. ToolEnforcementMiddleware：工具强制执行
+
+### 8.1 设计目的
+
+在 `tools` 模式下，模型可能会“看起来回答了问题”，但没有真正读取文件或执行命令。该中间件用于防止这种情况。
+
+### 8.2 触发逻辑
+
+当上下文表明任务需要工具，而模型输出没有合法工具调用时：
+
+1. 检查当前是否还有未完成工具任务。
+2. 判断模型回答是否是合理的纯知识问答。
+3. 如果不是，则注入更强的格式提示，要求模型重新输出工具调用。
+
+### 8.3 允许直接回答的情况
+
+并非所有 `tools` 模式都强制工具。中间件包含知识问答白名单，例如：
+
+- 什么是、为什么、解释一下、介绍；
+- 历史、文化、概念、原理、理论；
+- 歌曲、音乐、专辑等纯知识内容。
+
+如果回答是列表型、内容充分、没有明确文件请求，则可放行。
+
+---
+
+## 9. 工具系统：ToolExecutor / ToolParser / ToolRegistry
+
+### 9.1 支持的工具
+
+| 工具 | 参数 | 用途 |
+|---|---|---|
+| `read_file` | `{path}` | 读取文件内容，并返回文件事实摘要 |
+| `write_file` | `{path, content, mode}` | 写入或追加文件 |
+| `edit_file` | `{path, old_content, new_content}` | 精确替换文件中的一段内容 |
+| `list_dir` | `{path}` | 查看目录内容 |
+| `bash` | `{command, timeout?}` | 执行 shell 命令 |
+| `execute_python` | `{code, timeout?}` | 执行 Python 代码并捕获 stdout/stderr |
+
+### 9.2 标准工具调用格式
+
+`prompts.py` 明确要求工具名单独一行，下一行是 JSON 参数：
+
+```text
+read_file
+{"path": "README.md"}
+```
+
+```text
+bash
+{"command": "grep -R \"class \" core/ | head"}
+```
+
+禁止格式：
+
+```text
+read_file("README.md")
+execute_python -c "print(1)"
+```
+
+### 9.3 execute_tool 分发逻辑
+
+```text
+ToolExecutor.execute_tool(tool_name, tool_input)
+  ├─ read_file       → _read_file(path)
+  ├─ write_file      → _write_file(path, content, mode)
+  ├─ edit_file       → _edit_file(path, old_content, new_content)
+  ├─ list_dir        → _list_dir(path)
+  ├─ bash            → _bash(command, timeout)
+  ├─ execute_python  → execute_python(code, timeout)
+  └─ unknown         → {error: 未知工具}
+```
+
+### 9.4 read_file 的安全与纠错
+
+`_read_file()` 不只是简单读取，它包含多层保护：
+
+| 机制 | 细节 |
+|---|---|
+| 受限路径拦截 | 阻止读取 `.venv/`、`venv/`、`site-packages/`、`.git/`、`node_modules/` 等无关或危险目录 |
+| 绝对路径处理 | 如果绝对路径不存在，会尝试在项目内搜索同名文件 |
+| 相对路径处理 | 优先读取 `work_dir / path` |
+| 目录误读纠正 | 如果目标是目录，提示改用 `list_dir` |
+| 模糊搜索 | 路径不存在时按文件名在工作目录和 home 目录有限深度搜索 |
+| 候选返回 | 如果只在项目外找到同名文件，不自动读取，要求用户明确路径 |
+| 文件事实摘要 | 返回 `line_count/classes/functions/imports/chunk_summaries` |
+
+### 9.5 write_file 的写入保护
+
+`_write_file()` 包含以下保护：
+
+| 场景 | 处理 |
+|---|---|
+| 相对路径越界 | 拦截，防止写到工作目录外 |
+| 空内容覆盖已有文件 | 拦截，避免把已有文件清空 |
+| 占位符内容 | 拦截 `<完整复制...>`、`[TODO]` 等伪内容 |
+| append 模式 | 追加写入并返回 `appended_size/total_size` |
+| overwrite 模式 | 覆盖写入并返回 `size` |
+
+### 9.6 execute_python 执行模型
+
+`execute_python()` 会把用户代码包进一个 wrapper：
+
+```text
+预置 import 常用库
+捕获 stdout/stderr 到 StringIO
+try 执行代码
+except 捕获 traceback
+finally 恢复 stdout/stderr 并输出 JSON
+```
+
+返回字段包括：
+
+```json
+{
+  "success": true,
+  "stdout": "...",
+  "stderr": "...",
+  "error": "..."
+}
+```
+
+并且会截断过长输出，避免把上下文撑爆。
+
+### 9.7 ToolParser 容错解析
+
+`ToolParser.parse_tool_calls()` 支持多种不完全规范的输出：
+
+1. 标准格式：工具名 + JSON。
+2. `<input>...</input>` 格式。
+3. JSON 中字段名缺引号的情况。
+4. 单引号、尾逗号、多余 markdown 代码块。
+5. 参数别名归一化：
+   - `param → path/code/command`
+   - `script → code`
+   - `cmd → command`
+
+解析失败时，如果响应中包含工具名，会写入监控日志，方便调试 prompt。
+
+---
+
+## 10. Skills 外置知识系统
+
+### 10.1 设计理念
+
+`agent_skills.py` 中明确区分：
+
+```text
+工具 = 模型能做什么
+技能 = 模型知道怎么做
+```
+
+也就是说：
+
+- `read_file`、`bash` 是工具；
+- “如何处理 PDF”“如何做代码审查”是技能。
+
+### 10.2 SkillManager 三层加载
+
+| 层级 | 方法 | 加载内容 | 时机 |
+|---|---|---|---|
+| 第 1 层 | `_discover_skills()` / `_load_skill_metadata()` | `name/description/tags/license/resources/body_preview` | 启动时 |
+| 第 2 层 | `get_skill_detail()` | 完整 `SKILL.md` 内容 | 需要该技能时 |
+| 第 3 层 | `get_skill_resources()` | `scripts/`、`references/` 下资源文件 | 需要资源时 |
+
+### 10.3 SKILL.md 格式
+
+```markdown
+---
+name: PDF 处理
+description: 使用 pdftotext 或 PyMuPDF 处理 PDF 文件
+tags: [pdf, document, parsing, extraction]
+license: MIT
+resources:
+  - references/pdf_spec.md
+  - scripts/extract.py
+---
+
+# PDF 处理技能
+
+这里写详细步骤、注意事项、命令示例。
+```
+
+### 10.4 元数据解析兼容性
+
+SkillManager 支持：
+
+- `tags: [a, b, c]`
+- `tags: a, b, c`
+- 多行 YAML list：
+
+```yaml
+tags:
+  - pdf
+  - document
+```
+
+如果缺少 `name` 或 `description`，该技能会被跳过。
+
+### 10.5 技能匹配算法
+
+`find_skills_for_task()` 使用关键词集合的 Jaccard 相似度：
+
+```text
+task_words = 用户任务分词集合
+skill_words = 技能 tags + name + description 分词集合
+similarity = |交集| / |并集|
+```
+
+相似度大于 `0.05` 的技能会被纳入候选，并按分数降序排列。
+
+### 10.6 SkillInjector 注入策略
+
+技能不是直接修改 system prompt，而是作为额外消息插入上下文。这种设计的目的：
+
+1. 尽量保留基础 system prompt 的缓存命中。
+2. 技能可按需热插拔。
+3. 多个技能可组合注入。
+
+---
+
+## 11. RAG 与向量记忆
+
+### 11.1 VectorMemory 核心能力
+
+`vector_memory.py` 实现增强型向量记忆系统，核心能力包括：
+
+| 能力 | 说明 |
+|---|---|
+| 嵌入模型 | 优先使用本地 `SentenceTransformer`，不可用时降级到哈希嵌入 |
+| 缓存 | embedding 与 search 结果都有缓存 |
+| 去重 | 余弦相似度过高的重复内容跳过添加 |
+| 多权重检索 | 支持 semantic、recency、importance 组合评分 |
+| MMR | 用 Maximal Marginal Relevance 做多样性去重 |
+| 类型过滤 | 支持按 `metadata.type` 检索 user_question / assistant_response / tool_execution 等 |
+| 时间衰减 | 越新的记忆分数越高 |
+| 重要性评分 | 基于关键词自动计算 importance |
+| 持久化 | 支持保存到磁盘和加载 |
+| 工具链 | 可记录和查询工具调用链 |
+
+### 11.2 EmbeddingProvider 降级策略
+
+初始化时：
+
+1. 如果设置 `CHAT_AGENT_ALLOW_MODEL_DOWNLOAD=1`，允许下载 SentenceTransformer 模型。
+2. 默认只加载本地缓存，避免启动时因外网不可达卡住。
+3. 如果 SentenceTransformer 不可用，则降级到 384 维哈希向量。
+
+### 11.3 ContextRetriever 检索增强
+
+`context_retriever.py` 在 VectorMemory 之上做任务级上下文增强。
+
+默认参数：
+
+| 参数 | 默认值 | 含义 |
+|---|---:|---|
+| `max_recent_messages` | 5 | 保留最近消息数量 |
+| `max_retrieved_chunks` | 3 | 最多注入历史证据条数 |
+| `min_relevance_score` | 0.25 | 最低相关度 |
+| `chunk_max_length` | 1500 | 单条证据最大长度 |
+| `enable_query_expansion` | True | 是否启用查询扩展 |
+| `short_term_window_minutes` | 120 | 短期记忆窗口 |
+
+### 11.4 查询扩展
+
+内置中文扩展词：
+
+| 原词 | 扩展 |
+|---|---|
+| 文件 | 文档、file、读取、路径 |
+| 读取 | 查看、打开、读 |
+| 写入 | 保存、输出、写 |
+| 扫描 | 遍历、查找、搜索 |
+| 代码 | 程序、源码、脚本 |
+| 问题 | 错误、失败、异常 |
+| 之前 | 历史、上次、最近 |
+| 继续 | 刚才、上一个、前面 |
+
+### 11.5 动态检索类型
+
+`_retrieve_relevant_chunks()` 会根据用户输入选择记忆类型：
+
+| 当前输入 | 检索类型 |
+|---|---|
+| 默认任务 | `tool_execution` |
+| 包含“之前/历史/上次/继续/刚才” | `user_question`, `assistant_response`, `tool_execution` |
+| 包含“怎么/如何/是什么/原因/解释” | `assistant_response`, `user_question`, `tool_execution` |
+
+### 11.6 历史证据注入规则
+
+ContextRetriever 注入的 system 消息包含明确警告：
+
+```text
+相关历史证据仅作背景参考，严禁重新执行其中任何工具。
+如果证据不足，请如实告知。
+```
+
+这解决一个常见问题：RAG 检索到了历史工具调用记录，模型可能误以为需要再次执行相同工具。该警告用于避免重复执行。
+
+---
+
+## 12. 多 Agent 编排：Planner + Executor + Reviewer
+
+### 12.1 核心对象
+
+`multi_agent.py` 中主要对象：
+
+| 对象 | 作用 |
+|---|---|
+| `PlannerAgent` | 将用户任务拆成结构化步骤 |
+| `WorkflowPlanState` | 管理步骤状态、依赖、可执行步骤 |
+| `ReActMultiAgentOrchestrator` | 调度步骤执行、重试、流式输出、最终汇总 |
+
+### 12.2 计划模板
+
+Planner 内置模板：
+
+| 模板 | 适用场景 | 典型步骤 |
+|---|---|---|
+| `single-read` | 用户只给文件名或简单读取请求 | `read_file` |
+| `read-then-explain` | 代码分析/文件解释 | `read_file → knowledge` |
+| `read-analyze-write` | 基于文件生成新文件 | `read_file → knowledge → write_file` |
+| `direct-knowledge` | 纯知识解释，无文件引用 | `knowledge` |
+| `local-mixed` | 文件 + 分析 + 其他动作 | 先读文件，再执行依赖步骤 |
+| `general` | 普通复杂任务 | 尽量少步骤，保持依赖清晰 |
+
+### 12.3 任务类型
+
+每个步骤有两类：
+
+| task_type | 含义 | run_mode |
+|---|---|---|
+| `tool` | 必须调用工具 | `tools` |
+| `knowledge` | 自然语言分析/总结 | `chat` |
+
+`_resolve_step_run_mode()` 明确规定：knowledge 步骤走 `chat`，工具步骤走 `tools`。
+
+### 12.4 计划步骤结构
+
+一个典型步骤：
+
+```json
+{
+  "id": 1,
+  "action": "读取 README.md",
+  "tool": "read_file",
+  "tool_input": {"path": "README.md"},
+  "task_type": "tool",
+  "depends_on": []
+}
+```
+
+生成文件任务中常见结构：
+
+```json
+[
+  {"id": 1, "tool": "read_file", "action": "读取源文件"},
+  {"id": 2, "tool": "none", "task_type": "knowledge", "depends_on": [1]},
+  {"id": 3, "tool": "write_file", "depends_on": [2]}
 ]
-def _bash(self, command: str, timeout=30) -> str:
-    for pat in self._BASH_BLOCKED_PATTERNS:
-        if re.search(pat, command, re.I):
-            return json.dumps({"error": "命令被安全策略拒绝"})
-    ...
 ```
 
-#### Write_file 占位符检测
+### 12.5 计划修正与防御
+
+Planner/Orchestrator 会对计划做多层修正：
+
+| 方法 | 作用 |
+|---|---|
+| `_sanitize_plan_steps()` | 非法工具名回退为 `none` |
+| `_ensure_write_step_if_needed()` | 用户要求写文件但计划缺少 `write_file` 时补写入步骤 |
+| `_sanitize_high_risk_knowledge_plan()` | 高风险纯知识任务避免过度拆解 |
+| `_trim_plan_to_budget()` | 控制步骤数量 |
+| `_enforce_read_before_summarize()` | 强制总结/分析步骤依赖前置 `read_file` |
+| `_dedupe_read_file_steps()` | 去重重复读取步骤 |
+| `_auto_add_file_deps()` | 自动补充文件依赖 |
+| `_try_execute_write_file_step()` | 写文件时强制使用前置 knowledge 输出，避免占位符 |
+
+### 12.6 WorkflowPlanState 状态机
+
+`WorkflowPlanState` 管理每个步骤状态：
+
+```text
+pending → running → completed / failed / blocked
+```
+
+关键方法：
+
+| 方法 | 作用 |
+|---|---|
+| `mark_step()` | 标记步骤状态 |
+| `get_next_ready_steps()` | 找到依赖已满足、可以执行的步骤 |
+| `_deps_met()` | 判断依赖是否全部完成 |
+| `is_all_done()` | 判断是否全部完成 |
+| `has_blocked()` | 判断是否存在阻塞步骤 |
+
+### 12.7 纠错重试 prompt
+
+`_build_correction_prompt()` 会根据错误类型生成不同提示：
+
+| 错误类型 | 修正策略 |
+|---|---|
+| `file_not_found` | 要求先用 `bash find` 搜索，再读取正确路径 |
+| `execute_python_parse_failed` | 放弃 `execute_python`，改用 `bash` |
+| `parse_failure` | 强调工具格式必须是工具名 + JSON |
+| `python_syntax_error` | 检查语法，必要时改用 bash |
+| `execute_python_empty_output` | 添加 print 或改用 bash |
+| `no_tool_call` | 明确要求调用指定工具 |
+
+---
+
+## 13. 澄清机制 ClarificationManager
+
+### 13.1 触发条件
+
+澄清模块用于处理模型无法继续执行的场景，主要触发条件：
+
+1. 模型响应包含 `NEEDS_CONTEXT`。
+2. 模型响应包含 `BLOCKED`。
+3. 回答明显向用户索要关键信息。
+4. Router 判断请求模糊，如“读取这个”“分析它”，但没有文件名或上下文。
+
+### 13.2 状态字段
+
+| 字段 | 含义 |
+|---|---|
+| `_in_clarification` | 是否处于澄清流程 |
+| `clarify_round` | 当前澄清轮次 |
+| `pending_clarify_question` | 待用户回答的问题 |
+| `clarified_facts` | 用户补充的信息 |
+
+### 13.3 限制
+
+`MAX_CLARIFY_ROUNDS = 2`，即最多连续澄清两轮。这样可以防止系统反复追问，用户体验变差。
+
+### 13.4 流程
+
+```text
+模型输出 BLOCKED / NEEDS_CONTEXT
+  → should_trigger_clarification()
+  → trigger_clarification()
+  → ask_clarification()
+  → 用户补充信息
+  → process_user_clarification()
+  → build_clarification_context_message()
+  → 重新进入主流程
+```
+
+---
+
+## 14. 反思引擎 EnhancedReflectionEngine
+
+### 14.1 目标
+
+反思引擎负责把工具失败变成可执行的修复策略，而不是让模型盲目重试。
+
+### 14.2 错误模式表
+
+| 错误类型 | 识别模式 | 类别 | 建议 |
+|---|---|---|---|
+| `file_not_found` | not found、不存在、找不到、No such file | parameter_error | 使用绝对路径、先 `list_dir`、检查文件名 |
+| `permission_denied` | permission denied、权限不足 | tool_error | 检查权限、更换工作目录 |
+| `syntax_error` | syntax error、invalid syntax、语法错误 | parameter_error | 检查 JSON 格式、验证参数类型 |
+| `timeout` | timeout、timed out、超时 | execution_error | 增加超时、拆分任务、优化命令 |
+| `empty_output` | stdout 空、no output、未产生任何输出 | execution_error | 改用 bash、检查是否 print |
+
+### 14.3 反思记录
+
+每次工具结果会进入：
+
+```text
+record_result(tool_name, success, result, context)
+```
+
+成功时：
+
+- 更新成功模式；
+- 可写入 ToolLearner；
+- 提升后续推荐分数。
+
+失败时：
+
+- 分类错误；
+- 记录失败历史；
+- 检查重复失败；
+- 可能建议切换工具或停止。
+
+### 14.4 防循环机制
+
+反思引擎包含：
+
+| 方法 | 作用 |
+|---|---|
+| `_is_repeated_failure()` | 检查同一工具/同类错误是否反复出现 |
+| `_detect_loop()` | 检测工具调用循环 |
+| `should_continue()` | 判断是否继续重试 |
+
+---
+
+## 15. AdaptiveToolLearner 工具学习
+
+### 15.1 学习内容
+
+`tool_learner.py` 记录三类信息：
+
+| 信息 | 结构 |
+|---|---|
+| 工具统计 | `tool_stats[tool] = {success, failed, avg_time, last_success}` |
+| 转移矩阵 | `transition_matrix[previous_tool][next_tool] += 1` |
+| 任务模式 | `ToolUsagePattern(task_type, tool_sequence, success_rate, avg_execution_time, context_features, last_used)` |
+
+### 15.2 ContextFeatureExtractor
+
+特征提取包括：
+
+- 文本长度；
+- 是否包含文件路径；
+- 是否包含代码特征；
+- 是否包含中文；
+- 是否要求写入；
+- 任务类型特征。
+
+### 15.3 推荐逻辑
+
+`recommend_next_tools()` 会结合：
+
+1. 当前任务类型；
+2. 上一个工具；
+3. 历史转移概率；
+4. 工具成功率；
+5. 上下文相似度；
+6. 失败模式。
+
+输出推荐工具及理由。
+
+---
+
+## 16. 模型适配：Qwen / GLM
+
+### 16.1 model_forward.py
+
+`create_qwen_model_forward()` 把不同模型封装成统一接口：
+
 ```python
-_PLACEHOLDER_PATTERNS = [
-    r'<完整复制[^>]*>', r'\[此处填写[^\]]*\]', r'<TODO[^>]*>'
-]
-def _write_file(self, path, content, mode):
-    for pat in _PLACEHOLDER_PATTERNS:
-        if re.search(pat, content):
-            return json.dumps({"success": False, "blocked": True, "error": "拦截占位符写入"})
-    ...
+forward(messages, system_prompt="", **kwargs) -> str
 ```
 
-**原理**：通过多层正则和路径检查，将工具操作限制在安全边界内，防止模型误毁文件或执行危险系统命令。
+主要做两件事：
+
+1. 合并多个 system 消息，避免部分模型接口不支持多 system。
+2. 消费流式生成器，返回完整字符串。
+
+### 16.2 GLMAgent
+
+`glm_agent.py` 实现智谱 GLM API 适配器，兼容 QwenAgent 风格接口。
+
+默认模型：
+
+```text
+glm-4-flash
+```
+
+可选模型包括：
+
+- `glm-4-flash`
+- `glm-4-flash-250414`
+- `glm-4-air`
+- `glm-4`
+
+### 16.3 引擎选择
+
+`ChatController.__init__()` 中：
+
+```text
+如果存在 GLM_API_KEY 且 GLMAgent 可导入 → 自动启用 GLM
+否则 → 使用本地 Qwen 模型
+```
+
+UI 侧也提供模型/引擎选择回调：
+
+```text
+on_engine_change()
+on_model_change()
+```
 
 ---
 
-## 7. 核心组件五：向量记忆与 RAG 增强
+## 17. StreamingFramework 流式输出
 
-### 7.1 VectorMemory 索引与检索
+### 17.1 事件结构
 
-```mermaid
-graph TD
-    Q[查询文本] --> Embed[嵌入计算: all-MiniLM-L6-v2]
-    Embed --> QVec[384维查询向量]
-    QVec --> Search[HNSW 索引搜索]
-    Search --> Candidates[候选条目列表]
-    Candidates --> Score[计算混合评分: 语义+时间衰减+重要性+关键词命中]
-    Score --> MMR[MMR去重: λ=0.7]
-    MMR --> TopK[返回 top_k 结果]
-```
-
-**混合评分公式**：
-$$Score = 0.5 \cdot CosSim + 0.3 \cdot e^{-t/48} + 0.2 \cdot Importance + 0.05 \cdot Access + KeywordBoost$$
-
-**代码**：
-```python
-def search(self, query, top_k=5, ...):
-    query_emb = self.embedder.embed([query])[0]
-    now = datetime.now()
-    for entry in all_entries:
-        sem = cos_sim(query_emb, entry.embedding)
-        recency = np.exp(-(now - entry.timestamp).seconds / 3600 / 48)
-        kw_hit = len(query_keywords & entry_keywords)
-        total = w_sem*sem + w_rec*recency + w_imp*entry.importance + w_kw*kw_hit
-    # MMR 选择
-    ...
-```
-
-**案例**：用户问“之前怎么读的 PDF？”，系统检索到历史记忆：“任务: PDF处理, 工具: bash, 命令: pip install PyMuPDF”，由于时间过去 1 小时，衰减系数 $e^{-1/48} \approx 0.979$，依然高度相关，排名第一返回。
-
-### 7.2 ContextRetriever 增强消息
-
-```mermaid
-sequenceDiagram
-    participant Agent
-    participant CR as ContextRetriever
-    participant VM as VectorMemory
-
-    Agent->>CR: augment_messages(messages, query)
-    CR->>VM: search(query, types=['tool_execution','user_question'])
-    VM-->>CR: top_k 历史证据
-    CR->>CR: 构建“严禁重复执行”的系统消息
-    CR->>CR: 滑动窗口: 保留最近5条 + 早期工具Observation
-    CR-->>Agent: 增强后的消息列表
-```
-
-**原理**：每次 LLM 调用前，系统从向量记忆中检索与当前任务相关的历史证据，以系统消息的形式注入，并明确警告模型**不要重新执行证据中的任何工具**，只作为背景知识参考。滑动窗口确保上下文长度不爆炸，又保留关键工具结果。
-
----
-
-## 8. 核心组件六：反思引擎与策略切换
-
-### 8.1 反思闭环
-
-```mermaid
-graph TD
-    ToolResult[工具执行结果] --> Record[record_result]
-    Record --> Analyze[错误分类 (正则)]
-    Analyze -->|失败| CheckRepeat{5分钟内重复?}
-    CheckRepeat -->|是| Strategic[战略级: 生成策略]
-    CheckRepeat -->|否| Operational[操作级: 注入修复提示]
-    Strategic --> GetPlan[get_action_plan]
-    GetPlan --> Switch[生成_strategy_switch]
-    Switch --> Inject[注入runtime_context]
-    Inject --> NextAgent[下一次AgentNode应用策略]
-    Analyze -->|成功| Success[记录成功模式]
-```
-
-### 8.2 关键代码
+`StreamEvent` 支持两种输出：
 
 ```python
-def get_action_plan(self, recent_errors: List[Dict]) -> Dict:
-    if all(e['tool']=='execute_python' for e in recent_errors[-2:]):
-        return {"action": "switch_tool", "new_tool": "bash", "reason": "多次Python失败"}
-    if recent_errors.count('file_not_found') >= 2:
-        return {"action": "suggest_search", "query_template": "find . -name '*'" }
-    if len(set(e['error_type'] for e in recent_errors))==1 and len(recent_errors)>=3:
-        return {"action": "abort", "reason": "连续相同错误"}
-    return {"action": "none"}
+to_dict() -> {event, data, timestamp}
+to_sse()  -> "event: ...\ndata: ...\n\n"
 ```
 
-**原理**：基于近期失败的统计，反思引擎生成明确的控制指令（如切换到 bash），通过 `runtime_context["_strategy_switch"]` 传递给下一轮 AgentNode。AgentNode 在执行前会解析这个指令，将其转化为系统消息强制模型遵守，从而跳出失败循环。
+### 17.2 run_stream 事件顺序
 
-**案例**：模型连续两次用 `execute_python` 跑代码，但一次语法错误一次空输出。反思引擎生成 `switch_tool` 策略，要求改用 `bash`。下一轮 Agent 收到系统指令：“⚠️ 由于 execute_python 多次失败，请仅使用 bash 工具完成任务”，模型便改用 bash 命令成功。
+```text
+start
+  → tool_result*  // 每个工具调用一个事件
+  → complete
+```
+
+如果出现异常：
+
+```text
+start
+  → error
+  → complete(response="执行出错", error=...)
+```
+
+### 17.3 事件示例
+
+```json
+{
+  "event": "tool_result",
+  "data": {
+    "tool": "read_file",
+    "success": true,
+    "result": "...前 200 字...",
+    "mode": "sequential"
+  },
+  "timestamp": 1710000000.0
+}
+```
 
 ---
 
-## 9. 核心组件七：多 Agent 协作（并行调度）
+## 18. 前端入口 web_agent_with_skills.py
 
-### 9.1 整体架构
+### 18.1 启动逻辑
 
-```mermaid
-graph TD
-    UserInput[用户任务] --> Planner[PlannerAgent: 生成步骤计划]
-    Planner --> WFS[WorkflowPlanState: 管理状态]
-    WFS --> Parallel{有可并行步骤?}
-    Parallel -->|是| Gather[asyncio.gather 并发执行]
-    Parallel -->|否| Sequential[顺序执行]
-    Gather --> Exec1[步骤1: _execute_step_async]
-    Gather --> Exec2[步骤2: _execute_step_async]
-    Exec1 --> Update[更新步骤状态]
-    Exec2 --> Update
-    Sequential --> Exec[单步执行]
-    Exec --> Update
-    Update --> AllDone{全部终止?}
-    AllDone -->|否| Parallel
-    AllDone -->|是| Summary[汇总: 部分成功+澄清卡片]
-    Summary --> Reviewer[ReviewerAgent审查]
-    Reviewer --> Final[最终回答]
-```
+启动时：
 
-### 9.2 并行执行代码
+1. 将项目根目录加入 `sys.path`。
+2. 读取项目根目录 `.env`，但系统环境变量优先。
+3. 调用 `ensure_local_no_proxy()` 处理本地网络代理问题。
+4. 创建 `ChatController`。
+5. 构建 Gradio UI。
+6. 自动寻找空闲端口，从 7860 开始尝试。
+7. 设置 `GRADIO_ANALYTICS_ENABLED=False`。
+8. 启动本地服务，默认 `127.0.0.1`。
 
-```python
-async def run(self, user_input, session, ...):
-    plan = self.planner.plan(user_input)
-    state = WorkflowPlanState(plan)
-    while not all_terminated:
-        ready_steps = state.get_next_ready_steps(all_steps)  # 依赖已满足且pending
-        if not ready_steps: break
-        tasks = [self._execute_step_async(step, session, ...) for step in ready_steps]
-        results = await asyncio.gather(*tasks)
-        for res in results:
-            state.mark_step(res.step_id, status, res)
-    # 汇总结果
-    return self._build_final_response(state)
-```
+### 18.2 Gradio 修补
 
-**原理**：通过 `WorkflowPlanState` 跟踪每个步骤的状态（pending/running/completed/blocked）和依赖关系，调度器不断寻找依赖已就绪的待执行步骤，用 `asyncio.gather` 并发启动。每个步骤内部又是一个完整的 ReAct 循环（调用 `LangGraphAgent.run()`），享有反射、记忆等所有功能。这大幅提升了多步骤任务的总效率。
+代码中包含两个实用修补：
 
-**案例**：用户指定三个独立任务，系统同时启动三个 ReAct 循环。1 个文件读取、1 个 bash 命令、1 个知识问答几乎同时执行完成，总耗时仅需最长步骤的时间，而不是三者之和。
+| 修补 | 目的 |
+|---|---|
+| JSON Schema 修补 | 处理 Gradio 某些版本中 bool schema 导致的类型错误 |
+| url_ok 强制返回 True | 绕过本地可达性检查，避免部分环境启动失败 |
 
----
-
-## 10. 其他重要机制
-
-### 10.1 ClarificationManager（统一澄清入口）
-
-所有需要用户补充信息的地方（`NEEDS_CONTEXT`, 文件路径缺失）都汇总为一张友好的 Markdown 卡片，并管理最多两轮澄清上限，超限后降级为基于已有信息继续执行。
-
-### 10.2 STATUS 死循环防护
-
-AgentNode 在解析工具调用前，先用正则检测响应中是否含有 `STATUS: BLOCKED / NEEDS_CONTEXT`，若有则直接作为最终回答返回，避免被格式纠正中间件误判为“工具意图但格式错误”，造成无限重试。
-
-### 10.3 高风险知识拦截
-
-Planner 阶段检测到“歌词”“十首”等关键词，会在系统提示中强制模型只做概括、标注“待核实”，并让分析器对包含“待核实”的回答视为成功，防止模型为追求“完整”而不断编造。
-
----
-
-## 11. 部署与运维
-
-### 11.1 启动脚本
+### 18.3 启动命令
 
 ```bash
-bash start_all_apps.sh   # 自动激活虚拟环境，依次启动 main(7860), viewer(7861), analyzer(7862)
-bash stop_all_apps.sh    # 从 pid 文件安全结束所有进程
+python web_agent_with_skills.py
 ```
 
-### 11.2 日志体系
+默认访问：
 
-| 日志类型 | 位置 | 用途 |
-|----------|------|------|
-| 监控日志 | `logs/monitor.log` | 请求耗时、错误堆栈、系统事件 |
-| 错误日志 | `logs/error.log` | ERROR 级别以上独立记录 |
-| 会话日志 | `session_logs/*.json` | 每次对话的完整细节（消息、模型调用） |
+```text
+http://127.0.0.1:7860
+```
 
-### 11.3 性能与并发
-
-- LangGraph 检查点基于 SQLite，支持多线程并发读取（写操作有异步锁保护）。
-- 模型调用通过 `asyncio.to_thread` 将同步 API 转为异步，避免阻塞事件循环。
-- Gradio UI 使用队列和并发限制（`concurrency_limit=2`），防止过载。
+如果 7860 被占用，会自动尝试后续端口。
 
 ---
 
-*本文档由 QwenAgentFramework 全部源码深度解析而成，覆盖了从意图路由到断点续跑、从反思到并行调度等所有关键机制，每一个组件均按照“流程图+代码+原理+案例”严格展开，可作为开发、维护和二次开发的核心参考手册。*
+## 19. 配置项与环境变量
+
+| 变量 | 默认值 | 作用 |
+|---|---|---|
+| `GLM_API_KEY` | 空 | 存在时自动启用 GLM API 模型 |
+| `CHAT_AGENT_ALLOW_MODEL_DOWNLOAD` | 空 | 设为 `1` 时允许 SentenceTransformer 下载模型 |
+| `GRADIO_SERVER_NAME` | `127.0.0.1` | Gradio 绑定地址 |
+| `GRADIO_ANALYTICS_ENABLED` | `False` | 关闭 Gradio 统计 |
+
+推荐 `.env` 示例：
+
+```env
+GLM_API_KEY=your_glm_api_key
+GRADIO_SERVER_NAME=127.0.0.1
+CHAT_AGENT_ALLOW_MODEL_DOWNLOAD=0
+```
+
+---
+
+## 20. 数据流细节
+
+### 20.1 文件分析任务数据流
+
+```text
+用户上传/指定文件
+  → ChatController.extract_uploaded_file_meta()
+  → runtime_context.uploaded_files
+  → UploadedFilesMiddleware 注入文件名/路径/大小
+  → RAGIntentRouter 判断 tools
+  → Model 输出 read_file 调用
+  → ToolParser 解析
+  → ToolExecutor._read_file()
+  → 返回 content + file_facts
+  → ContextRetriever/VectorMemory 可记录工具结果
+  → Model 基于 Observation 总结
+  → 最终回答加“基于工具执行”标签
+```
+
+### 20.2 写文件任务数据流
+
+```text
+用户要求生成 README / API.md
+  → Planner 判断 artifact_generation
+  → 生成 read_file → knowledge → write_file
+  → read_file 收集源文件事实
+  → knowledge 步骤产出真实总结内容
+  → write_file 使用前置 knowledge 输出
+  → ToolResultGuard 防重复 append
+  → ToolExecutor._write_file() 拦截空覆盖/占位符
+  → 返回写入路径和大小
+```
+
+### 20.3 历史回顾数据流
+
+```text
+用户问“我之前问过什么”
+  → RAGIntentRouter L0 命中 memory_query
+  → ContextRetriever/VectorMemory 检索 user_question / assistant_response
+  → 如果证据不足，可读取 session_logs 最新日志
+  → 直接回答历史问题列表
+```
+
+---
+
+## 21. 提示词与工具契约
+
+`prompts.py` 主要定义了：
+
+| 常量 | 作用 |
+|---|---|
+| `COMMON_RESPONSE_RULES` | 最终回复不要出现 Thought/Action/Observation，先给结果 |
+| `TOOLS_EXECUTION_CONTRACT` | 依赖本地文件/目录/命令时必须先调用工具 |
+| `TOOLS_FORMAT_CONTRACT` | 规定工具名 + JSON 的调用格式 |
+| `TOOLS_FILE_GROUNDING_RULES` | 文件任务必须先读取真实内容，不能猜 |
+| `TOOLS_SELECTION_GUIDE` | 批量扫描用 bash，单文件读取用 read_file |
+| `TOOLS_HISTORY_RULE` | 历史问题回顾优先用历史证据，不要说“没有记忆功能” |
+
+这组契约是工具模式稳定性的基础。
+
+---
+
+## 22. 安全与可靠性设计
+
+### 22.1 防编造
+
+| 机制 | 作用 |
+|---|---|
+| 文件任务强制 read_file | 不能根据文件名猜内容 |
+| `external_only_high_risk` 标签 | 高风险无证据时输出“待核实” |
+| RAG 证据提示 | 明确历史证据不足时要告知 |
+| ToolEnforcement | 防止 tools 模式直接空答 |
+
+### 22.2 防危险文件操作
+
+| 机制 | 作用 |
+|---|---|
+| 受限目录拦截 | 不读 `.venv`、`site-packages`、`.git` 等 |
+| 相对路径越界拦截 | 不写到工作目录外 |
+| 空覆盖拦截 | 防止已有文件被清空 |
+| 占位符写入拦截 | 防止把 `<复制上方内容>` 写进文件 |
+| 重复 append 拦截 | 防止重复追加同一内容 |
+
+### 22.3 防循环重试
+
+| 机制 | 作用 |
+|---|---|
+| Reflection 重复失败检测 | 同类错误多次出现后停止或换策略 |
+| ToolLearner 失败模式 | 历史失败会降低推荐 |
+| Orchestrator retry_count | 每个步骤有重试控制 |
+| CompletionGuard | 判断是否真的完成，避免伪完成 |
+
+---
+
+## 23. 扩展指南
+
+### 23.1 新增一个工具
+
+步骤：
+
+1. 在 `ToolExecutor.execute_tool()` 中增加分支。
+2. 实现 `_your_tool()` 方法，返回 JSON 字符串。
+3. 在 `ToolParser.known_tools` 中加入工具名。
+4. 在 `prompts.py` 的工具契约中加入格式说明。
+5. 如果需要注册式调用，在 `ToolRegistry` 中注册。
+6. 在 `ToolEnforcementMiddleware` 中确认该工具是否需要强制调用。
+
+示例：
+
+```python
+elif tool_name == "read_json":
+    if "path" not in tool_input:
+        return json.dumps({"success": False, "error": "缺少 path"}, ensure_ascii=False)
+    return self._read_json(tool_input["path"])
+```
+
+### 23.2 新增一个 Skill
+
+目录结构：
+
+```text
+skills/
+  data-analysis/
+    SKILL.md
+    scripts/
+      clean_csv.py
+    references/
+      checklist.md
+```
+
+`SKILL.md`：
+
+```markdown
+---
+name: 数据分析
+description: 用于 CSV 清洗、统计分析和图表生成的方法论
+tags: [data, csv, analysis, chart]
+license: MIT
+resources:
+  - scripts/clean_csv.py
+  - references/checklist.md
+---
+
+# 数据分析技能
+
+## 流程
+1. 读取数据
+2. 检查缺失值
+3. 统计描述
+4. 可视化
+5. 输出结论
+```
+
+系统启动时会自动发现该技能。
+
+### 23.3 新增路由意图
+
+如需增加 `IntentType.DATABASE`：
+
+1. 在 `IntentType` 中新增枚举。
+2. 在 `rule_patterns` 中添加关键词。
+3. 在 `_suggest_params()` 中添加模型参数。
+4. 在 `ChatController` 中增加 run_mode 映射。
+5. 如需新中间件，加入 Middleware Chain。
+
+### 23.4 新增中间件
+
+```python
+class MyMiddleware(AgentMiddleware):
+    async def process_before_llm(self, messages, context):
+        if context.get("_my_injected"):
+            return messages
+        context["_my_injected"] = True
+        msg = {"role": "user", "content": "<my_hint>...</my_hint>"}
+        return _inject_context_before_last_user(messages, msg)
+```
+
+注意：
+
+- 使用 `_xxx_injected` 避免重复注入。
+- 不要直接修改原始 messages，尽量复制列表。
+- 注入内容应短而明确。
+
+---
+
+## 24. 调试与排错
+
+### 24.1 常见问题
+
+| 问题 | 可能原因 | 处理方式 |
+|---|---|---|
+| 模型不调用工具 | run_mode 没进入 tools；ToolParser 解析失败；prompt 不够强 | 检查 Router 日志、ToolEnforcement 日志、工具调用格式 |
+| 文件不存在 | 路径不在 work_dir；文件名拼错；上传文件路径未注入 | 先 `list_dir` 或 `bash find` |
+| 写出的文件是占位符 | 模型没有把前置步骤真实结果填入 content | 依赖 `_try_execute_write_file_step()` 和占位符拦截 |
+| 重复写入 | 多轮 append 重复执行 | ToolResultGuard 会拦截重复 append |
+| GLM 没启用 | 没有 `GLM_API_KEY` 或 `zhipuai` 未安装 | 配置 `.env` 并安装依赖 |
+| 启动卡在 embedding | SentenceTransformer 尝试下载 | 不设置 `CHAT_AGENT_ALLOW_MODEL_DOWNLOAD=1`，使用本地缓存或哈希降级 |
+| 继续任务丢上下文 | active_file/current_topic 未更新 | 检查 `_update_active_file()` 与 `task_context` |
+
+### 24.2 推荐日志观察点
+
+| 位置 | 观察内容 |
+|---|---|
+| `RAGIntentRouter.route()` | 最终 intent、confidence、reasoning |
+| `ChatController._describe_execution_strategy()` | direct/breakdown、auto_plan、flags |
+| `ToolParser.parse_tool_calls()` | 是否解析到工具调用 |
+| `ToolExecutor._read_file()` | 是否模糊匹配、是否受限路径 |
+| `EnhancedReflectionEngine.record_result()` | 错误分类和重试建议 |
+| `ReActMultiAgentOrchestrator._log_plan_snapshot()` | 计划步骤是否合理 |
+
+---
+
+## 25. 建议的项目目录
+
+根据当前代码引用，建议项目结构保持如下：
+
+```text
+project-root/
+  core/
+    agent_middlewares.py
+    agent_skills.py
+    agent_tools.py
+    clarification.py
+    completion_guard.py
+    context_retriever.py
+    langgraph_agent.py              # 当前附件未包含
+    model_forward.py
+    multi_agent.py
+    multi_agent_support.py          # 当前附件未包含
+    prompts.py
+    rag_intent_router.py
+    reflection.py
+    state_manager.py
+    streaming_framework.py
+    tool_enforcement_middleware.py
+    tool_learner.py
+    vector_memory.py
+  ui/
+    chat_controller.py
+    glm_agent.py
+    qwen_agent.py                   # 当前附件未包含
+    session_logger.py               # 当前附件未包含
+  skills/
+    pdf/
+      SKILL.md
+    code-review/
+      SKILL.md
+  .agent_memory/
+  .workflow_states/
+  session_logs/
+  web_agent_with_skills.py
+  .env
+```
+
+当前上传文件中 `chat_controller.py`、`glm_agent.py` 的路径看起来属于 `ui/` 或 `core/` 引用体系，但文件本身被平铺上传到 `/mnt/data`。实际项目中应按 import 路径放回对应目录。
+
+---
+
+## 26. 关键设计取舍
+
+### 26.1 为什么要有 Router，而不是所有问题都让模型判断？
+
+因为本地文件任务不能依赖模型自由发挥。Router 的前置规则可以保证：
+
+- 明确文件操作立即进 tools；
+- 寒暄不浪费检索；
+- 历史回顾进 memory_query；
+- 模糊请求先澄清；
+- 低置信度才调用 LLM 复核。
+
+这样既节省 tokens，又降低误路由。
+
+### 26.2 为什么 Skills 不直接塞进 system prompt？
+
+因为 system prompt 频繁变化会影响缓存与稳定性。当前设计把技能作为上下文消息注入：
+
+```text
+基础 system prompt 保持稳定
+技能内容按需作为额外消息插入
+```
+
+这样更接近“热插拔知识”。
+
+### 26.3 为什么 read_file 返回 file_facts？
+
+因为完整文件内容可能很长。`file_facts` 提供结构化摘要：
+
+- 行数；
+- 类名；
+- 函数名；
+- import；
+- 分块摘要。
+
+后续 Planner、Reviewer 和最终回答可以优先使用这些结构化事实。
+
+### 26.4 为什么多 Agent 要区分 tool step 和 knowledge step？
+
+如果所有步骤都强制工具，会导致纯分析步骤也试图调用工具；如果所有步骤都允许自然语言，又会导致文件任务不读文件。区分后：
+
+```text
+tool step      → 必须拿证据
+knowledge step → 基于已有证据分析
+```
+
+这能减少“凭空总结”和“无意义工具调用”。
+
+---
+
+## 27. 推荐后续优化
+
+| 优化项 | 建议 |
+|---|---|
+| 补齐源码结构 | 上传/维护 `langgraph_agent.py`、`multi_agent_support.py`、`monitor_logger.py`，README 可进一步补全状态图 |
+| 增加单元测试 | 对 ToolParser、Router、ToolExecutor 写 pytest |
+| 工具权限分级 | 将 bash 分为只读命令、写入命令、高风险命令三类 |
+| UI 展示计划步骤 | 将 `WorkflowPlanState` 实时展示成前端任务列表 |
+| 记忆清理策略 | 增加按 session、时间、重要性删除记忆的管理页面 |
+| Skill 版本管理 | 为 `SKILL.md` 增加 version、author、updated_at 字段 |
+| 观测性增强 | 输出 trace_id 串联 router、tool、reflection、final response |
+| 失败样本回放 | 将失败任务保存为 regression cases，避免修复后回归 |
+
+---
+
+## 28. 快速启动清单
+
+### 28.1 安装依赖
+
+根据源码推断至少需要：
+
+```bash
+pip install gradio numpy
+```
+
+如果使用 GLM：
+
+```bash
+pip install zhipuai httpx
+```
+
+如果使用本地向量模型：
+
+```bash
+pip install sentence-transformers
+```
+
+PDF 相关可选：
+
+```bash
+pip install PyPDF2 PyMuPDF
+```
+
+### 28.2 配置 `.env`
+
+```env
+GLM_API_KEY=
+GRADIO_SERVER_NAME=127.0.0.1
+CHAT_AGENT_ALLOW_MODEL_DOWNLOAD=0
+```
+
+### 28.3 启动
+
+```bash
+python web_agent_with_skills.py
+```
+
+### 28.4 验证功能
+
+| 测试 | 输入 | 预期 |
+|---|---|---|
+| 普通聊天 | `你好` | 直接回答，不调用工具 |
+| 文件读取 | `读取 README.md` | 调用 `read_file` |
+| 目录查看 | `列出当前目录` | 调用 `list_dir` 或 `bash ls` |
+| 代码分析 | `分析 agent_tools.py 的工具系统` | 先 `read_file` 再总结 |
+| 生成文件 | `根据 agent_tools.py 生成 API.md` | `read_file → knowledge → write_file` |
+| 技能匹配 | `如何处理 PDF 文档` | 注入 PDF 技能 |
+| 历史回顾 | `我之前问过什么` | 进入 `memory_query` |
+
+---
+
+## 29. 最小可维护原则
+
+后续维护时建议遵循：
+
+1. **路由逻辑集中在 Router 和 ChatController，不要散落到工具里。**
+2. **工具必须返回 JSON 字符串，且包含 success/error。**
+3. **写文件前必须有真实内容，不能写占位符。**
+4. **中间件只做单一职责，避免变成新的大控制器。**
+5. **Skills 只写“方法论”，不要写具体执行副作用。**
+6. **高风险知识请求没有证据时要标注不确定。**
+7. **所有自动重试都要有次数上限。**
+8. **新增模式要同步更新 Router、Prompt、Middleware 和 README。**
+
+---
+
+## 30. 一句话总结
+
+ZwenAgentFramework 的核心不是“让模型一次回答完”，而是把用户请求拆成可观测、可执行、可恢复的工程流程：先路由，再注入上下文，需要证据就调用工具，需要方法就注入 Skills，需要多步就交给 Planner，失败后由 Reflection 和 ToolLearner 纠偏，最终给出基于证据的回答。

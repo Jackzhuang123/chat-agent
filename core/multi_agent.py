@@ -21,6 +21,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, AsyncGenerator
 from core.clarification import ClarificationManager
 from core.components.output_cleaner import clean_react_tags
 from core.monitor_logger import get_monitor_logger, log_event
+from core.multi_agent_support import (
+    ExecutionContextFactory,
+    FinalResponseComposer,
+    StepEvidenceResolver,
+)
 from core.state_manager import SessionContext
 
 _AVAILABLE_TOOLS = {"bash", "read_file", "write_file", "edit_file", "list_dir", "execute_python", "none"}
@@ -151,123 +156,6 @@ def _parse_json_like_payload(text: str) -> Tuple[Optional[Any], str]:
     return None, repaired
 
 
-class StepEvidenceResolver:
-    """从多 Agent 步骤结果中提取可复用证据，避免知识步骤脱离前置事实自由发挥。"""
-
-    FILE_TASK_KEYWORDS = ("总结", "解释", "说明", "分析", "类名", "方法", "函数", "代码", "结构")
-
-    @staticmethod
-    def get_dependency_ids(step: Dict[str, Any]) -> List[int]:
-        deps = step.get("depends_on", [])
-        return deps if isinstance(deps, list) else []
-
-    @staticmethod
-    def get_dependency_results(step: Dict[str, Any], accumulated_context: Dict[str, Any]) -> List[Tuple[int, Dict[str, Any]]]:
-        step_outputs = accumulated_context.get("step_outputs", {}) or {}
-        items = []
-        for dep_id in StepEvidenceResolver.get_dependency_ids(step):
-            dep_result = step_outputs.get(dep_id)
-            if isinstance(dep_result, dict):
-                items.append((dep_id, dep_result))
-        return items
-
-    @staticmethod
-    def extract_file_evidence(step: Dict[str, Any], accumulated_context: Dict[str, Any]) -> List[Dict[str, Any]]:
-        evidence = []
-        for dep_id, dep_result in StepEvidenceResolver.get_dependency_results(step, accumulated_context):
-            for tool_call in dep_result.get("tool_calls", []) or []:
-                if not isinstance(tool_call, dict):
-                    continue
-                if tool_call.get("tool") != "read_file" or not tool_call.get("success"):
-                    continue
-                result_obj = tool_call.get("result", {}) or {}
-                if not isinstance(result_obj, dict):
-                    continue
-                evidence.append({
-                    "step_id": dep_id,
-                    "path": result_obj.get("path", ""),
-                    "content": result_obj.get("content", ""),
-                    "file_facts": result_obj.get("file_facts", {}) or {},
-                    "note": result_obj.get("resolution_note") or result_obj.get("note", ""),
-                })
-        return evidence
-
-    @staticmethod
-    def extract_dependency_response(step: Dict[str, Any], accumulated_context: Dict[str, Any]) -> Tuple[Optional[int], str]:
-        for dep_id, dep_result in reversed(StepEvidenceResolver.get_dependency_results(step, accumulated_context)):
-            response = (dep_result.get("response", "") or "").strip()
-            if response:
-                return dep_id, response
-        return None, ""
-
-    @staticmethod
-    def should_ground_file_task(action: str, file_evidence: List[Dict[str, Any]]) -> bool:
-        return bool(file_evidence) and any(keyword in (action or "") for keyword in StepEvidenceResolver.FILE_TASK_KEYWORDS)
-
-    @staticmethod
-    def build_grounding_block(file_evidence: List[Dict[str, Any]], max_content_chars: int = 1800) -> str:
-        blocks = []
-        for item in file_evidence:
-            facts = item.get("file_facts", {}) or {}
-            chunks = facts.get("chunk_summaries", [])[:4]
-            chunk_lines = []
-            for chunk in chunks:
-                signals = " | ".join(chunk.get("signals", [])[:2]) if isinstance(chunk, dict) else ""
-                if signals:
-                    chunk_lines.append(f"- {chunk.get('line_range', '?')}: {signals}")
-            content = (item.get("content", "") or "")[:max_content_chars]
-            blocks.append(
-                "\n".join(filter(None, [
-                    f"文件：{item.get('path', '')}",
-                    f"定位说明：{item.get('note', '')}" if item.get("note") else "",
-                    f"结构摘要：{facts.get('summary', '')}",
-                    f"类：{', '.join(facts.get('classes', [])) or '无'}",
-                    f"函数：{', '.join(facts.get('functions', [])) or '无'}",
-                    f"导入：{', '.join(facts.get('imports', [])[:6]) or '无'}",
-                    "关键代码信号：\n" + "\n".join(chunk_lines) if chunk_lines else "",
-                    "真实文件内容片段：\n"
-                    "```python\n"
-                    f"{content}\n"
-                    "```",
-                ]))
-            )
-        return "\n\n".join(blocks)
-
-    @staticmethod
-    def build_grounded_file_response(action: str, file_evidence: List[Dict[str, Any]]) -> str:
-        sections = [f"以下内容严格基于已读取到的真实文件内容：{action}"]
-        for item in file_evidence:
-            facts = item.get("file_facts", {}) or {}
-            classes = facts.get("classes", []) or []
-            functions = facts.get("functions", []) or []
-            imports = facts.get("imports", []) or []
-            chunk_summaries = facts.get("chunk_summaries", [])[:5]
-            sections.append(f"\n### {item.get('path', '未知文件')}")
-            if item.get("note"):
-                sections.append(f"- 文件定位：{item['note']}")
-            sections.append(f"- 代码规模：{facts.get('line_count', '未知')} 行")
-            sections.append(f"- 类名：{', '.join(classes) if classes else '未检测到'}")
-            sections.append(f"- 方法/函数：{', '.join(functions) if functions else '未检测到'}")
-            if imports:
-                sections.append(f"- 主要导入：{', '.join(imports[:8])}")
-            if chunk_summaries:
-                sections.append("- 代码结构信号：")
-                for chunk in chunk_summaries:
-                    signals = "；".join(chunk.get("signals", [])[:3]) if isinstance(chunk, dict) else ""
-                    classes_in_chunk = ", ".join(chunk.get("classes", [])) if isinstance(chunk, dict) else ""
-                    funcs_in_chunk = ", ".join(chunk.get("functions", [])) if isinstance(chunk, dict) else ""
-                    detail = []
-                    if classes_in_chunk:
-                        detail.append(f"类 {classes_in_chunk}")
-                    if funcs_in_chunk:
-                        detail.append(f"函数 {funcs_in_chunk}")
-                    if signals:
-                        detail.append(f"信号 {signals}")
-                    sections.append(f"  - {chunk.get('line_range', '?')}: {'；'.join(detail) if detail else '无明显结构信号'}")
-            sections.append("- 说明：以上结论来自文件静态结构提取；未在文件中直接出现的行为细节不做推断。")
-        return "\n".join(sections).strip()
-
-
 def _safe_model_call(model_forward_fn: Callable, messages: list, system_prompt: str = "", **kwargs) -> str:
     try:
         result = model_forward_fn(messages, system_prompt, **kwargs)
@@ -300,6 +188,15 @@ def _safe_model_call(model_forward_fn: Callable, messages: list, system_prompt: 
 
 
 class PlannerAgent:
+    PLAN_TEMPLATES = {
+        "simple_file": "single-read",
+        "code_analysis": "read-then-explain",
+        "artifact_generation": "read-analyze-write",
+        "knowledge_only": "direct-knowledge",
+        "hybrid_local": "local-mixed",
+        "general": "general",
+    }
+
     def __init__(self, model_forward_fn: Callable, available_tools: Optional[set] = None):
         self.model_forward_fn = model_forward_fn
         self.available_tools = available_tools if available_tools is not None else set(_AVAILABLE_TOOLS)
@@ -359,6 +256,57 @@ class PlannerAgent:
             step.setdefault("task_type", "knowledge" if step.get("tool") == "none" else "tool")
         return plan
 
+    @staticmethod
+    def _has_write_artifact_intent(user_input: str) -> bool:
+        return bool(re.search(r"写入|保存|生成|创建.*文件|输出到|写.*md|写.*txt", user_input or ""))
+
+    @staticmethod
+    def _looks_like_code_analysis_request(user_input: str) -> bool:
+        text = user_input or ""
+        return bool(extract_file_references(text)) and any(
+            token in text for token in ("解释", "说明", "分析", "总结", "类名", "方法", "函数", "代码", "结构")
+        )
+
+    @staticmethod
+    def _looks_like_direct_knowledge_request(user_input: str) -> bool:
+        text = user_input or ""
+        if extract_file_references(text):
+            return False
+        return any(token in text for token in ("解释", "说明", "分析", "总结", "比较", "对比", "介绍", "原理", "区别"))
+
+    def _select_plan_template(self, user_input: str) -> str:
+        text = user_input or ""
+        if self._is_simple_file_request(text):
+            return self.PLAN_TEMPLATES["simple_file"]
+        if self._has_write_artifact_intent(text) and extract_file_references(text):
+            return self.PLAN_TEMPLATES["artifact_generation"]
+        if self._looks_like_code_analysis_request(text):
+            return self.PLAN_TEMPLATES["code_analysis"]
+        if self._looks_like_direct_knowledge_request(text):
+            return self.PLAN_TEMPLATES["knowledge_only"]
+        if self._is_high_risk_knowledge_action(text) and not extract_file_references(text):
+            return self.PLAN_TEMPLATES["knowledge_only"]
+        if extract_file_references(text):
+            return self.PLAN_TEMPLATES["hybrid_local"]
+        return self.PLAN_TEMPLATES["general"]
+
+    def _build_template_guidance(self, template_name: str) -> str:
+        guidance = {
+            self.PLAN_TEMPLATES["simple_file"]:
+                "模板：single-read。只生成 1 个 read_file 步骤，不要额外拆解。",
+            self.PLAN_TEMPLATES["code_analysis"]:
+                "模板：read-then-explain。优先生成 read_file，再生成 1 个依赖该文件的 knowledge 分析步骤。",
+            self.PLAN_TEMPLATES["artifact_generation"]:
+                "模板：read-analyze-write。优先生成 read_file -> knowledge 总结 -> write_file 三段式结构。",
+            self.PLAN_TEMPLATES["knowledge_only"]:
+                "模板：direct-knowledge。优先用 1 个 knowledge 步骤完成回答，不要机械拆成多个知识步骤。",
+            self.PLAN_TEMPLATES["hybrid_local"]:
+                "模板：local-mixed。先读取本地文件，再按依赖顺序执行分析或写入，避免无依赖的知识跳步。",
+            self.PLAN_TEMPLATES["general"]:
+                "模板：general。仅在确有必要时拆成多步，优先保持步骤最少且依赖清晰。",
+        }
+        return guidance.get(template_name, guidance[self.PLAN_TEMPLATES["general"]])
+
     def _ensure_write_step_if_needed(self, user_input: str, plan: dict) -> dict:
         write_keywords = ["写入", "保存", "生成", "创建.*文件", "输出到", "写.*md", "写.*txt"]
         if not any(re.search(kw, user_input) for kw in write_keywords):
@@ -398,6 +346,7 @@ class PlannerAgent:
         if not self._is_high_risk_knowledge_action(user_input):
             return plan
 
+        merge_candidate_ids = []
         for step in plan.get("steps", []):
             if step.get("task_type") != "knowledge" or step.get("tool") != "none":
                 continue
@@ -411,6 +360,65 @@ class PlannerAgent:
                 step["high_risk_policy"] = "cautious_list"
             else:
                 step["high_risk_policy"] = "cautious_summary"
+            merge_candidate_ids.append(step.get("id"))
+
+        if len(merge_candidate_ids) <= 1:
+            return plan
+
+        merged_actions = []
+        merged_step = None
+        merged_depends = []
+        id_remap = {}
+        new_steps = []
+        for step in plan.get("steps", []):
+            step_id = step.get("id")
+            if step_id in merge_candidate_ids:
+                if merged_step is None:
+                    merged_step = copy.deepcopy(step)
+                merged_actions.append(step.get("original_action") or step.get("action", ""))
+                for dep in step.get("depends_on", []) or []:
+                    if dep not in merge_candidate_ids and dep not in merged_depends:
+                        merged_depends.append(dep)
+                id_remap[step_id] = merged_step["id"]
+                continue
+            new_steps.append(copy.deepcopy(step))
+
+        if merged_step is None:
+            return plan
+
+        merged_step["action"] = "；".join(action for action in merged_actions if action)
+        merged_step["original_action"] = merged_step["action"]
+        if merged_depends:
+            merged_step["depends_on"] = merged_depends
+        else:
+            merged_step.pop("depends_on", None)
+
+        inserted = False
+        rebuilt_steps = []
+        for step in plan.get("steps", []):
+            step_id = step.get("id")
+            if step_id in merge_candidate_ids:
+                if not inserted:
+                    rebuilt_steps.append(copy.deepcopy(merged_step))
+                    inserted = True
+                continue
+            rebuilt_steps.append(copy.deepcopy(step))
+
+        for step in rebuilt_steps:
+            deps = step.get("depends_on", [])
+            if not isinstance(deps, list):
+                continue
+            remapped = []
+            for dep in deps:
+                mapped = id_remap.get(dep, dep)
+                if mapped != step.get("id") and mapped not in remapped:
+                    remapped.append(mapped)
+            if remapped:
+                step["depends_on"] = remapped
+            else:
+                step.pop("depends_on", None)
+
+        plan["steps"] = rebuilt_steps
         return plan
 
     @staticmethod
@@ -527,14 +535,22 @@ class PlannerAgent:
                         }
                     ],
                     "estimated_time": "10"
-                }
+                },
+                "template": self.PLAN_TEMPLATES["simple_file"],
             }
+
+        template_name = self._select_plan_template(user_input)
+        template_guidance = self._build_template_guidance(template_name)
+        self.monitor.info("规划模板命中: %s | user_input=%s", template_name, safe_fstr(user_input[:120]))
 
         tools_list = " / ".join(sorted(self.available_tools))
         system_prompt = f"""你是任务规划助手。将用户需求分解为可执行步骤。
 
         可用工具（仅限以下工具）：
         {tools_list}
+
+        【当前规划模板】
+        {template_guidance}
 
         【绝对强制 - 输出格式】
         只允许输出一个有效 JSON，包含 complexity、steps、estimated_time 三个字段。
@@ -546,6 +562,7 @@ class PlannerAgent:
         1. 如果某个步骤是 “write_file” 或 “edit_file”，它必须依赖于一个前置的 “read_file” 或 “knowledge” 步骤。
         2. 如果某个步骤是 knowledge 类型，且其 action 中明确提到了一个具体文件（如 xxx.py），则你必须先生成一个 read_file 步骤来读取该文件，并将该 knowledge 步骤的 depends_on 设为该 read_file 步骤的 id。
         3. 在输出 JSON 时，为每个有依赖的步骤添加 "depends_on": [前置步骤id] 字段。
+        4. 同一主题的纯知识回答不要机械拆成“列出 / 截取片段 / 解释”多个 knowledge 步骤；能在一个 knowledge 步骤中完成时，必须合并为一个步骤。
 
         正确示例（输出纯 JSON）：
         {{
@@ -633,7 +650,12 @@ class PlannerAgent:
                                     step.setdefault("depends_on", []).append(read_step["id"])
                 plan = self._ensure_write_step_if_needed(user_input, plan)
                 plan = self._trim_plan_to_budget(plan, max_steps=8)
-                return {"success": True, "plan": plan, "raw_response": raw_response}
+                return {
+                    "success": True,
+                    "plan": plan,
+                    "raw_response": raw_response,
+                    "template": template_name,
+                }
 
             except (json.JSONDecodeError, TypeError, ValueError) as e:
                 snippet = safe_fstr((parsed_payload or response or "")[:400])
@@ -645,221 +667,7 @@ class PlannerAgent:
         return {"success": False, "error": "无法从响应中提取有效 JSON", "raw_response": raw_response}
 
 
-class ExecutorAgent:
-    # 省略，与之前一致，无需修改
-    def __init__(self, tool_executor, available_tools: Optional[set] = None, model_forward_fn: Optional[Callable] = None):
-        self.tool_executor = tool_executor
-        self.available_tools = available_tools if available_tools is not None else set(_AVAILABLE_TOOLS)
-        self.model_forward_fn = model_forward_fn
-
-    def execute_step(self, step: Dict[str, Any], context: Optional[Dict] = None) -> Dict[str, Any]:
-        tool = step.get("tool", "none")
-        action = step.get("action", "")
-        task_type = step.get("task_type", "tool")
-        step_id = step.get("id")
-
-        if task_type == "knowledge" or tool == "none":
-            if self.model_forward_fn and self._is_reasoning_task(action):
-                try:
-                    context_str = ""
-                    if context and context.get("previous_results"):
-                        context_str = "\n\n已有信息：\n" + "\n".join([f"- {r.get('action', '')}: {self._extract_content_summary(r.get('result', ''))}" for r in context["previous_results"] if r.get("success") and r.get("result")])
-                    prompt = f"请完成以下任务：{action}{context_str}"
-                    messages = [{"role": "user", "content": prompt}]
-                    response = _safe_model_call(self.model_forward_fn, messages, "你是一个智能助手，请直接回答用户的问题，不要添加额外的解释或格式。", temperature=0.7, top_p=0.9, max_tokens=1024)
-                    return {"success": True, "step_id": step_id, "action": action, "result": response, "reasoning_task": True}
-                except Exception as e:
-                    return {"success": False, "step_id": step_id, "action": action, "error": f"推理任务执行失败: {str(e)}"}
-            return {"success": True, "step_id": step_id, "action": action, "result": "步骤完成（无需工具）"}
-
-        if tool not in self.available_tools:
-            return {"success": False, "step_id": step_id, "action": action, "tool": tool, "error": f"工具 '{tool}' 不在可用列表中，跳过此步骤"}
-
-        args = step.get("tool_input", {})
-        if not isinstance(args, dict):
-            args = {}
-
-        try:
-            result = self.tool_executor.execute_tool(tool, args)
-            try:
-                result_obj = json.loads(result)
-                success = not result_obj.get("error")
-            except (json.JSONDecodeError, AttributeError):
-                success = not result.startswith("Error:")
-            return {"success": success, "step_id": step_id, "action": action, "tool": tool, "result": result}
-        except Exception as e:
-            return {"success": False, "step_id": step_id, "action": action, "tool": tool, "error": str(e)}
-
-    def _is_reasoning_task(self, action: str) -> bool:
-        reasoning_keywords = ["列出", "给出", "解释", "说明", "分析", "总结", "描述", "比较", "评价", "推荐", "建议", "预测", "判断", "截取", "片段", "含义", "阅读", "理解"]
-        return any(kw in action for kw in reasoning_keywords)
-
-    def _extract_content_summary(self, result: str, max_len: int = 300) -> str:
-        if not result:
-            return ""
-        try:
-            result_obj = json.loads(result)
-            if isinstance(result_obj, dict):
-                content = result_obj.get("content", result_obj.get("stdout", str(result_obj)))
-                if isinstance(content, str):
-                    return content[:max_len] + ("..." if len(content) > max_len else "")
-            return str(result_obj)[:max_len]
-        except (json.JSONDecodeError, TypeError):
-            return result[:max_len] + ("..." if len(result) > max_len else "")
-
-
-class ReviewerAgent:
-    def __init__(self, model_forward_fn: Callable):
-        self.model_forward_fn = model_forward_fn
-
-    def review(self, user_input: str, plan: Dict[str, Any], execution_results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        system_prompt = """你是结果审查助手。评估任务完成情况。
-
-返回格式（严格 JSON）：
-{
-  "completed": true|false,
-  "quality": "excellent|good|fair|poor",
-  "issues": ["问题1", "问题2"],
-  "suggestions": ["建议1", "建议2"]
-}
-
-评估标准：
-- 是否完成所有步骤
-- 是否有错误
-- 结果是否符合预期
-- 是否需要改进"""
-        context = f"""用户需求：{user_input}
-
-执行计划：
-{json.dumps(plan, ensure_ascii=False, indent=2)}
-
-执行结果：
-{json.dumps(execution_results, ensure_ascii=False, indent=2)}"""
-        messages = [{"role": "user", "content": context}]
-        try:
-            response = _safe_model_call(self.model_forward_fn, messages, system_prompt)
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                review = json.loads(json_match.group())
-                return {"success": True, "review": review, "raw_response": response}
-            else:
-                all_success = all(r.get("success", False) for r in execution_results)
-                return {"success": True, "review": {"completed": all_success, "quality": "good" if all_success else "fair", "issues": [] if all_success else ["部分步骤执行失败"], "suggestions": []}, "raw_response": response}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-
-class MultiAgentOrchestrator:
-    # 省略，与之前一致
-    def __init__(self, model_forward_fn: Callable, tool_executor, max_retries: int = 1, enable_bash: bool = False):
-        available_tools = set(_AVAILABLE_TOOLS)
-        if enable_bash:
-            available_tools.add("bash")
-        self.planner = PlannerAgent(model_forward_fn, available_tools=available_tools)
-        self.executor = ExecutorAgent(tool_executor, available_tools=available_tools, model_forward_fn=model_forward_fn)
-        self.reviewer = ReviewerAgent(model_forward_fn)
-        self.max_retries = max_retries
-
-    def run(self, user_input: str, context: Optional[Dict] = None) -> Dict[str, Any]:
-        start_time = datetime.now()
-        plan_context = {}
-        if context:
-            plan_context["completed_steps"] = context.get("completed_steps", [])
-            plan_context["previous_task"] = context.get("previous_task") or context.get("current_task", "")
-            plan_context["files_touched"] = context.get("files_touched", [])
-            plan_context["current_task"] = context.get("current_task", "")
-            plan_context["current_topic"] = context.get("current_topic", "")
-        plan_result = self.planner.plan(user_input, plan_context if any(plan_context.values()) else None)
-        if not plan_result["success"]:
-            return {"success": False, "stage": "planning", "error": plan_result.get("error", "规划失败")}
-        plan = plan_result["plan"]
-        execution_results = []
-        for step in plan.get("steps", []):
-            step_context = {"previous_results": execution_results}
-            result = self.executor.execute_step(step, context=step_context)
-            execution_results.append(result)
-            if not result["success"] and step.get("critical", False):
-                break
-        review_result = self.reviewer.review(user_input, plan, execution_results)
-        completed = False
-        if review_result["success"]:
-            completed = review_result["review"].get("completed", False)
-        end_time = datetime.now()
-        duration = (end_time - start_time).total_seconds()
-        return {"success": True, "completed": completed, "plan": plan, "execution_results": execution_results, "review": review_result.get("review", {}), "duration": duration, "timestamp": end_time.isoformat()}
-
-    def run_and_generate_response(self, user_input: str, model_forward_fn: Callable, context: Optional[Dict] = None, system_prompt: str = "你是一个智能助手。请根据执行结果，完整详细地回答用户的问题。对于列表、解释、分析等内容，请展示完整结果，不要省略。", temperature: float = 0.7, top_p: float = 0.9, max_tokens: int = 2048) -> Dict[str, Any]:
-        result = self.run(user_input, context)
-        execution_summary = self._format_execution_summary(result.get("execution_results", []))
-        final_prompt = f"""用户问题：{user_input}
-
-执行过程：
-{execution_summary}
-
-请根据以上执行结果回答用户。
-- 如果执行中有错误，请明确指出失败的原因（例如文件不存在、工具不可用等）
-- 如果执行成功，请整合各步骤的结果，给出完整详细的回答
-- 对于推理任务的结果（如列表、解释、分析等），请直接展示完整内容，不要省略或概括"""
-        messages = [{"role": "user", "content": final_prompt}]
-        try:
-            final_response = _safe_model_call(model_forward_fn, messages, system_prompt, temperature=temperature, top_p=top_p, max_tokens=max_tokens)
-        except Exception as e:
-            final_response = f"生成最终回答时出错: {e}"
-        result["final_response"] = final_response
-        return result
-
-    @classmethod
-    def from_react_framework(cls, react_framework, max_retries: int = 1) -> "MultiAgentOrchestrator":
-        return cls(
-            model_forward_fn=react_framework.model_forward_fn,
-            tool_executor=react_framework.tool_executor,
-            max_retries=max_retries,
-            enable_bash=react_framework.tool_executor.enable_bash,
-        )
-
-    def _format_execution_summary(self, execution_results: List[Dict[str, Any]]) -> str:
-        lines = []
-        for step in execution_results:
-            step_id = step.get("step_id")
-            action = step.get("action")
-            tool = step.get("tool", "none")
-            success = step.get("success", False)
-            result = step.get("result", "")
-            error = step.get("error", "")
-            if tool == "none":
-                lines.append(f"步骤 {step_id}: {safe_fstr(action)} (无需工具) - {'成功' if success else '失败'}")
-                if success and result and step.get("reasoning_task"):
-                    lines.append(f"  结果: {safe_fstr(result)}")
-                elif not success and error:
-                    lines.append(f"  错误: {safe_fstr(error[:200])}")
-            else:
-                lines.append(f"步骤 {step_id}: 调用工具 {tool} ({safe_fstr(action)}) - {'成功' if success else '失败'}")
-                if success:
-                    try:
-                        if result:
-                            result_obj = json.loads(result)
-                            if isinstance(result_obj, dict):
-                                if "error" in result_obj:
-                                    lines.append(f"  错误: {safe_fstr(result_obj['error'][:200])}")
-                                elif "content" in result_obj:
-                                    content = result_obj["content"]
-                                    summary = content[:200] + ("..." if len(content) > 200 else "")
-                                    lines.append(f"  内容: {safe_fstr(summary)}")
-                                elif "stdout" in result_obj:
-                                    stdout = result_obj["stdout"][:200]
-                                    lines.append(f"  输出: {safe_fstr(stdout)}")
-                                else:
-                                    lines.append(f"  结果: {safe_fstr(result[:200])}")
-                            else:
-                                lines.append(f"  结果: {safe_fstr(result[:200])}")
-                        else:
-                            lines.append("  结果: 无返回内容")
-                    except (json.JSONDecodeError, TypeError):
-                        lines.append(f"  结果: {safe_fstr(result[:200])}")
-                else:
-                    lines.append(f"  错误: {safe_fstr(error[:200])}")
-            lines.append("")
-        return "\n".join(lines)
+from core.multi_agent_legacy import ExecutorAgent, ReviewerAgent, MultiAgentOrchestrator
 
 
 class WorkflowPlanState:
@@ -903,6 +711,13 @@ class WorkflowPlanState:
 
 
 class ReActMultiAgentOrchestrator:
+    """Main execution orchestrator for multi-step local work.
+
+    Planner and reviewer legacy classes still exist for compatibility and tests,
+    but the current production path should flow through this orchestrator so that
+    routing, execution mode selection, retry policy, and final synthesis stay in
+    one observable place.
+    """
     MAX_STEP_RETRIES = 2
 
     def __init__(self, react_framework, max_plan_steps: int = 4, max_retries: int = 1,
@@ -925,6 +740,11 @@ class ReActMultiAgentOrchestrator:
         self.clarification_mgr = clarification_mgr or ClarificationManager()
         self.workflow_states: Dict[str, WorkflowPlanState] = {}
         self._current_plan = None
+        self.context_factory = ExecutionContextFactory()
+        self.final_response_composer = FinalResponseComposer(
+            truncate_text=self._truncate_text,
+            step_display_action=self._step_display_action,
+        )
 
     @staticmethod
     def _escape_braces(text: str) -> str:
@@ -953,7 +773,20 @@ class ReActMultiAgentOrchestrator:
         plan = self._auto_add_file_deps(plan)  # 补充计划
         plan = self._dedupe_read_file_steps(plan)
         plan = self._apply_plan_budget(plan)
+        self._log_plan_snapshot(plan)
         return plan
+
+    def _log_plan_snapshot(self, plan: Dict[str, Any]) -> None:
+        steps = plan.get("steps", [])
+        tool_steps = sum(1 for step in steps if step.get("task_type") != "knowledge" and step.get("tool") != "none")
+        knowledge_steps = sum(1 for step in steps if step.get("task_type") == "knowledge" or step.get("tool") == "none")
+        self.monitor.info(
+            "计划快照 | total=%s | tool_steps=%s | knowledge_steps=%s | estimated_time=%s",
+            len(steps),
+            tool_steps,
+            knowledge_steps,
+            plan.get("estimated_time", "unknown"),
+        )
 
     def _apply_plan_budget(self, plan: Dict[str, Any]) -> Dict[str, Any]:
         steps = plan.get("steps", [])
@@ -1239,55 +1072,15 @@ class ReActMultiAgentOrchestrator:
         return asks_exact_list and looks_exact and not per_item_cautious
 
     @staticmethod
-    def _annotate_high_risk_knowledge_response(action: str, response: str) -> str:
-        text = (response or "").strip()
-        if not text:
-            return text
-
-        caution_markers = ("待核实", "无法核实", "无法确认", "不保证", "建议核对", "未提供证据")
-        if not any(marker in text for marker in caution_markers):
-            lines = text.splitlines()
-            annotated_lines = []
-            for line in lines:
-                stripped = line.strip()
-                if not stripped:
-                    annotated_lines.append(line)
-                    continue
-                if re.match(r'^\s*(\d+\.\s+|[-*]\s+)', line):
-                    if not any(marker in stripped for marker in caution_markers):
-                        if "：" in line:
-                            prefix, suffix = line.split("：", 1)
-                            line = f"{prefix}（待核实）：{suffix}"
-                        elif ":" in line:
-                            prefix, suffix = line.split(":", 1)
-                            line = f"{prefix}（待核实）:{suffix}"
-                        else:
-                            line = f"{line}（待核实）"
-                annotated_lines.append(line)
-            text = "\n".join(annotated_lines).strip()
-
-        if any(token in action for token in ("歌词", "片段", "原文", "引用", "逐字")):
-            prefix = (
-                "## 风险提示\n"
-                "以下内容基于模型生成与常见知识归纳，仅供参考；涉及逐字片段、原文或精确引述的部分均需单独核实。\n\n"
-            )
-        elif any(token in action for token in ("十首", "top", "排名", "最出名", "最有名", "排行榜", "名单", "列出", "给出")):
-            prefix = (
-                "## 风险提示\n"
-                "以下内容基于模型生成与常见公众印象整理，不代表权威榜单或精确排序；名单、顺序和细节均需核实。\n\n"
-            )
-        else:
-            prefix = (
-                "## 风险提示\n"
-                "以下内容基于模型生成，未附带可核验证据来源；其中具体事实与细节请结合外部权威资料核实。\n\n"
-            )
-        return prefix + text
-
-    @staticmethod
     def _step_display_action(step: Dict[str, Any]) -> str:
         if not isinstance(step, dict):
             return ""
         return step.get("original_action") or step.get("action", "")
+
+    @staticmethod
+    def _resolve_step_run_mode(task_type: str) -> str:
+        """Knowledge steps are plain language tasks; tool steps stay in tools mode."""
+        return "chat" if task_type == "knowledge" else "tools"
 
     def _build_correction_prompt(self, action, tool_hint, error_info, retry_count, step_id, total_steps) -> str:
         base = f"【纠错重试 - 第{retry_count}次】之前的执行失败了。\n"
@@ -1502,6 +1295,7 @@ class ReActMultiAgentOrchestrator:
 
     def _validate_grounded_knowledge_response(self, step: Dict[str, Any], accumulated_context: Dict[str, Any],
                                               response_text: str) -> Tuple[bool, Optional[Dict[str, str]]]:
+        """Reject vague, filename-guessing answers when file evidence already exists."""
         file_evidence = StepEvidenceResolver.extract_file_evidence(step, accumulated_context)
         if not file_evidence:
             return True, None
@@ -1546,10 +1340,7 @@ class ReActMultiAgentOrchestrator:
             sub_task = self._build_step_prompt(action, tool_hint, accumulated_context,
                                                step_id, len(plan_steps),
                                                task_type=task_type, full_plan_steps=plan_steps)
-
-            step_session = SessionContext()
-            step_session.task_context["completed_steps"] = copy.copy(session.task_context.get("completed_steps", []))
-            step_session.task_context["current_task"] = sub_task
+            step_session = self.context_factory.prepare_step_session(session, sub_task)
 
             retry_count = 0
             last_error_info = None
@@ -1575,12 +1366,20 @@ class ReActMultiAgentOrchestrator:
 
                 try:
                     step_thread_id = f"{trace_id}_step{step_id}_t{retry_count}"
+                    step_run_mode = self._resolve_step_run_mode(task_type)
+                    step_runtime_context = self.context_factory.build_step_runtime_context(
+                        runtime_context, step, step_run_mode, retry_count
+                    )
+                    if retry_count == 0:
+                        self.monitor.info(
+                            f"步骤 {step_id} 进入模型执行 | task_type={task_type} | run_mode={step_run_mode}"
+                        )
                     async with self._sqlite_lock:
                         react_result = await self.react_framework.run(
                             user_input=current_task,
                             session=step_session,
                             history=None,
-                            runtime_context={**(runtime_context or {}), "run_mode": "tools"},
+                            runtime_context=step_runtime_context,
                             temperature=temperature,
                             top_p=top_p,
                             max_tokens=effective_max_tokens,
@@ -1593,15 +1392,6 @@ class ReActMultiAgentOrchestrator:
 
                 response_text = react_result.get("response", "")
                 tool_calls = react_result.get("tool_calls", [])
-                if (
-                    task_type == "knowledge"
-                    and self._is_high_risk_knowledge_action(action)
-                    and not StepEvidenceResolver.extract_file_evidence(step, accumulated_context)
-                ):
-                    response_text = self._annotate_high_risk_knowledge_response(action, response_text)
-                    react_result["response"] = response_text
-                    react_result["cautious_high_risk"] = True
-
                 if re.search(r'STATUS:\s*(BLOCKED|NEEDS_CONTEXT)', response_text, re.IGNORECASE):
                     return {
                         "step": step,
@@ -1701,11 +1491,9 @@ class ReActMultiAgentOrchestrator:
                     await asyncio.sleep(0.5)
                     continue
 
-                accumulated_context = {
-                    "completed_steps": completed_actions,
-                    "step_outputs": state.results,
-                    "current_task": user_input
-                }
+                accumulated_context = self.context_factory.build_accumulated_context(
+                    user_input, completed_actions, state.results
+                )
 
                 tasks = []
                 for step in ready_steps:
@@ -1842,6 +1630,7 @@ class ReActMultiAgentOrchestrator:
 
     def _build_evidence_layered_response(self, user_input: str, all_steps: List[Dict[str, Any]],
                                          state: WorkflowPlanState) -> str:
+        """Group final output by evidence strength so mixed tasks stay readable."""
         file_sections = []
         tool_sections = []
         cautious_sections = []
@@ -1851,22 +1640,25 @@ class ReActMultiAgentOrchestrator:
             step_id = step.get("id")
             status = state.steps_status.get(step_id)
             result = state.results.get(step_id, {}) if isinstance(state.results.get(step_id), dict) else {}
-            response = self._truncate_text(result.get("response", ""))
-            title = f"步骤{step_id}: {self._step_display_action(step)}"
+            bucket, content = self.final_response_composer.classify_step_section(step, status, result)
+            if not content:
+                continue
+            if bucket == "file_sections":
+                file_sections.append(content)
+            elif bucket == "tool_sections":
+                tool_sections.append(content)
+            elif bucket == "cautious_sections":
+                cautious_sections.append(content)
+            elif bucket == "unresolved_sections":
+                unresolved_sections.append(content)
 
-            if status == "completed":
-                if result.get("grounded_by_files"):
-                    file_sections.append(f"### {title}\n{response}")
-                elif result.get("cautious_high_risk"):
-                    cautious_sections.append(f"### {title}\n{response}")
-                elif result.get("tool_calls"):
-                    tool_sections.append(f"### {title}\n{response}")
-                elif response:
-                    cautious_sections.append(f"### {title}\n{response}")
-            elif status == "blocked":
-                unresolved_sections.append(f"### {title}\n需要更多上下文或参数。")
-            elif status == "failed":
-                unresolved_sections.append(f"### {title}\n执行失败，当前未得到可靠结果。")
+        self.monitor.info(
+            "结果分组快照 | file=%s | tool=%s | cautious=%s | unresolved=%s",
+            len(file_sections),
+            len(tool_sections),
+            len(cautious_sections),
+            len(unresolved_sections),
+        )
 
         sections = [f"## 任务结果\n原始需求：{user_input.strip()}"]
         if file_sections:

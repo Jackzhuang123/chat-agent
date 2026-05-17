@@ -350,6 +350,11 @@ class AgentNode:
             runtime_context.pop("_strategy_switch", None)
         # =========================================
 
+        # 中间件依赖这些字段判断“是否必须先调工具”以及“是否属于文件任务追问”。
+        runtime_context.setdefault("user_input", state.get("user_input", "") or session.task_context.get("current_task", ""))
+        runtime_context.setdefault("current_task", session.task_context.get("current_task", ""))
+        runtime_context.setdefault("active_file", session.task_context.get("active_file"))
+
         # ---------- 强化中间件：确保搜索优先和完成报告默认注入 ----------
         if run_mode in ("tools", "hybrid"):
             # 搜索优先中间件（防止模型自创代码）
@@ -446,6 +451,7 @@ class AgentNode:
                         "role": "assistant",
                         "type": "assistant_response",
                         "session_id": session.task_context.get("session_id") or runtime_context.get("session_id"),
+                        "active_file": session.task_context.get("active_file") or runtime_context.get("active_file"),
                     },
                 )
             fw.monitor.info("对话模式，直接返回最终回答")
@@ -546,24 +552,32 @@ class AgentNode:
 
             current_task = session.task_context.get("current_task", "")
             if _requires_tool_evidence(current_task, run_mode) and not has_successful_tool_result:
-                fw.monitor.warning("当前任务需要工具证据，但模型未产生有效工具调用")
-                hint = (
-                    "⚠️ 当前任务需要先通过工具获取事实，不能直接给出自然语言结论。\n"
-                    "请改为显式调用合适的工具，例如 `read_file`、`bash`、`list_dir` 或 `write_file`。"
-                )
-                return _sanitize_state_update({
-                    "final_response": hint,
-                    "raw_response_cache": raw_cache,
-                    "messages": messages + [{"role": "assistant", "content": response}],
-                    "session_context": session_to_state(session),
-                })
+                if "此步骤为知识问答，不需要调用工具，直接输出完整回答。" in current_task:
+                    fw.monitor.info("知识回答步骤未使用工具，保留模型原始自然语言回答")
+                else:
+                    fw.monitor.warning("当前任务需要工具证据，但模型未产生有效工具调用")
+                    hint = (
+                        "⚠️ 当前任务需要先通过工具获取事实，不能直接给出自然语言结论。\n"
+                        "请改为显式调用合适的工具，例如 `read_file`、`bash`、`list_dir` 或 `write_file`。"
+                    )
+                    return _sanitize_state_update({
+                        "final_response": hint,
+                        "raw_response_cache": raw_cache,
+                        "messages": messages + [{"role": "assistant", "content": response}],
+                        "session_context": session_to_state(session),
+                    })
 
             # 无工具调用且无工具意图，直接采纳回答
             final = clean_react_tags(strip_trailing_tool_call(response))
             if fw.vector_memory:
                 fw.vector_memory.add(
                     content=f"Assistant: {final}",
-                    metadata={"role": "assistant", "type": "assistant_response"},
+                    metadata={
+                        "role": "assistant",
+                        "type": "assistant_response",
+                        "session_id": session.task_context.get("session_id") or runtime_context.get("session_id"),
+                        "active_file": session.task_context.get("active_file") or runtime_context.get("active_file"),
+                    },
                 )
             fw.monitor.info("模型返回自然语言回答，直接作为最终输出")
             updated_messages = messages + [{"role": "assistant", "content": response}]
@@ -607,6 +621,8 @@ class ToolNode:
         session = SessionContext()
         state_to_session(state.get("session_context", {}), session)
         runtime_context = state["runtime_context"]
+        runtime_context.setdefault("user_input", state.get("user_input", "") or session.task_context.get("current_task", ""))
+        runtime_context.setdefault("current_task", session.task_context.get("current_task", ""))
         trace_id = runtime_context.get("trace_id", "-")
 
         async def _run_one(tc: Dict) -> Dict:
@@ -675,9 +691,13 @@ class ToolNode:
             if success:
                 session.task_context["completed_steps"].append(tool_name)
                 if tool_name == "read_file" and tool_args.get("path"):
-                    session.read_files_cache[Path(tool_args["path"]).resolve().as_posix()] = datetime.utcnow().isoformat()
+                    resolved_path = Path(tool_args["path"]).resolve().as_posix()
+                    session.read_files_cache[resolved_path] = datetime.utcnow().isoformat()
+                    session.task_context["active_file"] = result_obj.get("path") or resolved_path
+                    session.task_context["active_file_updated_at"] = datetime.utcnow().isoformat()
             else:
                 session.task_context["failed_attempts"].append(tool_name)
+                session.task_context["last_failed_tool"] = tool_name
 
             _update_facts_ledger(session, tool_name, tool_args, result_obj, success)
             log_event(
@@ -741,6 +761,7 @@ class ToolNode:
                                 "success": True,
                                 "original_question": current_task,
                                 "session_id": session.task_context.get("session_id") or runtime_context.get("session_id"),
+                                "active_file": session.task_context.get("active_file") or path,
                             },
                             importance=0.8,
                             auto_score=False,
@@ -757,6 +778,8 @@ class ToolNode:
                     success=r["success"],
                     original_question=session.task_context.get("current_task"),
                     session_id=session.task_context.get("session_id") or runtime_context.get("session_id"),
+                    active_file=session.task_context.get("active_file"),
+                    failed_step=session.task_context.get("last_failed_tool"),
                 )
                 fw.monitor.debug(f"工具结果已写入向量库: {r['tool']}")
 

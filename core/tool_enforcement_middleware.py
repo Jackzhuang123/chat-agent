@@ -127,9 +127,11 @@ class ToolEnforcementMiddleware(AgentMiddleware):
             context["_needs_retry"] = False
             return response
 
+        explicit_file_request = self._is_explicit_file_request(context.get("user_input", ""))
+
         # 新增：检测模型是否已经给出了合理的自然语言回答
         # 如果响应看起来是一个完整的句子/回答（而不是工具调用意图），允许直接返回
-        if self._looks_like_final_answer(response):
+        if self._looks_like_final_answer(response) and not explicit_file_request:
             context["_needs_retry"] = False
             return response
 
@@ -158,6 +160,14 @@ class ToolEnforcementMiddleware(AgentMiddleware):
             context["_tool_enforcement_failed"] = True
             context["_needs_retry"] = False
             return response
+
+    @staticmethod
+    def _is_explicit_file_request(user_input: str) -> bool:
+        text = user_input or ""
+        has_file_ref = bool(re.search(r'[/\\]|[\w\-]+\.(json|log|txt|md|py|yaml|yml|csv|pdf|docx?)\b', text, re.I))
+        if not has_file_ref:
+            return False
+        return True
 
     def _looks_like_final_answer(self, response: str) -> bool:
         """判断响应是否看起来像最终回答而不是工具调用意图"""

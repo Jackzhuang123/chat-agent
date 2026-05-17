@@ -257,6 +257,8 @@ class ContextRetriever:
         success: bool,
         original_question: str = None,
         session_id: Optional[str] = None,
+        active_file: Optional[str] = None,
+        failed_step: Optional[str] = None,
     ):
         content_parts = [
             f"工具: {tool_name}",
@@ -284,6 +286,10 @@ class ContextRetriever:
         }
         if session_id:
             metadata["session_id"] = session_id
+        if active_file:
+            metadata["active_file"] = active_file
+        if failed_step:
+            metadata["failed_step"] = failed_step
         importance = 0.7 if success and len(content) > 200 else 0.5
 
         self.vm.add(

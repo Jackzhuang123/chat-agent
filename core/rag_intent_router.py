@@ -83,6 +83,16 @@ class RAGIntentRouter:
             )
 
         # 1. 纯问候/情绪表达等低信息量对话
+        if self._is_file_followup_request(normalized_input, context):
+            self.monitor.info("前置规则命中：文件任务追问 → tools")
+            return IntentResult(
+                intent=IntentType.TOOLS,
+                confidence=0.97,
+                reasoning="当前会话存在活跃文件，用户请求继续任务",
+                evidence=[],
+                suggested_params=self._suggest_params(IntentType.TOOLS)
+            )
+
         if self._is_low_information_chat(normalized_input):
             self.monitor.info("前置规则命中：低信息量寒暄/情绪表达 → chat")
             return IntentResult(
@@ -129,6 +139,11 @@ class RAGIntentRouter:
         # ---------- L1 向量检索相关历史 ----------
         evidence = []
         if self._should_use_vector_retrieval(normalized_input):
+            retrieval_filter = self._build_retrieval_filter(
+                normalized_input,
+                session_id=session_id,
+                allow_cross_session=allow_cross_session,
+            )
             evidence = self.vm.search(
                 query=normalized_input,
                 top_k=3,
@@ -136,7 +151,7 @@ class RAGIntentRouter:
                 recency_weight=0.2,
                 importance_weight=0.1,
                 min_score=0.4,
-                filter_metadata=None if allow_cross_session or not session_id else {"session_id": session_id},
+                filter_metadata=retrieval_filter,
             )
             evidence = [e for e in evidence if isinstance(e, dict)]
             self.monitor.debug(f"检索到 {len(evidence)} 条历史证据")
@@ -209,6 +224,11 @@ class RAGIntentRouter:
         file_like = bool(re.search(r'[/\\]|[\w\-]+\.(json|log|txt|md|py|yaml|yml|csv|pdf|docx?)\b', text, re.I))
         if not file_like:
             return False
+        # 仅提供文件名、相对路径或绝对路径，也应视为明确的本地文件请求，
+        # 否则这类输入会被历史检索或 LLM 误带到 chat / memory_query。
+        compact = re.sub(r'\s+', '', text)
+        if compact and re.fullmatch(r'.*[\w\-./\\]+\.(json|log|txt|md|py|yaml|yml|csv|pdf|docx?)([，,].*)?$', compact, re.I):
+            return True
         operation_keywords = ['读取', '解析', '分析', '查看', '打开', '写入', '修改', '删除', '运行', '执行',
                               '查找', '扫描', '提取', '编辑', 'read', 'write', 'analyze', 'parse', 'open']
         return any(kw in text.lower() for kw in operation_keywords)
@@ -241,10 +261,26 @@ class RAGIntentRouter:
             return False
         return any(re.search(p, normalized, re.I) for p in low_info_patterns)
 
+    @staticmethod
+    def _is_file_followup_request(text: str, context: Dict[str, Any]) -> bool:
+        normalized = re.sub(r"\s+", "", text or "")
+        if not normalized:
+            return False
+        if not context.get("active_file"):
+            return False
+        return normalized in {"继续任务", "继续", "接着", "然后呢", "继续处理", "继续这个任务"}
+
     def _has_uploaded_file_analysis_intent(self, text: str) -> bool:
         if not text:
             return False
         return any(kw in text for kw in ("总结", "概括", "分析", "提取", "读取", "查看", "内容", "翻译", "解释"))
+
+    def _build_retrieval_filter(self, text: str, session_id: Optional[str], allow_cross_session: bool) -> Optional[Dict[str, Any]]:
+        retrieval_filter = None if allow_cross_session or not session_id else {"session_id": session_id}
+        if self._has_explicit_file_operation(text):
+            retrieval_filter = dict(retrieval_filter or {})
+            retrieval_filter["type"] = "tool_execution"
+        return retrieval_filter
 
     def _should_use_vector_retrieval(self, text: str) -> bool:
         if not text:
@@ -275,6 +311,8 @@ class RAGIntentRouter:
         return any(re.search(sig, text_lower) for sig in signals)
 
     def _infer_from_evidence(self, query: str, evidence: List[Dict]) -> tuple:
+        if self._has_explicit_file_operation(query):
+            return IntentType.TOOLS, 0.9, "查询包含明确文件名或路径，优先按 tools 处理"
         if not evidence:
             if self._has_explicit_file_operation(query):
                 return IntentType.TOOLS, 0.85, "查询包含文件操作指令，但无历史证据"

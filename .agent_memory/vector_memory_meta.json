@@ -1,0 +1,170 @@
+{
+  "working": [
+    {
+      "id": "2ba87d0887b7",
+      "content": "User: 分析这个文件内容，给出简要总结",
+      "timestamp": "2026-05-16T16:02:58.033709",
+      "metadata": {
+        "type": "user_question",
+        "original_question": "分析这个文件内容，给出简要总结",
+        "session_id": "uy3a04891lq",
+        "active_file": null,
+        "keywords": [
+          "分析这个文件内容",
+          "给出简要总结"
+        ]
+      },
+      "importance_score": 0.95,
+      "access_count": 6
+    },
+    {
+      "id": "5cf923436077",
+      "content": "User: monitor_logger.py",
+      "timestamp": "2026-05-16T16:03:20.523118",
+      "metadata": {
+        "type": "user_question",
+        "original_question": "monitor_logger.py",
+        "session_id": "uy3a04891lq",
+        "active_file": null,
+        "keywords": [
+          "monitor_logger",
+          "py"
+        ]
+      },
+      "importance_score": 0.95,
+      "access_count": 4
+    },
+    {
+      "id": "b6d593d5e265",
+      "content": "文件 /Users/zhuangranxin/PyCharmProjects/chat-Agent/core/monitor_logger.py 内容摘要：# core/monitor_logger.py （完整文件，仅新增部分，其余保持不变）\n#!/usr/bin/env python\n# -*- coding: utf-8 -*-\n\"\"\"\n监控日志模块 - 记录系统运行状态、请求耗时、错误堆栈\n支持按天轮转、多进程安全、控制台彩色输出\n\"\"\"\nimport functools\nimport inspect\nimport logging\nimport logging.handlers\nimport sys\nimport time\nimport traceback\nimport uuid\nfrom functools import wraps\nfrom pathlib import Path\nfrom typing import Callable, Optional\nimport inspect\n\n# 日志存储目录（项目根目录下的 logs/）\nLOG_DIR = Path(__file__).parent.parent / \"logs\"\nLOG_DIR.mkdir(exist_ok=True)\n\n# 日志文件命名格式：monitor_YYYY-MM-DD.log\nLOG_FILENAME = LOG_DIR / \"monitor.log\"\n\n# 日志格式（含时间、级别、模块、行号、消息）\nLOG_FORMAT = \"%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s\"\nDATE_FORMAT = \"%Y-%m-%d %H:%M:%S\"\n\n# 全局单例日志记录器\n_monitor_logger: Optional[logging.Logger] = None\n\n\ndef _setup_logger() -> logging.Logger:\n    ...",
+      "timestamp": "2026-05-16T16:03:24.897595",
+      "metadata": {
+        "type": "file_content",
+        "tool": "read_file",
+        "path": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/core/monitor_logger.py",
+        "success": true,
+        "original_question": "【计划执行 步骤 1/1】读取文件 monitor_logger.py 并展示内容\n\n⚠️ 工具调用强制格式要求：\nread_file\n{\"path\": \"文件路径\"}\n严禁使用其他参数名或命令行风格！\n✅ 成功标准：执行完毕后输出结果摘要。\n📄 前置步骤执行结果摘要：\n",
+        "session_id": null,
+        "active_file": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/core/monitor_logger.py",
+        "keywords": [
+          "import",
+          "logging",
+          "from",
+          "log_dir",
+          "core",
+          "monitor_logger",
+          "py",
+          "functools"
+        ]
+      },
+      "importance_score": 0.8,
+      "access_count": 2
+    },
+    {
+      "id": "65eb467dc473",
+      "content": "工具: read_file\n参数: {\n  \"path\": \"monitor_logger.py\"\n}\n成功: True\n输出:\n# core/monitor_logger.py （完整文件，仅新增部分，其余保持不变）\n#!/usr/bin/env python\n# -*- coding: utf-8 -*-\n\"\"\"\n监控日志模块 - 记录系统运行状态、请求耗时、错误堆栈\n支持按天轮转、多进程安全、控制台彩色输出\n\"\"\"\nimport functools\nimport inspect\nimport logging\nimport logging.handlers\nimport sys\nimport time\nimport traceback\nimport uuid\nfrom functools import wraps\nfrom pathlib import Path\nfrom typing import Callable, Optional\nimport inspect\n\n# 日志存储目录（项目根目录下的 logs/）\nLOG_DIR = Path(__file__).parent.parent / \"logs\"\nLOG_DIR.mkdir(exist_ok=True)\n\n# 日志文件命名格式：monitor_YYYY-MM-DD.log\nLOG_FILENAME = LOG_DIR / \"monitor.log\"\n\n# 日志格式（含时间、级别、模块、行号、消息）\nLOG_FORMAT = \"%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s\"\nDATE_FORMAT = \"%Y-%m-%d %H:%M:%S\"\n\n# 全局单例日志记录器\n_monitor_logger: Optional[logging.Logger] = None\n\n\ndef _setup_logger() -> logging.Logger:\n    \"\"\"初始化监控日志记录器（只执行一次）\"\"\"\n    logger = logging.getLogger(\"monitor\")\n    logger.setLevel(logging.DEBUG)\n\n    # 避免重复添加 Handler\n    if logger.handlers:\n        return logger\n\n    # 1. 控制台 Handler（带颜色，便于开发调试）\n    console_handler = logging.StreamHandler(sys.stdout)\n    console_handler.setLevel(logging.INFO)\n    console_handler.setFormatter(_ColoredFormatter(LOG_FORMAT, DATE_FORMAT))\n    logger.addHandler(console_handler)\n\n    # 2. 文件 Handler（按天轮转，保留30天）\n    file_handler = logging.handlers.TimedRotatingFileHandler(\n        filename=str(LOG_FILENAME),\n        when=\"midnight\",          # 每天午夜轮转\n        interval=1,\n        backupCount=30,           # 保留最近30天的日志\n        encoding=\"utf-8\",\n        delay=False,\n    )\n    file_handler.setLevel(logging.DEBUG)\n    file_handler.setFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT))\n    # 轮转后的文件命名后缀（默认是 .YYYY-MM-DD）\n    file_handler.suffix = \"%Y-%m-%d\"\n    logger.addHandler(file_handler)\n\n    # 3. 错误专用 Handler（ERROR 及以上单独记录到 error.log，方便快速定位）\n    error_handler = logging.handlers.TimedRotatingFileHandler(\n        filename=str(LOG_DIR / \"error.log\"),\n        when=\"midnight\",\n        interval=1,\n        backupCount=30,\n        encoding=\"utf-8\",\n    )\n    error_handler.setLevel(logging.ERROR)\n    error_handler.setFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT))\n    logger.addHandler(error_handler)\n\n    return logger\n\n\nclass _ColoredFormatter(logging.Formatter):\n    \"\"\"控制台彩色日志格式器\"\"\"\n    COLOR_CODES = {\n        logging.DEBUG: \"\\033[36m\",      # 青色\n        logging.INFO: \"\\033[32m\",       # 绿色\n        logging.WARNING: \"\\033[33m\",    # 黄色\n        logging.ERROR: \"\\033[31m\",      # 红色\n        logging.CRITICAL: \"\\033[35m\",   # 紫色\n    }\n    RESET_CODE = \"\\033[0m\"\n\n    def format(self, record: logging.LogRecord) -> str:\n        # 先获取原始格式字符串\n        msg = super().format(record)\n        # 添加颜色\n        color = self.COLOR_CODES.get(record.levelno, \"\")\n        return f\"{color}{msg}{self.RESET_CODE}\"\n\n\ndef get_monitor_logger() -> logging.Logger:\n    \"\"\"获取全局监控日志记录器（单例）\"\"\"\n    global _monitor_logger\n    if _monitor_logger is None:\n        _monitor_logger = _setup_logger()\n    return _monitor_logger\n\n\ndef make_trace_id(prefix: str = \"req\") -> str:\n    \"\"\"生成短请求追踪 ID，用于串联一次请求的全链路日志。\"\"\"\n    return f\"{prefix}_{uuid.uuid4().hex[:12]}\"\n\n\ndef set_log_level(level: str):\n    \"\"\"\n    动态调整日志级别。参数: 'DEBUG', 'INFO', 'WARNING', 'ERROR'\n    \"\"\"\n    logger = get_monitor_logger()\n    numeric_level = getattr(logging, level.upper(), None)\n    if not isinstance(numeric_level, int):\n        raise ValueError(f\"无效日志级别: {level}\")\n    logger.setLevel(numeric_level)\n    for handler in logger.handlers:\n        if isinstance(handler, logging.StreamHandler):\n            handler.setLevel(numeric_level)\n\n\ndef log_execution_time(func: Optional[Callable] = None, *, level: int = logging.INFO):\n    \"\"\"装饰器：记录函数执行耗时和异常\"\"\"\n    def decorator(f: Callable):\n        @wraps(f)\n        def wrapper(*args, **kwargs):\n            logger = get_monitor_logger()\n            start = time.perf_counter()\n            try:\n                result = f(*args, **kwargs)\n                elapsed = time.perf_counter() - start\n                logger.log(\n                    level,\n                    f\"{f.__module__}.{f.__qualname__} 执行完成，耗时 {elapsed:.3f}s\"\n                )\n                return result\n            except Exception as e:\n                elapsed = time.perf_counter() - start\n                logger.error(\n                    f\"{f.__module__}.{f.__qualname__} 执行失败，耗时 {elapsed:.3f}s\\n\"\n                    f\"异常类型: {type(e).__name__}\\n\"\n                    f\"异常信息: {str(e)}\\n\"\n                    f\"堆栈跟踪:\\n{traceback.format_exc()}\"\n                )\n                raise\n        return wrapper\n\n    if func is None:\n        return decorator\n    return decorator(func)\n\n\ndef log_async_execution_time(func: Optional[Callable] = None, *, level: int = logging.INFO):\n    \"\"\"装饰器：记录异步函数执行耗时和异常\"\"\"\n    def decorator(f: Callable):\n        if inspect.isasyncgenfunction(f):\n            @wraps(f)\n            async def async_gen_wrapper(*args, **kwargs):\n                logger = get_monitor_logger()\n                start = time.perf_counter()\n                try:\n                    async for item in f(*args, **kwargs):\n                        yield item\n                    elapsed = time.perf_counter() - start\n                    logger.log(\n                        level,\n                        f\"{f.__module__}.{f.__qualname__} 执行完成，耗时 {elapsed:.3f}s\"\n                    )\n                except Exception as e:\n                    elapsed = time.perf_counter() - start\n                    logger.error(\n                        f\"{f.__module__}.{f.__qualname__} 执行失败，耗时 {elapsed:.3f}s\\n\"\n                        f\"异常类型: {type(e).__name__}\\n\"\n                        f\"异常信息: {str(e)}\\n\"\n                        f\"堆栈跟踪:\\n{traceback.format_exc()}\"\n                    )\n                    raise\n            return async_gen_wrapper\n        else:\n            @wraps(f)\n            async def wrapper(*args, **kwargs):\n                logger = get_monitor_logger()\n                start = time.perf_counter()\n                try:\n                    result = await f(*args, **kwargs)\n                    elapsed = time.perf_counter() - start\n                    logger.log(\n                        level,\n                        f\"{f.__module__}.{f.__qualname__} 执行完成，耗时 {elapsed:.3f}s\"\n                    )\n                    return result\n                except Exception as e:\n                    elapsed = time.perf_counter() - start\n                    logger.error(\n                        f\"{f.__module__}.{f.__qualname__} 执行失败，耗时 {elapsed:.3f}s\\n\"\n                        f\"异常类型: {type(e).__name__}\\n\"\n                        f\"异常信息: {str(e)}\\n\"\n                        f\"堆栈跟踪:\\n{traceback.format_exc()}\"\n                    )\n                    raise\n            return wrapper\n\n    if func is None:\n        return decorator\n    return decorator(func)\n\n\n# ========== 便捷函数 ==========\ndef info(msg: str, *args, **kwargs):\n    get_monitor_logger().info(msg, *args, **kwargs)\n\n\ndef warning(msg: str, *args, **kwargs):\n    get_monitor_logger().warning(msg, *args, **kwargs)\n\n\ndef error(msg: str, *args, **kwargs):\n    get_monitor_logger().error(msg, *args, **kwargs)\n\n\ndef debug(msg: str, *args, **kwargs):\n    get_monitor_logger().debug(msg, *args, **kwargs)\n\n\ndef exception(msg: str, *args, **kwargs):\n    \"\"\"记录异常信息（自动附带堆栈）\"\"\"\n    get_monitor_logger().exception(msg, *args, **kwargs)\n\n\ndef log_event(event_type: str, message: str, level: int = logging.INFO, **extra_fields):\n    \"\"\"\n    记录系统内部事件，支持结构化字段。\n    示例: log_event(\"loop_detected\", \"连续相同工具调用\", tool=\"read_file\", count=3)\n    \"\"\"\n    logger = get_monitor_logger()\n    extra_str = \" | \".join(f\"{k}={v}\" for k, v in extra_fields.items()) if extra_fields else \"\"\n    full_msg = f\"[{event_type}] {message}\"\n    if extra_str:\n        full_msg += f\" | {extra_str}\"\n    logger.log(level, full_msg)\n\n\n# ========== 启动/关闭日志记录 ==========\ndef log_startup(app_name: str = \"QwenAgent\", port: Optional[int] = None):\n    logger = get_monitor_logger()\n    msg = f\"{app_name} 启动\"\n    if port:\n        msg += f\"，监听端口 {port}\"\n    logger.info(msg)\n\n\ndef log_shutdown(app_name: str = \"QwenAgent\"):\n    get_monitor_logger().info(f\"{app_name} 关闭\")\n\n\n# ========== 请求日志中间件 ==========\ndef log_http_request(method: str, path: str, status: int, duration_ms: float):\n    get_monitor_logger().info(f\"{method} {path} → {status} ({duration_ms:.2f}ms)\")\n\n\ndef log_function_call(level: int = logging.DEBUG):\n    \"\"\"装饰器：自动记录函数进入/退出，参数和返回值摘要\"\"\"\n    def decorator(func):\n        @functools.wraps(func)\n        def wrapper(*args, **kwargs):\n            logger = get_monitor_logger()\n            func_name = f\"{func.__module__}.{func.__qualname__}\"\n            args_repr = [repr(a)[:100] for a in args]\n            kwargs_repr = [f\"{k}={repr(v)[:100]}\" for k, v in kwargs.items()]\n            signature = \", \".join(args_repr + kwargs_repr)\n            logger.log(level, f\"→ 进入 {func_name}({signature})\")\n            start = time.perf_counter()\n            try:\n                result = func(*args, **kwargs)\n                elapsed = time.perf_counter() - start\n                result_repr = repr(result)[:200] if result is not None else \"None\"\n                logger.log(level, f\"← 退出 {func_name} | 耗时 {elapsed:.3f}s | 返回 {result_repr}\")\n                return result\n            except Exception as e:\n                elapsed = time.perf_counter() - start\n                logger.error(f\"✗ 异常 {func_name} | 耗时 {elapsed:.3f}s | {type(e).__name__}: {e}\")\n                raise\n        return wrapper\n    return decorator\n\n\ndef log_async_function_call(level: int = logging.DEBUG):\n    \"\"\"装饰器：异步函数版本\"\"\"\n    def decorator(func):\n        @functools.wraps(func)\n        async def wrapper(*args, **kwargs):\n            logger = get_monitor_logger()\n            func_name = f\"{func.__module__}.{func.__qualname__}\"\n            args_repr = [repr(a)[:100] for a in args]\n            kwargs_repr = [f\"{k}={repr(v)[:100]}\" for k, v in kwargs.items()]\n            signature = \", \".join(args_repr + kwargs_repr)\n            logger.log(level, f\"→ 进入异步 {func_name}({signature})\")\n            start = time.perf_counter()\n            try:\n                result = await func(*args, **kwargs)\n                elapsed = time.perf_counter() - start\n                result_repr = repr(result)[:200] if result is not None else \"None\"\n                logger.log(level, f\"← 退出异步 {func_name} | 耗时 {elapsed:.3f}s | 返回 {result_repr}\")\n                return result\n            except Exception as e:\n                elapsed = time.perf_counter() - start\n                logger.error(f\"✗ 异步异常 {func_name} | 耗时 {elapsed:.3f}s | {type(e).__name__}: {e}\")\n                raise\n        return wrapper\n    return decorator\n",
+      "timestamp": "2026-05-16T16:03:24.914991",
+      "metadata": {
+        "type": "tool_execution",
+        "tool": "read_file",
+        "success": true,
+        "args_summary": "{\"path\": \"monitor_logger.py\"}",
+        "active_file": "/Users/zhuangranxin/PyCharmProjects/chat-Agent/core/monitor_logger.py",
+        "keywords": [
+          "logger",
+          "logging",
+          "def",
+          "args",
+          "kwargs",
+          "return",
+          "str",
+          "elapsed"
+        ],
+        "original_question": "【计划执行 步骤 1/1】读取文件 monitor_logger.py 并展示内容\n\n⚠️ 工具调用强制格式要求：\nread_file\n{\"path\": \"文件路径\"}\n严禁使用其他参数名或命令行风格！\n✅ 成功标准：执行完毕后输出结果摘要。\n📄 前置步骤执行结果摘要：\n"
+      },
+      "importance_score": 1.0,
+      "access_count": 2
+    },
+    {
+      "id": "fd0d659f5f0e",
+      "content": "User: 解释一下文件的主要功能",
+      "timestamp": "2026-05-16T16:05:05.635782",
+      "metadata": {
+        "type": "user_question",
+        "original_question": "解释一下文件的主要功能",
+        "session_id": "uy3a04891lq",
+        "active_file": "monitor_logger.py",
+        "keywords": [
+          "解释一下文件的主要功能"
+        ]
+      },
+      "importance_score": 0.95,
+      "access_count": 5
+    },
+    {
+      "id": "9a4469cad07d",
+      "content": "Assistant: 文件 `monitor_logger.py` 主要是一个监控日志模块，其主要功能包括：\n\n1. **记录系统运行状态**：该模块用于记录系统在运行过程中的状态信息。\n2. **记录请求耗时**：能够监控和分析请求处理的时间消耗。\n3. **记录错误堆栈**：在系统运行过程中遇到错误时，可以记录详细的错误堆栈信息。\n4. **日志按天轮转**：日志文件会按天进行轮转，便于管理和查询。\n5. **多进程安全**：模块设计考虑了多进程环境下的安全运行。\n6. **控制台彩色输出**：支持在控制台上以彩色方式输出日志信息，提高可读性。",
+      "timestamp": "2026-05-16T16:05:22.112139",
+      "metadata": {
+        "role": "assistant",
+        "type": "assistant_response",
+        "session_id": "uy3a04891lq",
+        "active_file": "monitor_logger.py",
+        "keywords": [
+          "文件",
+          "monitor_logger",
+          "py",
+          "主要是一个监控日志模块",
+          "其主要功能包括",
+          "记录系统运行状态",
+          "该模块用于记录系统在运行过程中的状态信息",
+          "记录请求耗时"
+        ]
+      },
+      "importance_score": 1.0,
+      "access_count": 3
+    },
+    {
+      "id": "8ec75213e1d2",
+      "content": "User: 今天有些头疼，怎么办",
+      "timestamp": "2026-05-16T16:26:00.759663",
+      "metadata": {
+        "type": "user_question",
+        "original_question": "今天有些头疼，怎么办",
+        "session_id": "uy3a04891lq",
+        "active_file": "monitor_logger.py",
+        "keywords": [
+          "今天有些头疼",
+          "怎么办"
+        ]
+      },
+      "importance_score": 0.95,
+      "access_count": 2
+    },
+    {
+      "id": "b7c95b26347a",
+      "content": "Assistant: STATUS: DONE\n- 可以尝试以下方法缓解头疼：\n  1. 休息一会儿，确保充足的睡眠。\n  2. 喝足够的水，保持身体水分。\n  3. 轻轻按摩太阳穴或颈部。\n  4. 保持良好的姿势，避免长时间低头或保持同一姿势。\n  5. 如果头疼持续不缓解，可以适当使用非处方止痛药，如布洛芬。\n  6. 保持室内空气流通，避免过于干燥或潮湿的环境。\n  7. 如果头疼频繁或严重，建议咨询医生。",
+      "timestamp": "2026-05-16T16:27:12.300905",
+      "metadata": {
+        "role": "assistant",
+        "type": "assistant_response",
+        "session_id": "uy3a04891lq",
+        "active_file": "monitor_logger.py",
+        "keywords": [
+          "status",
+          "done",
+          "可以尝试以下方法缓解头疼",
+          "休息一会儿",
+          "确保充足的睡眠",
+          "喝足够的水",
+          "保持身体水分",
+          "轻轻按摩太阳穴或颈部"
+        ]
+      },
+      "importance_score": 0.6045,
+      "access_count": 0
+    }
+  ],
+  "long_term": [],
+  "tool_chains": {}
+}
