@@ -29,7 +29,6 @@ from core import (
 from core.components import clean_react_tags
 from core.components.output_cleaner import summarize_long_response
 from core.langgraph_agent import LangGraphAgent as QwenAgentFramework
-from core.multi_agent import safe_fstr
 from core.prompts import get_system_prompt, inject_few_shot_examples
 from core.state_manager import SessionContext
 from ui.qwen_agent import QwenAgent
@@ -56,6 +55,11 @@ from core.clarification import ClarificationManager
 
 
 class ChatController:
+    """负责意图路由、会话上下文和执行编排。
+
+    这里最容易失稳的点是“路由结果”和“控制器是否强制拆解”不一致，
+    因此相关判定统一收敛到独立策略函数中，避免条件分散在主流程里。
+    """
     _MEMORY_META_PATTERNS = (
         r'我之前.*问', r'回顾.*问题', r'历史.*记录', r'之前.*聊', r'上次.*说',
         r'过去.*问过', r'之前.*说了什么', r'最近.*问题', r'历史.*对话',
@@ -68,7 +72,7 @@ class ChatController:
     )
     _TOPIC_CARRYOVER_PATTERNS = (
         r'^继续$', r'^继续说$', r'^接着说$', r'^展开讲讲$', r'^展开一下$', r'^详细讲讲$',
-        r'^那这个怎么修$', r'^这个怎么修$', r'^然后呢$', r'^细说一下$', r'^继续分析$',
+        r'^那这个怎么修$', r'^这个怎么修$', r'^然后呢$', r'^细说一下$', r'^继续分析$', r'^继续任务$',
     )
 
     def __init__(self):
@@ -133,6 +137,48 @@ class ChatController:
             "avoid_breakdown": high_risk_knowledge and not has_local_signal,
             "external_only_high_risk": high_risk_knowledge and not has_local_signal,
         }
+
+    @staticmethod
+    def _should_auto_plan_request(run_mode: str, intent_type, request_profile: Dict[str, bool]) -> bool:
+        """Only auto-plan requests that clearly require local execution or explicit planning."""
+        if request_profile.get("avoid_breakdown"):
+            return False
+        if run_mode in ("tools", "plan"):
+            return True
+        if intent_type == IntentType.PLAN:
+            return True
+        return bool(request_profile.get("numbered_tasks") and request_profile.get("has_local_signal"))
+
+    @staticmethod
+    def _should_break_down_request(run_mode: str, intent_type, request_profile: Dict[str, bool],
+                                   explicit_plan_mode: bool = False) -> bool:
+        """Keep breakdown aligned with the routed intent and actual execution signals."""
+        if request_profile.get("avoid_breakdown"):
+            return False
+        if explicit_plan_mode:
+            return True
+        if run_mode in ("tools", "plan"):
+            return True
+        if intent_type == IntentType.PLAN:
+            return True
+        return bool(run_mode == "hybrid" and request_profile.get("has_local_signal"))
+
+    @staticmethod
+    def _describe_execution_strategy(run_mode: str, intent_type, request_profile: Dict[str, bool],
+                                     auto_plan: bool, needs_breakdown: bool) -> str:
+        flags = []
+        if request_profile.get("has_local_signal"):
+            flags.append("local_signal")
+        if request_profile.get("high_risk_knowledge"):
+            flags.append("high_risk")
+        if request_profile.get("numbered_tasks"):
+            flags.append("numbered")
+        if request_profile.get("external_only_high_risk"):
+            flags.append("external_only")
+        mode = "breakdown" if needs_breakdown else "direct"
+        plan = "auto_plan" if auto_plan else "no_auto_plan"
+        flag_text = ",".join(flags) if flags else "plain"
+        return f"{mode} | {plan} | run_mode={run_mode} | intent={intent_type.value} | flags={flag_text}"
 
     @staticmethod
     def _format_evidence_labeled_response(response_text: str, run_mode: str,
@@ -265,6 +311,53 @@ class ChatController:
         if cls._is_topic_carryover_request(normalized):
             return None
         return normalized[:160]
+
+    @staticmethod
+    def _extract_active_file_from_message(text: str) -> Optional[str]:
+        normalized = (text or "").strip()
+        if not normalized:
+            return None
+        match = re.search(r'([A-Za-z0-9_./\\-]+\.(?:py|json|md|txt|log|yaml|yml|csv|pdf|doc|docx))', normalized, re.I)
+        return match.group(1) if match else None
+
+    @classmethod
+    def _update_active_file(cls, session_context: SessionContext, user_message: str,
+                            followup_turn: Optional[Dict[str, str]] = None) -> Optional[str]:
+        task_context = session_context.task_context
+        candidate = cls._extract_active_file_from_message(user_message)
+        if not candidate and followup_turn:
+            candidate = cls._extract_active_file_from_message(followup_turn.get("user_message", ""))
+        if not candidate:
+            return task_context.get("active_file")
+        previous = task_context.get("active_file")
+        task_context["active_file"] = candidate
+        task_context["active_file_updated_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        file_history = task_context.setdefault("file_history", [])
+        if not file_history or file_history[-1].get("path") != candidate:
+            file_history.append({
+                "path": candidate,
+                "source": "followup" if followup_turn else "user_message",
+                "timestamp": task_context["active_file_updated_at"],
+            })
+            if len(file_history) > 8:
+                del file_history[:-8]
+        if previous and previous != candidate:
+            task_context["previous_file"] = previous
+        return candidate
+
+    @classmethod
+    def _build_file_followup_context(cls, session_context: SessionContext, user_message: str) -> Optional[str]:
+        task_context = getattr(session_context, "task_context", {}) or {}
+        active_file = task_context.get("active_file")
+        if not active_file or not cls._is_topic_carryover_request(user_message):
+            return None
+        if cls._extract_active_file_from_message(user_message):
+            return None
+        return (
+            f"上下文：当前正在处理的文件是 {active_file}。\n"
+            f"当前用户追问：{user_message}\n"
+            "要求：默认继续围绕这个文件执行或解释，除非用户明确指定了新文件。"
+        )
 
     @classmethod
     def _resolve_topic_for_turn(cls, session_context: SessionContext, user_message: str,
@@ -487,6 +580,7 @@ class ChatController:
                         "type": "user_question",
                         "original_question": user_message,
                         "session_id": session_hash,
+                        "active_file": session_context.task_context.get("active_file"),
                     },
                     importance=0.95,
                     auto_score=False,
@@ -537,6 +631,7 @@ class ChatController:
         recent_logged_turns = self.logger.get_recent_turns(current_log_session, limit=12) if current_log_session else []
         followup_turn = self._resolve_followup_turn(_clean_pairs, user_message, recent_logged_turns)
         current_topic = self._update_session_topic(session_context, user_message, followup_turn)
+        active_file = self._update_active_file(session_context, user_message, followup_turn)
 
         # --- 路由器上下文 ---
         skill_list_for_router = []
@@ -554,6 +649,7 @@ class ChatController:
             "uploaded_files": uploaded_files_meta,
             "history": [[u, a] for u, a in _clean_pairs[-3:] if u],
             "current_topic": current_topic,
+            "active_file": active_file,
         }
 
         # --- 意图路由 ---
@@ -642,19 +738,25 @@ class ChatController:
                 skill_ids = self._available_skill_ids[:1]
 
         request_profile = self._build_request_profile(user_message, uploaded_files_meta)
-        _numbered_tasks = re.findall(r'(?:^|[\n\r])\s*(\d+)\s*[.、]', user_message)
-        _auto_plan = request_profile["numbered_tasks"]
-        _effective_plan_mode = bool(plan_mode_enabled) or _auto_plan
-        _should_avoid_breakdown = request_profile["avoid_breakdown"]
-
-        needs_breakdown = (
-                run_mode in ("tools", "plan")
-                or intent_result.intent == IntentType.PLAN
-                or (run_mode == "hybrid" and not _should_avoid_breakdown)
-                or (_auto_plan and not _should_avoid_breakdown)
-        )
         if request_profile["external_only_high_risk"] and run_mode == "hybrid":
             run_mode = "chat"
+        _numbered_tasks = re.findall(r'(?:^|[\n\r])\s*(\d+)\s*[.、]', user_message)
+        _auto_plan = self._should_auto_plan_request(run_mode, intent_result.intent, request_profile)
+        _effective_plan_mode = bool(plan_mode_enabled) or _auto_plan
+        needs_breakdown = self._should_break_down_request(
+            run_mode,
+            intent_result.intent,
+            request_profile,
+            explicit_plan_mode=bool(plan_mode_enabled),
+        )
+        execution_strategy = self._describe_execution_strategy(
+            run_mode,
+            intent_result.intent,
+            request_profile,
+            _auto_plan,
+            needs_breakdown,
+        )
+        self.monitor.info("执行策略决策: %s", execution_strategy)
 
         runtime_context = {
             "trace_id": trace_id,
@@ -665,10 +767,12 @@ class ChatController:
             "external_only_high_risk": request_profile["external_only_high_risk"],
             "followup_turn": followup_turn,
             "current_topic": current_topic,
+            "active_file": active_file,
             "uploaded_files": uploaded_files_meta,
             "selected_skills": skill_ids,
             "intent_reasons": [intent_result.reasoning],
             "router_evidence": intent_result.evidence,
+            "execution_strategy": execution_strategy,
         }
 
         if self.clarification_mgr.is_clarification_active(runtime_context):
@@ -744,6 +848,9 @@ class ChatController:
             context_prefixes.append(f"背景：上一轮任务需要澄清，用户补充了以下信息：{facts_text}。")
         if followup_turn:
             context_prefixes.append(self._build_followup_context_message(followup_turn, user_message))
+        file_followup_context = self._build_file_followup_context(session_context, user_message)
+        if file_followup_context:
+            context_prefixes.append(file_followup_context)
         elif self._is_topic_carryover_request(user_message) and current_topic:
             context_prefixes.append(
                 f"上下文：当前会话的主话题是：{current_topic}。\n"

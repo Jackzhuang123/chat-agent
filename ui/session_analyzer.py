@@ -6,92 +6,14 @@
 
 import json
 import html
-import re
 
 import gradio as gr
 
 from core.network_env import ensure_local_no_proxy
 from session_logger import get_logger
+from ui.markdown_utils import build_markdown_preview, render_markdown_html
 
 ensure_local_no_proxy()
-
-
-def _render_markdown_html(text: str) -> str:
-    if not text:
-        return ""
-
-    def render_inline(content: str) -> str:
-        escaped = html.escape(content)
-        return re.sub(r'`([^`]+)`', lambda m: f"<code>{m.group(1)}</code>", escaped)
-
-    lines = text.splitlines()
-    output = []
-    in_code = False
-    code_lang = ""
-    code_lines = []
-    list_mode = None
-
-    def close_list():
-        nonlocal list_mode
-        if list_mode == "ul":
-            output.append("</ul>")
-        elif list_mode == "ol":
-            output.append("</ol>")
-        list_mode = None
-
-    for line in lines:
-        stripped = line.rstrip()
-        fence = stripped.strip()
-        if fence.startswith("```"):
-            if in_code:
-                code_html = html.escape("\n".join(code_lines))
-                lang_attr = f' class="language-{html.escape(code_lang)}"' if code_lang else ""
-                output.append(f"<pre><code{lang_attr}>{code_html}</code></pre>")
-                in_code = False
-                code_lang = ""
-                code_lines = []
-            else:
-                close_list()
-                in_code = True
-                code_lang = fence[3:].strip()
-            continue
-        if in_code:
-            code_lines.append(line)
-            continue
-        if not stripped.strip():
-            close_list()
-            continue
-        heading = re.match(r'^(#{1,6})\s+(.+)$', stripped.strip())
-        if heading:
-            close_list()
-            level = len(heading.group(1))
-            output.append(f"<h{level}>{render_inline(heading.group(2))}</h{level}>")
-            continue
-        ordered = re.match(r'^\s*\d+\.\s+(.+)$', stripped)
-        if ordered:
-            if list_mode != "ol":
-                close_list()
-                output.append("<ol>")
-                list_mode = "ol"
-            output.append(f"<li>{render_inline(ordered.group(1))}</li>")
-            continue
-        unordered = re.match(r'^\s*[-*]\s+(.+)$', stripped)
-        if unordered:
-            if list_mode != "ul":
-                close_list()
-                output.append("<ul>")
-                list_mode = "ul"
-            output.append(f"<li>{render_inline(unordered.group(1))}</li>")
-            continue
-        close_list()
-        output.append(f"<p>{render_inline(stripped)}</p>")
-
-    if in_code:
-        code_html = html.escape("\n".join(code_lines))
-        lang_attr = f' class="language-{html.escape(code_lang)}"' if code_lang else ""
-        output.append(f"<pre><code{lang_attr}>{code_html}</code></pre>")
-    close_list()
-    return "\n".join(output)
 
 
 def create_session_analyzer():
@@ -351,6 +273,50 @@ def create_session_analyzer():
         font-size: 13px;
         line-height: 1.5;
         color: #374151;
+    }
+
+    .bubble-content h1, .bubble-content h2, .bubble-content h3,
+    .bubble-content h4, .bubble-content h5, .bubble-content h6 {
+        margin: 0.6em 0 0.35em;
+        color: #111827;
+        line-height: 1.3;
+    }
+
+    .bubble-content p {
+        margin: 0.45em 0;
+        white-space: normal;
+    }
+
+    .bubble-content ul, .bubble-content ol {
+        margin: 0.45em 0;
+        padding-left: 1.4em;
+    }
+
+    .bubble-content li {
+        margin: 0.2em 0;
+    }
+
+    .bubble-content pre {
+        margin: 0.6em 0;
+        padding: 10px 12px;
+        background: #111827;
+        color: #f9fafb;
+        border-radius: 8px;
+        overflow-x: auto;
+        white-space: pre;
+    }
+
+    .bubble-content code {
+        font-family: 'Monaco', 'Consolas', 'SF Mono', monospace;
+        font-size: 12px;
+    }
+
+    .bubble-content p code,
+    .bubble-content li code {
+        background: #e5e7eb;
+        color: #111827;
+        padding: 1px 5px;
+        border-radius: 4px;
     }
 
     .bubble-meta {
@@ -686,7 +652,7 @@ def create_session_analyzer():
                     messages_html = ""
                     for idx, msg in enumerate(session_data["messages"], 1):
                         user_msg = html.escape(msg["user_message"][:100] + "..." if len(msg["user_message"]) > 100 else msg["user_message"])
-                        bot_response = html.escape(msg["bot_response"][:100] + "..." if len(msg["bot_response"]) > 100 else msg["bot_response"])
+                        bot_response = render_markdown_html(build_markdown_preview(msg["bot_response"]))
                         exec_time = msg["execution_time"]
                         tokens = msg["tokens_used"]
                         model_calls_count = len(msg.get("model_calls", []))
@@ -700,7 +666,7 @@ def create_session_analyzer():
                             </div>
                             <div class="message-bubble bot-bubble">
                                 <div class="bubble-header">🤖 助手:</div>
-                                <div class="bubble-content">{bot_response}</div>
+                                <div class="bubble-content" style="word-break: break-word;">{bot_response}</div>
                             </div>
                             <div class="bubble-meta">
                                 ⏱️ {exec_time:.2f}s | 🔤 {tokens} tokens | 🧠 {model_calls_count} 次模型调用
@@ -775,7 +741,7 @@ def create_session_analyzer():
                     for idx, msg in enumerate(session_data["messages"], 1):
                         timestamp = msg["timestamp"]
                         user_msg = html.escape(msg["user_message"])
-                        bot_response = _render_markdown_html(msg["bot_response"])
+                        bot_response = render_markdown_html(msg["bot_response"])
                         exec_time = msg["execution_time"]
                         tokens = msg["tokens_used"]
                         model_calls = msg.get("model_calls", [])

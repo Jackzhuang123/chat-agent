@@ -865,6 +865,7 @@ if __name__ == "__main__":
 
     try:
         set_log_level("DEBUG")  # 开启 DEBUG 级别日志
+        os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
         launch_options = dict(
             server_name=os.getenv("GRADIO_SERVER_NAME", "127.0.0.1"),

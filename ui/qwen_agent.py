@@ -24,7 +24,7 @@ class QwenAgent:
             torch_dtype=torch.float32,
             device_map="cpu"
         )
-        self.default_system_prompt = "你是一个智能个人助手,名字叫小Q。请用简洁、幽默的风格回答。"
+        self.default_system_prompt = "你是一个准确、克制的智能助手。请直接回答问题，不编造信息。"
         self.logger = logger
         print("✅ 模型加载完毕!")
 
@@ -116,4 +116,3 @@ class QwenAgent:
                 )
             except Exception as e:
                 print(f"日志记录错误: {e}")
-

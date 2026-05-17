@@ -47,7 +47,7 @@ class GLMAgent:
         self.api_key = api_key
         self.model = model
         self.logger = logger
-        self.default_system_prompt = "你是一个智能个人助手，名字叫小Q。请用简洁、幽默的风格回答。"
+        self.default_system_prompt = "你是一个准确、克制的智能助手。请直接回答问题，不编造信息。"
 
         # 延迟导入，避免在未安装 zhipuai 时报错
         self._client = None
